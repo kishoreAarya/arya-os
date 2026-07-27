@@ -1,0 +1,107 @@
+name: Test
+
+# Sprint 1-3 scope: unit/smoke tests only against the backend
+# foundation (health checks, models, services). Agents and validators
+# are stubs (NotImplementedError / placeholder passes) so there is no
+# generation-pipeline behavior to test yet — do not add integration or
+# end-to-end suites here until Sprint 3+ wires in real provider calls.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: Pytest + Coverage
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: arya
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: arya_os_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U arya"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      APP_ENV: test
+      DEBUG: "false"
+      LOG_LEVEL: WARNING
+      DATABASE_URL: postgresql+asyncpg://arya:test_password@localhost:5432/arya_os_test
+      REDIS_URL: redis://localhost:6379/0
+      STORAGE_BACKEND: local
+      STORAGE_LOCAL_PATH: ./data/storage
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Wait for Postgres
+        run: |
+          until pg_isready -h localhost -p 5432 -U arya; do
+            echo "waiting for postgres..."; sleep 2;
+          done
+        env:
+          PGPASSWORD: test_password
+
+      - name: Apply migrations
+        # No migration files exist in alembic/versions/ yet (see
+        # engineering review — this is a known pre-launch gap, not a
+        # CI bug). This step is a no-op today and becomes real the
+        # moment the first migration is committed; it deliberately
+        # does not fail the build in the meantime.
+        run: |
+          if [ -n "$(ls -A alembic/versions 2>/dev/null | grep -v .gitkeep)" ]; then
+            uv run alembic upgrade head
+          else
+            echo "No migrations found under alembic/versions/ yet — skipping."
+          fi
+
+      - name: Run pytest with coverage
+        run: |
+          uv run pytest \
+            --cov=backend/app \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            --cov-fail-under=0
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 14

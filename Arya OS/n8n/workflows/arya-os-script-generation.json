@@ -1,0 +1,218 @@
+{
+  "name": "Arya OS - Script Generation",
+  "nodes": [
+    {
+      "id": "4cfaa9ba-3c9f-4e0d-ae37-6db5fdb1c0a9",
+      "name": "Receive Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "workflow_run_id"
+            },
+            {
+              "name": "research_data"
+            }
+          ]
+        }
+      },
+      "notes": "Formal input contract for this sub-workflow: workflow_run_id + research_data (the array produced by 'Arya OS - Research'). Can also be run manually for standalone testing \u2014 n8n allows pinning sample input data on this node."
+    },
+    {
+      "id": "68aac078-69a0-4bc4-83b0-c7a66d042521",
+      "name": "HTTP Request - Script Agent (Future FastAPI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        280,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8000/api/agents/script",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow_run_id: $json.workflow_run_id, research_data: $json.research_data }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "retryOnFail": true,
+          "maxTries": 3,
+          "waitBetweenTries": 2000
+        }
+      },
+      "notes": "TODO: BACKEND ENDPOINT MISSING \u2014 'POST /api/agents/script' does not exist in the FastAPI backend today (verified routes: /approvals, /feature-flags, /lineage, /health*). Do not invent this route on the backend just to unblock this node; build it deliberately when ScriptAgent (backend/app/agents/script.py, currently a NotImplementedError stub) is wired up. Host fixed to host.docker.internal for local dev (n8n container -> host FastAPI process). Credential now references the shared 'arya_backend_shared_secret' httpHeaderAuth credential \u2014 create it once in n8n and every backend-calling node in this suite reuses the same one. retryOnFail added (3 tries, 2s apart) for transient network errors; continueOnFail stays on since a missing endpoint must not crash the whole pipeline (routes to the Validation-Failed branch instead).",
+      "continueOnFail": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "arya_backend_shared_secret",
+          "name": "Arya OS Backend - Shared Secret (create once, reuse everywhere)"
+        }
+      }
+    },
+    {
+      "id": "f7a72ecf-3a7e-46f2-8073-5004da2ba92e",
+      "name": "Validate Response",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        560,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "313e8fc1-c577-4426-96ff-6ee0fca3d677",
+              "leftValue": "={{ $json.error === undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "92e9ed08-43ff-4ece-b110-e361984edd88",
+              "leftValue": "={{ typeof $json.script_content === 'string' && $json.script_content.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "notes": "Checks the placeholder HTTP call didn't error AND returned a non-empty script_content field. No content-quality/AI validation happens here \u2014 that's Script Validation's job downstream. This is purely 'did the HTTP call return something usable at all.'"
+    },
+    {
+      "id": "6ab2fbc5-bdd0-44d8-ab12-d32a6cddef96",
+      "name": "Set - Validation Failed (Placeholder)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        840,
+        520
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "92f0a624-a34a-4ca9-ad23-7e14db6a6a05",
+              "name": "script_json",
+              "type": "object",
+              "value": "={{ { workflow_run_id: $('Receive Input').item.json.workflow_run_id, script_id: null, script_content: null, word_count: 0, error: $json.error ?? 'PLACEHOLDER_SCRIPT_AGENT_UNAVAILABLE' } }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": false
+        }
+      },
+      "notes": "PLACEHOLDER failure path \u2014 since /api/agents/script doesn't exist yet, every real run currently lands here. Returns a null-content script_json with an error field so downstream nodes/Human Approval can detect the failure instead of silently getting empty data. FIXED: now also preserves workflow_run_id (was missing)."
+    },
+    {
+      "id": "7ee49ea1-7834-436e-b4d0-2ccea4b120fb",
+      "name": "Return script_json",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1120,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "78f87d46-d083-492c-8592-af156132c480",
+              "name": "script_json",
+              "type": "object",
+              "value": "={{ { workflow_run_id: $('Receive Input').item.json.workflow_run_id, script_id: $json.script_id ?? 'PLACEHOLDER_SCRIPT_ID', script_content: $json.script_content, word_count: $json.word_count ?? null, model_used: $json.model_used ?? 'PLACEHOLDER_MODEL' } }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": false
+        }
+      },
+      "notes": "Final output contract for this sub-workflow: a single top-level 'script_json' object, consumed by the Main Orchestrator's Execute Workflow node. FIXED: now also preserves workflow_run_id (was missing)."
+    }
+  ],
+  "connections": {
+    "Receive Input": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Script Agent (Future FastAPI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Response": {
+      "main": [
+        [
+          {
+            "node": "Return script_json",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set - Validation Failed (Placeholder)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Script Agent (Future FastAPI)": {
+      "main": [
+        [
+          {
+            "node": "Validate Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "notes": "Sprint 1-3 scaffold sub-workflow. Input contract: workflow_run_id + research_data. The HTTP Request node calls a FastAPI route ('/api/agents/script') that does not exist yet \u2014 the current backend only has /approvals, /feature-flags, /lineage, and /health*. No AI/LLM logic lives in this workflow itself; ScriptAgent (backend/app/agents/script.py) is still a NotImplementedError stub. Output contract: a single top-level 'script_json' object, intended to be called via Execute Workflow from 'Arya OS - Main Orchestrator'."
+  },
+  "id": "arya-os-script-generation",
+  "tags": []
+}

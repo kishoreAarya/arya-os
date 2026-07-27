@@ -1,0 +1,78 @@
+name: Lint
+
+# Sprint 1-3 scaffold: this checks style/static-analysis only.
+# No app logic runs here — see test.yml for that.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: lint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ruff:
+    name: Ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dev dependencies
+        run: uv sync --extra dev
+
+      - name: Run Ruff
+        run: uv run ruff check backend
+
+  black:
+    name: Black --check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install dev dependencies
+        run: uv sync --extra dev
+
+      - name: Run Black (check only, no reformatting)
+        run: uv run black --check --diff backend
+
+  yaml-validate:
+    name: YAML Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Validate YAML files
+        # Covers docker-compose.yml, .github/workflows/*.yml, and any
+        # future YAML config. No n8n workflow JSON/YAML exists yet —
+        # nothing to validate there until Sprint 4+.
+        run: |
+          yamllint -d "{extends: default, rules: {line-length: disable, document-start: disable, truthy: {level: warning}}}" \
+            docker-compose.yml \
+            .github/workflows/

@@ -1,0 +1,79 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: arya-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-arya}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-arya_os}
+    ports:
+      - "5432:5432"
+    volumes:
+      - arya_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-arya}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: arya-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - arya_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: arya-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app/backend
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: arya-n8n
+    restart: unless-stopped
+    environment:
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:-change_me}
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-arya_os}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-arya}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    ports:
+      - "${N8N_HOST_PORT:-5678}:5678"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - arya_n8n_data:/home/node/.n8n
+
+volumes:
+  arya_postgres_data:
+  arya_redis_data:
+  arya_n8n_data:

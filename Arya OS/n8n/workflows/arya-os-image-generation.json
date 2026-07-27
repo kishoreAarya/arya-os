@@ -1,0 +1,209 @@
+{
+  "name": "Arya OS - Image Generation",
+  "nodes": [
+    {
+      "id": "5fb3a201-e74e-41a8-a509-fe3258423539",
+      "name": "Receive Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "workflow_run_id"
+            },
+            {
+              "name": "storyboard_json"
+            }
+          ]
+        }
+      },
+      "notes": "Formal input contract for this sub-workflow: workflow_run_id + storyboard_json (the object produced by 'Arya OS - Storyboard', containing storyboard_id + a shots array). Can also be run manually for standalone testing with pinned sample data."
+    },
+    {
+      "id": "3bea6186-2247-4e4c-b82a-f416b9e944ca",
+      "name": "Loop Over Storyboard Scenes",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        280,
+        300
+      ],
+      "parameters": {
+        "fieldToSplitOut": "storyboard_json.shots",
+        "include": "allOtherFields",
+        "options": {
+          "destinationFieldName": "shot"
+        }
+      },
+      "notes": "Splits storyboard_json.shots into one item per shot. Each resulting item carries the shot under 'shot' plus workflow_run_id/storyboard_json still attached (include: allOtherFields), so every downstream node in this chain automatically runs once per shot \u2014 n8n's normal per-item execution model IS the loop here. If per-shot rate-limiting is ever needed (e.g. to avoid overloading a self-hosted ComfyUI/RunPod GPU box), swap this for a 'Loop Over Items' (Split In Batches) node with batchSize=1 instead."
+    },
+    {
+      "id": "0ec01b45-35a0-4790-bd55-80534076d06b",
+      "name": "HTTP Request - Image Generator API (Future ComfyUI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://PLACEHOLDER-comfyui-host:8188/api/generate",
+        "authentication": "none",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow_run_id: $json.workflow_run_id, storyboard_id: $json.storyboard_json.storyboard_id, shot_number: $json.shot.shot, prompt: $json.shot.description ?? 'PLACEHOLDER_SHOT_DESCRIPTION', shot_type: $json.shot.shot_type ?? 'PLACEHOLDER_SHOT_TYPE' }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000,
+          "retryOnFail": true,
+          "maxTries": 3,
+          "waitBetweenTries": 2000
+        }
+      },
+      "notes": "PLACEHOLDER endpoint \u2014 no real ComfyUI/RunPod instance is wired in yet (backend/app/providers/capabilities.py already reserves 'comfyui' as a self-hosted image/video provider for this exact purpose, but no HTTP client for it exists yet). Runs once per shot automatically. continueOnFail is enabled so one failed shot doesn't abort image generation for every other shot in the storyboard \u2014 failures are still visible per-item in the final images_json output. TODO: no backend route brokers this call either \u2014 the backend's own provider-routing/fallback/cost-ceiling logic (backend/app/providers/router.py) is currently bypassed entirely by calling a provider host directly from n8n. Not fixed here (would be a redesign) \u2014 flagged for a future decision: either point this at a backend route that wraps ProviderRouter, or accept that n8n owns provider selection for this stage. retryOnFail added (3 tries, 2s apart) for transient network errors against the eventual real provider.",
+      "continueOnFail": true
+    },
+    {
+      "id": "3cbb84f3-b082-46e4-a600-b2d53ab2cd6c",
+      "name": "Set - Build Shot Image Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        840,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f7e89884-9dc0-4f90-b32c-fbea62f6c86b",
+              "name": "shot_result",
+              "type": "object",
+              "value": "={{ { shot_number: $('Loop Over Storyboard Scenes').item.json.shot.shot ?? null, storage_path: $json.storage_path ?? 'PLACEHOLDER_IMAGE_STORAGE_PATH', provider_name: $json.provider_name ?? 'comfyui', prompt_id: $json.prompt_id ?? 'PLACEHOLDER_PROMPT_ID', error: $json.error ?? null } }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": false
+        }
+      },
+      "notes": "Normalizes each per-shot HTTP response into a stable shape (shot_number, storage_path, provider_name, prompt_id, error) before aggregation \u2014 matches backend/app/models/media.py's Image table fields."
+    },
+    {
+      "id": "344e615d-1bf4-4dd7-b3d1-73011923dc6e",
+      "name": "Aggregate - Collect Image Paths",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        300
+      ],
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "images",
+        "include": "specifiedFields",
+        "fieldsToInclude": "shot_result",
+        "options": {}
+      },
+      "notes": "Combines all per-shot 'shot_result' items (one per shot, from the loop above) back into a single 'images' array in one item \u2014 this is the point where the per-shot loop ends and a single images_json object can be built."
+    },
+    {
+      "id": "2ccec7cd-8db4-4338-a66e-20119ec8dae9",
+      "name": "Return images_json",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1400,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "984bf229-b424-4e2e-86ad-2320a6b14e98",
+              "name": "images_json",
+              "type": "object",
+              "value": "={{ { workflow_run_id: $('Receive Input').item.json.workflow_run_id, storyboard_id: $('Receive Input').item.json.storyboard_json.storyboard_id ?? 'PLACEHOLDER_STORYBOARD_ID', images: $json.images.map(i => i.shot_result), image_count: $json.images.length } }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": false
+        }
+      },
+      "notes": "Final output contract for this sub-workflow: a single top-level 'images_json' object ({ storyboard_id, images[], image_count }), consumed by the Main Orchestrator's Execute Workflow node. Reads storyboard_id back from the original 'Receive Input' node so it survives the aggregation step above regardless of loop content. FIXED: now also preserves workflow_run_id (was missing from output)."
+    }
+  ],
+  "connections": {
+    "Loop Over Storyboard Scenes": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Image Generator API (Future ComfyUI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Image Generator API (Future ComfyUI)": {
+      "main": [
+        [
+          {
+            "node": "Set - Build Shot Image Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Build Shot Image Result": {
+      "main": [
+        [
+          {
+            "node": "Aggregate - Collect Image Paths",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate - Collect Image Paths": {
+      "main": [
+        [
+          {
+            "node": "Return images_json",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "notes": "Sprint 1-3 scaffold sub-workflow. Input contract: workflow_run_id + storyboard_json. Loops over storyboard_json.shots (one HTTP call per shot, via n8n's normal per-item execution rather than a manual SplitInBatches loop, since no rate-limiting is needed yet). The HTTP Request node points at a placeholder ComfyUI-style endpoint \u2014 no real self-hosted image provider is wired in yet (ImageAgent in backend/app/agents/image.py is still a NotImplementedError stub). Output contract: a single top-level 'images_json' object, intended to be called via Execute Workflow from 'Arya OS - Main Orchestrator'."
+  },
+  "id": "arya-os-image-generation",
+  "tags": []
+}

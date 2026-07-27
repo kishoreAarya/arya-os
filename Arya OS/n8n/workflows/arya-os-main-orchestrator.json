@@ -1,0 +1,1277 @@
+{
+  "name": "Arya OS - Main Orchestrator",
+  "nodes": [
+    {
+      "id": "e2724ad8-b45a-4e01-9ad5-66aba5794589",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {},
+      "notes": "Entry point for manually running one full Arya OS pipeline execution end-to-end."
+    },
+    {
+      "id": "6f30faea-487a-4c9e-8036-5e31b8827dec",
+      "name": "Set - Init Workflow Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        260,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ace92a23-6905-404a-a18f-bc0b59c5a7a5",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $now.toFormat('yyyyLLdd-HHmmss') + '-' + $workflow.id }}"
+            },
+            {
+              "id": "5ee99702-0b42-4655-8e24-66b3b6e7b981",
+              "name": "project_id",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "id": "a89931a2-a3b8-4441-9750-326ce8ca1c81",
+              "name": "topic",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "id": "07ad9b65-8eb2-487d-b02e-55d2f4e99876",
+              "name": "mode",
+              "type": "string",
+              "value": "assisted"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "notes": "FIXED per review: workflow_run_id is now generated at run time (timestamp + n8n workflow id) instead of a static placeholder string \u2014 TODO: replace with a real ID from a future 'POST /workflow-runs' backend endpoint once one exists (it does not today). project_id and topic are left BLANK, not 'PLACEHOLDER_*' strings, because Manual Trigger has no formal input mechanism in n8n \u2014 there is nothing to pull these from automatically. You must edit this node's values (or pin sample data on the Manual Trigger node) before each manual run. TODO: consider replacing Manual Trigger with a Form Trigger if this needs to be operator-friendly rather than edited by hand."
+    },
+    {
+      "id": "f831f8c2-44f1-4f5a-ba5b-ec1bdc606d0b",
+      "name": "Execute Workflow - Research",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        520,
+        300
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "arya-os-research",
+          "mode": "list",
+          "cachedResultName": "Arya OS - Research"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "workflow_run_id": "={{ $json.workflow_run_id }}",
+            "topic": "={{ $json.topic }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "notes": "FIXED: workflowId now points at the real, imported 'Arya OS - Research' workflow (was PLACEHOLDER_*_WORKFLOW_ID). workflowInputs corrected to match that sub-workflow's actual declared input contract (the original mapping referenced fields \u2014 e.g. selected_trend/research_notes/image_ids \u2014 that sub-workflow never declares; it was drifted from an earlier draft of the pipeline and would have silently passed nothing useful). IMPORTANT: workflowId.value is set to this file's own top-level 'id' field ('arya-os-research'). n8n's REST-API import preserves that ID if the workflow doesn't already exist; a UI-based import may assign a different internal ID instead. After importing all 7 files, open this node and confirm/re-select the correct workflow in the picker if it doesn't resolve automatically."
+    },
+    {
+      "id": "17e237c2-b5a1-41ed-a25a-8f84178cf9ab",
+      "name": "Set - Research Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        780,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a06e8474-1490-47ba-b334-288bf4df86e0",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $json.workflow_run_id }}"
+            },
+            {
+              "id": "a06351ad-42f0-406a-a0cf-6b2db2fba74f",
+              "name": "research_data",
+              "type": "array",
+              "value": "={{ $json.research_data }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": true
+        }
+      },
+      "notes": "FIXED: replaced fictional placeholder fields (which never matched what 'Arya OS - Research' actually returns) with an explicit passthrough of that sub-workflow's real output contract. includeOtherFields stays enabled so nothing else upstream is lost either way \u2014 these explicit assignments exist for clarity/debuggability, not because they're strictly required."
+    },
+    {
+      "id": "7e12bb10-3965-4333-8d05-5e4c6161e75b",
+      "name": "Execute Workflow - Script Generation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1040,
+        300
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "arya-os-script-generation",
+          "mode": "list",
+          "cachedResultName": "Arya OS - Script Generation"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "workflow_run_id": "={{ $json.workflow_run_id }}",
+            "research_data": "={{ $json.research_data }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "notes": "FIXED: workflowId now points at the real, imported 'Arya OS - Script Generation' workflow (was PLACEHOLDER_*_WORKFLOW_ID). workflowInputs corrected to match that sub-workflow's actual declared input contract (the original mapping referenced fields \u2014 e.g. selected_trend/research_notes/image_ids \u2014 that sub-workflow never declares; it was drifted from an earlier draft of the pipeline and would have silently passed nothing useful). IMPORTANT: workflowId.value is set to this file's own top-level 'id' field ('arya-os-script-generation'). n8n's REST-API import preserves that ID if the workflow doesn't already exist; a UI-based import may assign a different internal ID instead. After importing all 7 files, open this node and confirm/re-select the correct workflow in the picker if it doesn't resolve automatically."
+    },
+    {
+      "id": "63eb0677-33b0-4363-b5bc-2961e970238d",
+      "name": "Set - Script Generation Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c8b8ed89-77ce-44bb-af9f-7d1bf31d956a",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $json.workflow_run_id }}"
+            },
+            {
+              "id": "88c90569-a68d-4b23-b646-3a4ec37381db",
+              "name": "script_json",
+              "type": "object",
+              "value": "={{ $json.script_json }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": true
+        }
+      },
+      "notes": "FIXED: replaced fictional placeholder fields (which never matched what 'Arya OS - Script Generation' actually returns) with an explicit passthrough of that sub-workflow's real output contract. includeOtherFields stays enabled so nothing else upstream is lost either way \u2014 these explicit assignments exist for clarity/debuggability, not because they're strictly required."
+    },
+    {
+      "id": "2e9ffac8-0151-450a-9546-6c008190f661",
+      "name": "Execute Workflow - Script Validation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1560,
+        300
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "TODO_NOT_YET_BUILT",
+          "mode": "list",
+          "cachedResultName": "Arya OS - Script Validation (Sub-Workflow) \u2014 NOT YET BUILT"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "workflow_run_id": "={{ $json.workflow_run_id }}",
+            "script_id": "={{ $json.script_id }}",
+            "script_content": "={{ $json.script_content }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "notes": "TODO: NO SUB-WORKFLOW EXISTS FOR THIS STAGE YET. Per review instructions, no workflow/endpoint was fabricated to fill this gap. workflowId is deliberately set to the sentinel 'TODO_NOT_YET_BUILT' so this node visibly fails fast on import (rather than pointing at a fake ID that looks real). continueOnFail is enabled so the rest of the pipeline can still be exercised end-to-end for testing before this stage is built. Build the corresponding sub-workflow, then repeat the same fix pattern used for Research/Script Generation/Storyboard/Image Generation/Video Generation/YouTube Upload.",
+      "continueOnFail": true
+    },
+    {
+      "id": "47db31a6-8248-4653-a02c-fe0e08c4b049",
+      "name": "Set - Script Validation Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1820,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "11d1ca69-3f94-4cbf-9ba8-b57beef489ef",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $json.workflow_run_id }}"
+            },
+            {
+              "id": "c62c37cf-126a-4b7c-a4ed-5d869691b717",
+              "name": "script_validation_passed",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "9c5bcf37-4314-41b5-b223-f5fb7cf65894",
+              "name": "script_quality_score",
+              "type": "number",
+              "value": 0
+            },
+            {
+              "id": "5ace5e3d-271c-4f76-b89f-91afea089812",
+              "name": "script_validation_notes",
+              "type": "string",
+              "value": "TODO_NOT_YET_BUILT"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": true
+        }
+      },
+      "notes": "TODO: 'Arya OS - Script Validation' sub-workflow does not exist yet, so this remains a PLACEHOLDER output \u2014 values here are NOT real. workflow_run_id is now carried forward explicitly (was previously only relying on includeOtherFields). Replace this node's assignments once the real sub-workflow exists and its actual output shape is known."
+    },
+    {
+      "id": "5bdd0551-d1dc-43f8-bad1-619770d8affb",
+      "name": "Execute Workflow - Storyboard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2080,
+        300
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "arya-os-storyboard",
+          "mode": "list",
+          "cachedResultName": "Arya OS - Storyboard"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "workflow_run_id": "={{ $json.workflow_run_id }}",
+            "script_json": "={{ $json.script_json }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "notes": "FIXED: workflowId now points at the real, imported 'Arya OS - Storyboard' workflow (was PLACEHOLDER_*_WORKFLOW_ID). workflowInputs corrected to match that sub-workflow's actual declared input contract (the original mapping referenced fields \u2014 e.g. selected_trend/research_notes/image_ids \u2014 that sub-workflow never declares; it was drifted from an earlier draft of the pipeline and would have silently passed nothing useful). IMPORTANT: workflowId.value is set to this file's own top-level 'id' field ('arya-os-storyboard'). n8n's REST-API import preserves that ID if the workflow doesn't already exist; a UI-based import may assign a different internal ID instead. After importing all 7 files, open this node and confirm/re-select the correct workflow in the picker if it doesn't resolve automatically."
+    },
+    {
+      "id": "d4911ef6-43de-45b2-bd09-8ab5b8835a23",
+      "name": "Set - Storyboard Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2340,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4d372fc3-9713-42e1-af01-9c164a3d577d",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $json.workflow_run_id }}"
+            },
+            {
+              "id": "dd9f7ee4-b13f-4c73-a9ed-15e95ba5a527",
+              "name": "storyboard_json",
+              "type": "object",
+              "value": "={{ $json.storyboard_json }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": true
+        }
+      },
+      "notes": "FIXED: replaced fictional placeholder fields (which never matched what 'Arya OS - Storyboard' actually returns) with an explicit passthrough of that sub-workflow's real output contract. includeOtherFields stays enabled so nothing else upstream is lost either way \u2014 these explicit assignments exist for clarity/debuggability, not because they're strictly required."
+    },
+    {
+      "id": "3ae4a2a4-b3fd-4917-9744-8ecbf2f084b0",
+      "name": "Execute Workflow - Image Generation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2600,
+        300
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "arya-os-image-generation",
+          "mode": "list",
+          "cachedResultName": "Arya OS - Image Generation"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "workflow_run_id": "={{ $json.workflow_run_id }}",
+            "storyboard_json": "={{ $json.storyboard_json }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "notes": "FIXED: workflowId now points at the real, imported 'Arya OS - Image Generation' workflow (was PLACEHOLDER_*_WORKFLOW_ID). workflowInputs corrected to match that sub-workflow's actual declared input contract (the original mapping referenced fields \u2014 e.g. selected_trend/research_notes/image_ids \u2014 that sub-workflow never declares; it was drifted from an earlier draft of the pipeline and would have silently passed nothing useful). IMPORTANT: workflowId.value is set to this file's own top-level 'id' field ('arya-os-image-generation'). n8n's REST-API import preserves that ID if the workflow doesn't already exist; a UI-based import may assign a different internal ID instead. After importing all 7 files, open this node and confirm/re-select the correct workflow in the picker if it doesn't resolve automatically."
+    },
+    {
+      "id": "628508de-7922-442f-8c3a-ed8440d9857b",
+      "name": "Set - Image Generation Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2860,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c02af249-3e7b-4cbb-891f-0a33853be3a2",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $json.workflow_run_id }}"
+            },
+            {
+              "id": "e713fff9-426c-4fb6-81b2-59e13bd803e0",
+              "name": "images_json",
+              "type": "object",
+              "value": "={{ $json.images_json }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": true
+        }
+      },
+      "notes": "FIXED: replaced fictional placeholder fields (which never matched what 'Arya OS - Image Generation' actually returns) with an explicit passthrough of that sub-workflow's real output contract. includeOtherFields stays enabled so nothing else upstream is lost either way \u2014 these explicit assignments exist for clarity/debuggability, not because they're strictly required."
+    },
+    {
+      "id": "8557d1d5-d656-4b26-84ed-b9f085bed9e8",
+      "name": "Execute Workflow - Image Validation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3120,
+        300
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "TODO_NOT_YET_BUILT",
+          "mode": "list",
+          "cachedResultName": "Arya OS - Image Validation (Sub-Workflow) \u2014 NOT YET BUILT"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "workflow_run_id": "={{ $json.workflow_run_id }}",
+            "image_ids": "={{ $json.image_ids }}",
+            "image_storage_paths": "={{ $json.image_storage_paths }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "notes": "TODO: NO SUB-WORKFLOW EXISTS FOR THIS STAGE YET. Per review instructions, no workflow/endpoint was fabricated to fill this gap. workflowId is deliberately set to the sentinel 'TODO_NOT_YET_BUILT' so this node visibly fails fast on import (rather than pointing at a fake ID that looks real). continueOnFail is enabled so the rest of the pipeline can still be exercised end-to-end for testing before this stage is built. Build the corresponding sub-workflow, then repeat the same fix pattern used for Research/Script Generation/Storyboard/Image Generation/Video Generation/YouTube Upload.",
+      "continueOnFail": true
+    },
+    {
+      "id": "9ed422df-ea02-4de3-98ff-004b3bda4aac",
+      "name": "Set - Image Validation Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3380,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "66efbb1b-eb3f-40bd-91af-b8c14e7ac935",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $json.workflow_run_id }}"
+            },
+            {
+              "id": "954cd1eb-6237-442a-affa-9518b1f62336",
+              "name": "image_validation_passed",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "d7ffe66b-8bb4-4b41-857e-f90a5440d938",
+              "name": "image_quality_scores",
+              "type": "array",
+              "value": []
+            },
+            {
+              "id": "abb86902-957c-49d6-8cdb-de8a1741289c",
+              "name": "image_validation_notes",
+              "type": "string",
+              "value": "TODO_NOT_YET_BUILT"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": true
+        }
+      },
+      "notes": "TODO: 'Arya OS - Image Validation' sub-workflow does not exist yet, so this remains a PLACEHOLDER output \u2014 values here are NOT real. workflow_run_id is now carried forward explicitly (was previously only relying on includeOtherFields). Replace this node's assignments once the real sub-workflow exists and its actual output shape is known."
+    },
+    {
+      "id": "37646afd-b0d1-465d-8be8-35e1ca343261",
+      "name": "Execute Workflow - Video Generation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3640,
+        300
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "arya-os-video-generation",
+          "mode": "list",
+          "cachedResultName": "Arya OS - Video Generation"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "workflow_run_id": "={{ $json.workflow_run_id }}",
+            "images_json": "={{ $json.images_json }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "notes": "FIXED: workflowId now points at the real, imported 'Arya OS - Video Generation' workflow (was PLACEHOLDER_*_WORKFLOW_ID). workflowInputs corrected to match that sub-workflow's actual declared input contract (the original mapping referenced fields \u2014 e.g. selected_trend/research_notes/image_ids \u2014 that sub-workflow never declares; it was drifted from an earlier draft of the pipeline and would have silently passed nothing useful). IMPORTANT: workflowId.value is set to this file's own top-level 'id' field ('arya-os-video-generation'). n8n's REST-API import preserves that ID if the workflow doesn't already exist; a UI-based import may assign a different internal ID instead. After importing all 7 files, open this node and confirm/re-select the correct workflow in the picker if it doesn't resolve automatically."
+    },
+    {
+      "id": "3e7f2759-6ef0-4eb9-bcdc-f2ea4e5e99a9",
+      "name": "Set - Video Generation Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3900,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f5581ce3-69a6-42ef-ad99-a7ef8d2b767e",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $json.workflow_run_id }}"
+            },
+            {
+              "id": "56d5d3ab-e8bf-4a00-891d-ff5d9f8d304c",
+              "name": "video_json",
+              "type": "object",
+              "value": "={{ $json.video_json }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": true
+        }
+      },
+      "notes": "FIXED: replaced fictional placeholder fields (which never matched what 'Arya OS - Video Generation' actually returns) with an explicit passthrough of that sub-workflow's real output contract. includeOtherFields stays enabled so nothing else upstream is lost either way \u2014 these explicit assignments exist for clarity/debuggability, not because they're strictly required."
+    },
+    {
+      "id": "15ee2e39-116b-4979-af58-375508066a3f",
+      "name": "Execute Workflow - Video Validation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4160,
+        300
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "TODO_NOT_YET_BUILT",
+          "mode": "list",
+          "cachedResultName": "Arya OS - Video Validation (Sub-Workflow) \u2014 NOT YET BUILT"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "workflow_run_id": "={{ $json.workflow_run_id }}",
+            "video_id": "={{ $json.video_id }}",
+            "video_storage_path": "={{ $json.video_storage_path }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "notes": "TODO: NO SUB-WORKFLOW EXISTS FOR THIS STAGE YET. Per review instructions, no workflow/endpoint was fabricated to fill this gap. workflowId is deliberately set to the sentinel 'TODO_NOT_YET_BUILT' so this node visibly fails fast on import (rather than pointing at a fake ID that looks real). continueOnFail is enabled so the rest of the pipeline can still be exercised end-to-end for testing before this stage is built. Build the corresponding sub-workflow, then repeat the same fix pattern used for Research/Script Generation/Storyboard/Image Generation/Video Generation/YouTube Upload.",
+      "continueOnFail": true
+    },
+    {
+      "id": "7354b64b-37e7-4632-b2a7-2ddb348a2da1",
+      "name": "Set - Video Validation Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        4420,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4a0dd1df-5715-476d-a702-bc5f0a343c35",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $json.workflow_run_id }}"
+            },
+            {
+              "id": "7290d05b-8584-4088-bf03-6795334a8c32",
+              "name": "video_validation_passed",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "2d8a4f18-ab3f-4d77-b7af-c2d3e30c7709",
+              "name": "video_quality_score",
+              "type": "number",
+              "value": 0
+            },
+            {
+              "id": "688497cd-045e-4442-98cc-787b4e58410b",
+              "name": "video_validation_notes",
+              "type": "string",
+              "value": "TODO_NOT_YET_BUILT"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": true
+        }
+      },
+      "notes": "TODO: 'Arya OS - Video Validation' sub-workflow does not exist yet, so this remains a PLACEHOLDER output \u2014 values here are NOT real. workflow_run_id is now carried forward explicitly (was previously only relying on includeOtherFields). Replace this node's assignments once the real sub-workflow exists and its actual output shape is known."
+    },
+    {
+      "id": "cac7ee2f-0fa0-4213-9de0-a6f0e2cb5cde",
+      "name": "Execute Workflow - Thumbnail",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4680,
+        300
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "TODO_NOT_YET_BUILT",
+          "mode": "list",
+          "cachedResultName": "Arya OS - Thumbnail (Sub-Workflow) \u2014 NOT YET BUILT"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "workflow_run_id": "={{ $json.workflow_run_id }}",
+            "video_id": "={{ $json.video_id }}",
+            "selected_trend": "={{ $json.selected_trend }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "notes": "TODO: NO SUB-WORKFLOW EXISTS FOR THIS STAGE YET. Per review instructions, no workflow/endpoint was fabricated to fill this gap. workflowId is deliberately set to the sentinel 'TODO_NOT_YET_BUILT' so this node visibly fails fast on import (rather than pointing at a fake ID that looks real). continueOnFail is enabled so the rest of the pipeline can still be exercised end-to-end for testing before this stage is built. Build the corresponding sub-workflow, then repeat the same fix pattern used for Research/Script Generation/Storyboard/Image Generation/Video Generation/YouTube Upload.",
+      "continueOnFail": true
+    },
+    {
+      "id": "52451074-caf8-4998-81b3-213a4ac884a2",
+      "name": "Set - Thumbnail Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        4940,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "985d6c84-ecb3-4a2d-ab40-6c3e4e4a3d4d",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $json.workflow_run_id }}"
+            },
+            {
+              "id": "1f3d0096-f38d-4b09-aeb8-893eb54727c2",
+              "name": "thumbnail_id",
+              "type": "string",
+              "value": "TODO_NOT_YET_BUILT"
+            },
+            {
+              "id": "21ada943-3874-4afe-abf3-384cc0eb7268",
+              "name": "thumbnail",
+              "type": "string",
+              "value": "TODO_NOT_YET_BUILT"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": true
+        }
+      },
+      "notes": "TODO: 'Arya OS - Thumbnail' sub-workflow does not exist yet, so this remains a PLACEHOLDER output \u2014 values here are NOT real. workflow_run_id is now carried forward explicitly (was previously only relying on includeOtherFields). Replace this node's assignments once the real sub-workflow exists and its actual output shape is known. FIELD RENAMED: 'thumbnail_storage_path' -> 'thumbnail' to match the 'thumbnail' input name 'Arya OS - YouTube Upload' actually declares."
+    },
+    {
+      "id": "3e16c6f3-04e4-4c62-a8d9-189a550996e3",
+      "name": "Execute Workflow - Metadata Generation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        5200,
+        300
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "TODO_NOT_YET_BUILT",
+          "mode": "list",
+          "cachedResultName": "Arya OS - Metadata Generation (Sub-Workflow) \u2014 NOT YET BUILT"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "workflow_run_id": "={{ $json.workflow_run_id }}",
+            "script_content": "={{ $json.script_content }}",
+            "selected_trend": "={{ $json.selected_trend }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "notes": "TODO: NO SUB-WORKFLOW EXISTS FOR THIS STAGE YET. Per review instructions, no workflow/endpoint was fabricated to fill this gap. workflowId is deliberately set to the sentinel 'TODO_NOT_YET_BUILT' so this node visibly fails fast on import (rather than pointing at a fake ID that looks real). continueOnFail is enabled so the rest of the pipeline can still be exercised end-to-end for testing before this stage is built. Build the corresponding sub-workflow, then repeat the same fix pattern used for Research/Script Generation/Storyboard/Image Generation/Video Generation/YouTube Upload.",
+      "continueOnFail": true
+    },
+    {
+      "id": "b067603a-012d-4acf-a2d8-fbbcfe9479b7",
+      "name": "Set - Metadata Generation Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        5460,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3f22690a-a272-48ae-abfb-a84174e786dc",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $json.workflow_run_id }}"
+            },
+            {
+              "id": "63dec4d7-070c-4cf8-91f3-3f28b209019b",
+              "name": "title",
+              "type": "string",
+              "value": "TODO_NOT_YET_BUILT"
+            },
+            {
+              "id": "b6cc1f8c-101b-49eb-8df9-c9c4550d16ab",
+              "name": "description",
+              "type": "string",
+              "value": "TODO_NOT_YET_BUILT"
+            },
+            {
+              "id": "730f3ffb-fba6-46dd-9553-19f61878368e",
+              "name": "video_tags",
+              "type": "string",
+              "value": "TODO_NOT_YET_BUILT"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": true
+        }
+      },
+      "notes": "TODO: 'Arya OS - Metadata Generation' sub-workflow does not exist yet, so this remains a PLACEHOLDER output \u2014 values here are NOT real. workflow_run_id is now carried forward explicitly (was previously only relying on includeOtherFields). Replace this node's assignments once the real sub-workflow exists and its actual output shape is known. FIELDS RENAMED: 'video_title'/'video_description' -> 'title'/'description' to match what 'Arya OS - YouTube Upload' actually declares as inputs. NOTE: video_tags is kept for future use but 'Arya OS - YouTube Upload' does not currently read/send tags to the YouTube API at all \u2014 flagged as a separate gap, not fixed here (would be new business logic in that workflow)."
+    },
+    {
+      "id": "509c17cf-ce2d-440c-ad7b-9fb33baacacc",
+      "name": "Execute Workflow - Human Approval",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        5720,
+        300
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "TODO_NOT_YET_BUILT",
+          "mode": "list",
+          "cachedResultName": "Arya OS - Human Approval (Sub-Workflow) \u2014 NOT YET BUILT"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "workflow_run_id": "={{ $json.workflow_run_id }}",
+            "video_id": "={{ $json.video_id }}",
+            "thumbnail_id": "={{ $json.thumbnail_id }}",
+            "video_title": "={{ $json.video_title }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "notes": "TODO: NO SUB-WORKFLOW EXISTS FOR THIS STAGE YET. Per review instructions, no workflow/endpoint was fabricated to fill this gap. workflowId is deliberately set to the sentinel 'TODO_NOT_YET_BUILT' so this node visibly fails fast on import (rather than pointing at a fake ID that looks real). continueOnFail is enabled so the rest of the pipeline can still be exercised end-to-end for testing before this stage is built. Build the corresponding sub-workflow, then repeat the same fix pattern used for Research/Script Generation/Storyboard/Image Generation/Video Generation/YouTube Upload. ADDITIONAL FLAG: 'Arya OS - YouTube Upload' already implements its own human-approval gate internally (calls POST /approvals/ + GET /approvals/{id} in a polling loop before uploading). This separate orchestrator-level stage may be fully redundant once YouTube Upload exists. Not removed here (would change pipeline order/stage count, outside this review's scope) \u2014 flagged as a product decision: either build a distinct pre-video-assembly approval sub-workflow with a different purpose, or remove this stage from the orchestrator later.",
+      "continueOnFail": true
+    },
+    {
+      "id": "cc77a587-2f8f-472f-9026-f7e482932f79",
+      "name": "Set - Human Approval Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        5980,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0f2d7f4d-387d-428f-97cf-13d6c43d0af7",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $json.workflow_run_id }}"
+            },
+            {
+              "id": "0cc4a40c-b67f-4dbb-b2b6-e9688e42d87e",
+              "name": "approval_action",
+              "type": "string",
+              "value": "TODO_NOT_YET_BUILT"
+            },
+            {
+              "id": "cf6a73c1-dd4f-4794-8113-97d01fae3903",
+              "name": "approved",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "id": "e6ded90c-a503-4836-9054-7a6d2fbc3b18",
+              "name": "reviewer_notes",
+              "type": "string",
+              "value": "TODO_NOT_YET_BUILT"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": true
+        }
+      },
+      "notes": "TODO: 'Arya OS - Human Approval' sub-workflow does not exist yet, so this remains a PLACEHOLDER output \u2014 values here are NOT real. workflow_run_id is now carried forward explicitly (was previously only relying on includeOtherFields). Replace this node's assignments once the real sub-workflow exists and its actual output shape is known. See the ADDITIONAL FLAG note on the corresponding Execute Workflow node above \u2014 this stage's output ('approved') is not actually consumed by 'Arya OS - YouTube Upload' today, since that workflow implements its own independent approval gate."
+    },
+    {
+      "id": "c21001e9-b2d4-4eeb-b4ad-310002bdf0a7",
+      "name": "Execute Workflow - YouTube Upload",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        6240,
+        300
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "arya-os-youtube-upload",
+          "mode": "list",
+          "cachedResultName": "Arya OS - YouTube Upload"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "workflow_run_id": "={{ $json.workflow_run_id }}",
+            "video_json": "={{ $json.video_json }}",
+            "title": "={{ $json.title }}",
+            "description": "={{ $json.description }}",
+            "thumbnail": "={{ $json.thumbnail }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "notes": "FIXED: workflowId now points at the real, imported 'Arya OS - YouTube Upload' workflow (was PLACEHOLDER_*_WORKFLOW_ID). workflowInputs corrected to match that sub-workflow's actual declared input contract (the original mapping referenced fields \u2014 e.g. selected_trend/research_notes/image_ids \u2014 that sub-workflow never declares; it was drifted from an earlier draft of the pipeline and would have silently passed nothing useful). IMPORTANT: workflowId.value is set to this file's own top-level 'id' field ('arya-os-youtube-upload'). n8n's REST-API import preserves that ID if the workflow doesn't already exist; a UI-based import may assign a different internal ID instead. After importing all 7 files, open this node and confirm/re-select the correct workflow in the picker if it doesn't resolve automatically."
+    },
+    {
+      "id": "d7e2e788-ed42-42cb-aa39-827daf41c2b7",
+      "name": "Set - YouTube Upload Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        6500,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "271be6e2-c8f9-4b15-a182-b2d21df7a09c",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $json.workflow_run_id }}"
+            },
+            {
+              "id": "ca1acde6-6f1c-489e-b863-bc54d36ae833",
+              "name": "video_url",
+              "type": "string",
+              "value": "={{ $json.video_url }}"
+            },
+            {
+              "id": "7faed305-9733-4478-a4fb-1fd630d6b082",
+              "name": "youtube_video_id",
+              "type": "string",
+              "value": "={{ $json.youtube_video_id }}"
+            },
+            {
+              "id": "8e252b90-8776-4070-988e-aac286cd2102",
+              "name": "publish_status",
+              "type": "string",
+              "value": "={{ $json.publish_status }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": true
+        }
+      },
+      "notes": "FIXED: replaced fictional placeholder fields (which never matched what 'Arya OS - YouTube Upload' actually returns) with an explicit passthrough of that sub-workflow's real output contract. includeOtherFields stays enabled so nothing else upstream is lost either way \u2014 these explicit assignments exist for clarity/debuggability, not because they're strictly required."
+    },
+    {
+      "id": "dd8da85d-838a-4a21-8615-d07a4fa7fabe",
+      "name": "Set - Pipeline Complete Summary",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        6760,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "25e402ba-63ef-4ae9-992b-0418ff637ea1",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $json.workflow_run_id }}"
+            },
+            {
+              "id": "3f060cde-e442-44f2-ad30-24878fc506f7",
+              "name": "pipeline_status",
+              "type": "string",
+              "value": "={{ $json.publish_status ?? 'unknown' }}"
+            },
+            {
+              "id": "d7e4e586-25e8-48b8-b30a-a02e52fa2b19",
+              "name": "video_url",
+              "type": "string",
+              "value": "={{ $json.video_url ?? null }}"
+            },
+            {
+              "id": "60d61d2b-76d7-405b-8e5d-cd1c17c2cafc",
+              "name": "youtube_video_id",
+              "type": "string",
+              "value": "={{ $json.youtube_video_id ?? null }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": true
+        }
+      },
+      "notes": "FIXED: pipeline_status now reflects the real publish_status field from 'Arya OS - YouTube Upload' (was a static 'PLACEHOLDER_COMPLETED' string that never changed regardless of outcome). video_url added since that's the actual useful result of a full pipeline run."
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set - Init Workflow Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Init Workflow Context": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow - Research",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow - Research": {
+      "main": [
+        [
+          {
+            "node": "Set - Research Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Research Output": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow - Script Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow - Script Generation": {
+      "main": [
+        [
+          {
+            "node": "Set - Script Generation Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Script Generation Output": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow - Script Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow - Script Validation": {
+      "main": [
+        [
+          {
+            "node": "Set - Script Validation Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Script Validation Output": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow - Storyboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow - Storyboard": {
+      "main": [
+        [
+          {
+            "node": "Set - Storyboard Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Storyboard Output": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow - Image Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow - Image Generation": {
+      "main": [
+        [
+          {
+            "node": "Set - Image Generation Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Image Generation Output": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow - Image Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow - Image Validation": {
+      "main": [
+        [
+          {
+            "node": "Set - Image Validation Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Image Validation Output": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow - Video Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow - Video Generation": {
+      "main": [
+        [
+          {
+            "node": "Set - Video Generation Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Video Generation Output": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow - Video Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow - Video Validation": {
+      "main": [
+        [
+          {
+            "node": "Set - Video Validation Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Video Validation Output": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow - Thumbnail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow - Thumbnail": {
+      "main": [
+        [
+          {
+            "node": "Set - Thumbnail Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Thumbnail Output": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow - Metadata Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow - Metadata Generation": {
+      "main": [
+        [
+          {
+            "node": "Set - Metadata Generation Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Metadata Generation Output": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow - Human Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow - Human Approval": {
+      "main": [
+        [
+          {
+            "node": "Set - Human Approval Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Human Approval Output": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow - YouTube Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow - YouTube Upload": {
+      "main": [
+        [
+          {
+            "node": "Set - YouTube Upload Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - YouTube Upload Output": {
+      "main": [
+        [
+          {
+            "node": "Set - Pipeline Complete Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "notes": "Sprint 1-3 scaffold. All 12 Execute Workflow nodes reference sub-workflows that do not exist yet (workflowId values are PLACEHOLDER_* strings) and all Set nodes after them stand in for real sub-workflow outputs. No real AI/generation logic is present anywhere in this workflow. Replace each workflowId once its corresponding sub-workflow is built, and remove the matching placeholder Set node once the sub-workflow returns real data in the same shape."
+  },
+  "id": "arya-os-main-orchestrator",
+  "tags": []
+}

@@ -1,0 +1,262 @@
+{
+  "name": "Arya OS - Video Generation",
+  "nodes": [
+    {
+      "id": "e0c40747-76ea-43b0-a5a9-7b599f087404",
+      "name": "Receive Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "workflow_run_id"
+            },
+            {
+              "name": "images_json"
+            }
+          ]
+        }
+      },
+      "notes": "Formal input contract for this sub-workflow: workflow_run_id + images_json (the object produced by 'Arya OS - Image Generation', containing storyboard_id + an images array)."
+    },
+    {
+      "id": "4cb81bed-4fd1-4a7c-bd38-51730293fffe",
+      "name": "Loop",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        280,
+        300
+      ],
+      "parameters": {
+        "fieldToSplitOut": "images_json.images",
+        "include": "allOtherFields",
+        "options": {
+          "destinationFieldName": "image"
+        }
+      },
+      "notes": "Splits images_json.images into one item per shot image. Every downstream node runs once per item automatically (n8n's normal per-item execution model) \u2014 same pattern as the Image Generation workflow's loop. Swap for a 'Loop Over Items' (Split In Batches, batchSize=1) node if per-shot rate-limiting is ever needed against a real image-to-video provider."
+    },
+    {
+      "id": "7f0d1922-e6e4-492e-aa3a-a518d654fe53",
+      "name": "Video API Placeholder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://PLACEHOLDER-video-provider-host/api/image-to-video",
+        "authentication": "none",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow_run_id: $json.workflow_run_id, storyboard_id: $json.images_json.storyboard_id, shot_number: $json.image.shot_number, source_image_path: $json.image.storage_path }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000,
+          "retryOnFail": true,
+          "maxTries": 3,
+          "waitBetweenTries": 2000
+        }
+      },
+      "notes": "PLACEHOLDER endpoint \u2014 no real image-to-video provider is wired in yet (backend/app/providers/capabilities.py reserves 'fal' and 'comfyui' for VIDEO_GENERATION, but no HTTP client exists for either). Runs once per shot image automatically. continueOnFail is enabled so one failed clip doesn't abort video generation for every other shot. TODO: same provider-routing bypass as Image Generation \u2014 the backend's ProviderRouter is not invoked from here. Not fixed (would be a redesign), flagged for a future decision. retryOnFail added (3 tries, 2s apart).",
+      "continueOnFail": true
+    },
+    {
+      "id": "b4801f72-e33b-46b2-8406-3f00c44f8fe2",
+      "name": "Set - Collect Video Clips",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        840,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "68d3fe88-ae69-4c6a-8bb6-c8e37ad0240c",
+              "name": "clip_result",
+              "type": "object",
+              "value": "={{ { shot_number: $('Loop').item.json.image.shot_number ?? null, storage_path: $json.storage_path ?? 'PLACEHOLDER_CLIP_STORAGE_PATH', duration_seconds: $json.duration_seconds ?? null, provider_name: $json.provider_name ?? 'PLACEHOLDER_PROVIDER', error: $json.error ?? null } }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": false
+        }
+      },
+      "notes": "Normalizes each per-shot clip response into a stable shape \u2014 matches backend/app/models/media.py's GeneratedVideo table fields (one row per shot clip, distinct from the final assembled Video)."
+    },
+    {
+      "id": "cb046778-f3e2-4615-a233-a9df4d71107e",
+      "name": "Aggregate - Combine Clips",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        300
+      ],
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "clips",
+        "include": "specifiedFields",
+        "fieldsToInclude": "clip_result",
+        "options": {}
+      },
+      "notes": "Combines all per-shot 'clip_result' items back into a single 'clips' array in one item \u2014 the per-shot loop ends here, ready for final assembly into one video."
+    },
+    {
+      "id": "1f6348c9-0199-46d1-a78e-3b7b8d3ca584",
+      "name": "HTTP Request - Merge Clips API (Placeholder)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8000/api/agents/video-merge",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow_run_id: $json.workflow_run_id ?? $('Receive Input').item.json.workflow_run_id, storyboard_id: $('Receive Input').item.json.images_json.storyboard_id, clips: ($json.clips ?? []).map(c => c.clip_result).sort((a, b) => (a.shot_number ?? 0) - (b.shot_number ?? 0)) }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 180000,
+          "retryOnFail": true,
+          "maxTries": 3,
+          "waitBetweenTries": 2000
+        }
+      },
+      "notes": "TODO: BACKEND ENDPOINT MISSING \u2014 'POST /api/agents/video-merge' does not exist today. Do not fabricate it. Host fixed to host.docker.internal. Credential now references the shared 'arya_backend_shared_secret' httpHeaderAuth credential. retryOnFail added (3 tries, 2s apart); continueOnFail stays on so a missing endpoint returns a structured error in video_json rather than crashing the pipeline.",
+      "continueOnFail": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "arya_backend_shared_secret",
+          "name": "Arya OS Backend - Shared Secret (create once, reuse everywhere)"
+        }
+      }
+    },
+    {
+      "id": "b9e63e0b-7ed2-42a1-84fe-5ad7b18daff8",
+      "name": "Return video_json",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1680,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a12536f6-1f9e-48f7-8553-f21914ef3a49",
+              "name": "video_json",
+              "type": "object",
+              "value": "={{ { workflow_run_id: $('Receive Input').item.json.workflow_run_id, video_id: $json.video_id ?? 'PLACEHOLDER_VIDEO_ID', storage_path: $json.storage_path ?? 'PLACEHOLDER_VIDEO_STORAGE_PATH', duration_seconds: $json.duration_seconds ?? null, clip_count: Array.isArray($json.clips) ? $json.clips.length : null, error: $json.error ?? null } }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": false
+        }
+      },
+      "notes": "Final output contract for this sub-workflow: a single top-level 'video_json' object, consumed by the Main Orchestrator's Execute Workflow node. FIXED: now also preserves workflow_run_id (was missing from output)."
+    }
+  ],
+  "connections": {
+    "Loop": {
+      "main": [
+        [
+          {
+            "node": "Video API Placeholder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Video API Placeholder": {
+      "main": [
+        [
+          {
+            "node": "Set - Collect Video Clips",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Collect Video Clips": {
+      "main": [
+        [
+          {
+            "node": "Aggregate - Combine Clips",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate - Combine Clips": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Merge Clips API (Placeholder)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Merge Clips API (Placeholder)": {
+      "main": [
+        [
+          {
+            "node": "Return video_json",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "notes": "Sprint 1-3 scaffold sub-workflow. Input contract: workflow_run_id + images_json. Loops over images_json.images (one image-to-video HTTP call per shot), collects the resulting clips, then makes a separate placeholder call to merge/stitch them into one final video \u2014 mirroring the backend's own GeneratedVideo (per-shot) vs Video (final assembled) distinction. No real video provider or merge service is wired in yet (VideoAgent in backend/app/agents/video.py is still a NotImplementedError stub), and no AI/editing logic runs inside n8n itself \u2014 every step here only calls placeholder HTTP endpoints. Output contract: a single top-level 'video_json' object, intended to be called via Execute Workflow from 'Arya OS - Main Orchestrator'."
+  },
+  "id": "arya-os-video-generation",
+  "tags": []
+}

@@ -1,0 +1,571 @@
+{
+  "name": "Arya OS - YouTube Upload",
+  "nodes": [
+    {
+      "id": "0a2ef7a0-8e29-4aec-bb20-7a2c0c2a9dd9",
+      "name": "Receive Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "workflow_run_id"
+            },
+            {
+              "name": "video_json"
+            },
+            {
+              "name": "title"
+            },
+            {
+              "name": "description"
+            },
+            {
+              "name": "thumbnail"
+            }
+          ]
+        }
+      },
+      "notes": "Formal input contract: workflow_run_id, video_json (from 'Arya OS - Video Generation'), title/description (from 'Arya OS - Metadata Generation'), thumbnail (from 'Arya OS - Thumbnail')."
+    },
+    {
+      "id": "050e7c47-6b2e-4a37-856d-6cfd1ce70301",
+      "name": "HTTP Request - Create Approval Checkpoint",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8000/approvals/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow_run_id: $json.workflow_run_id, stage: 'video', reference_table: 'videos', reference_id: $json.video_json.video_id }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000,
+          "retryOnFail": true,
+          "maxTries": 3,
+          "waitBetweenTries": 2000
+        }
+      },
+      "notes": "Calls a REAL, already-implemented route \u2014 POST /approvals/ (backend/app/api/routers/approvals.py). Host fixed to host.docker.internal for local dev. Credential now references the shared 'arya_backend_shared_secret' httpHeaderAuth credential (same one every backend-calling node in this suite uses \u2014 create it once in n8n). retryOnFail added (3 tries, 2s apart). NOTE: the backend currently has no auth gate at all (see engineering review) \u2014 this credential is a forward-looking placeholder for whenever one is added; it is harmless to attach now.",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "arya_backend_shared_secret",
+          "name": "Arya OS Backend - Shared Secret (create once, reuse everywhere)"
+        }
+      }
+    },
+    {
+      "id": "62c5c171-25cd-4662-b48c-06f1946c5268",
+      "name": "Wait - Poll Interval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        300
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "unit": "minutes",
+        "amount": 5
+      },
+      "notes": "Polling interval while waiting for a human to decide via the dashboard (which calls POST /approvals/{id}/decide). 5 minutes is a reasonable default for a personal, low-volume pipeline \u2014 tune to taste. This is n8n's native Wait node, not a custom webhook resume, since no dashboard webhook-callback endpoint exists yet either."
+    },
+    {
+      "id": "0b21c70c-cbc9-46c1-95b8-24f5884ad778",
+      "name": "HTTP Request - Get Approval Checkpoint",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'http://host.docker.internal:8000/approvals/' + $('HTTP Request - Create Approval Checkpoint').item.json.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 15000,
+          "retryOnFail": true,
+          "maxTries": 3,
+          "waitBetweenTries": 2000
+        }
+      },
+      "notes": "Calls a REAL, already-implemented route \u2014 GET /approvals/{id}. Host fixed to host.docker.internal. Same shared 'arya_backend_shared_secret' credential as every other backend-calling node. retryOnFail added (3 tries, 2s apart) since this fires on every 5-minute poll cycle and a single dropped connection shouldn't derail the whole approval loop.",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "arya_backend_shared_secret",
+          "name": "Arya OS Backend - Shared Secret (create once, reuse everywhere)"
+        }
+      }
+    },
+    {
+      "id": "740c323a-3cf5-49b4-8f37-60a1835295f3",
+      "name": "If - Decision Made?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1040,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "b539b1f2-f23b-482a-ab6f-1a1e003e4ba0",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "notes": "true = a human has recorded a decision (action is set); false = still pending, loop back to Wait - Poll Interval below."
+    },
+    {
+      "id": "37c4e564-b98b-4e8c-994b-bb4ce8572007",
+      "name": "If - Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "d8b2c19c-be56-4ebd-bacc-5447409a7df1",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "approve",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "notes": "true = reviewer approved (ApprovalAction.APPROVE) -> proceed to YouTube Upload. false = rejected/retry/manual_edit -> stop here, do not publish."
+    },
+    {
+      "id": "25fd017f-9731-43df-9265-703ed55e8a99",
+      "name": "Set - Build Rejected Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1560,
+        560
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "58f79d30-d4bc-44c7-aaff-ad37590441ab",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $('Receive Input').item.json.workflow_run_id }}"
+            },
+            {
+              "id": "530dea0a-d06c-4d21-a2b7-bd7ea92c165a",
+              "name": "youtube_video_id",
+              "type": "string",
+              "value": null
+            },
+            {
+              "id": "07b3e405-204e-44b7-9c97-9d80c387c83b",
+              "name": "publish_status",
+              "type": "string",
+              "value": "={{ 'not_published_' + ($json.action ?? 'rejected') }}"
+            },
+            {
+              "id": "03e9f3b2-2751-4980-9327-39f65f2f175e",
+              "name": "reviewer_notes",
+              "type": "string",
+              "value": "={{ $json.reviewer_notes ?? '' }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": false
+        }
+      },
+      "notes": "Reviewer did not approve \u2014 pipeline stops here without ever calling YouTube. Feeds into the final Merge below so 'Return video URL' still produces a well-formed (empty) result. FIXED: now also preserves workflow_run_id (was missing)."
+    },
+    {
+      "id": "11ba612d-671a-4e4f-bf38-0a99424cba40",
+      "name": "Placeholder - Read Video File From Storage",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1820,
+        300
+      ],
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $json.video_json.storage_path }}",
+        "options": {}
+      },
+      "notes": "PLACEHOLDER \u2014 assumes STORAGE_BACKEND=local and this n8n instance can see the same filesystem path the backend wrote to (true today on your single Mac Mini setup, per your existing infra). If STORAGE_BACKEND=s3/r2 is used instead, replace this with an HTTP Request against a presigned download URL \u2014 storage/s3.py's get_url() already generates one."
+    },
+    {
+      "id": "e25e42f1-293d-4d93-9390-47fc1edd2ea5",
+      "name": "YouTube - Upload Video (Credentials Required)",
+      "type": "n8n-nodes-base.youTube",
+      "typeVersion": 1,
+      "position": [
+        2080,
+        300
+      ],
+      "parameters": {
+        "resource": "video",
+        "operation": "upload",
+        "title": "={{ $('Receive Input').item.json.title }}",
+        "regionCode": "US",
+        "categoryId": "22",
+        "options": {
+          "description": "={{ $('Receive Input').item.json.description }}",
+          "privacyStatus": "private"
+        },
+        "binaryProperty": "data"
+      },
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "arya_youtube_oauth2",
+          "name": "Arya OS - YouTube OAuth2 (create once, reuse everywhere)"
+        }
+      },
+      "notes": "PLACEHOLDER CREDENTIALS \u2014 this is n8n's real, native YouTube node (not a raw HTTP call), but no OAuth2 credential has been created/attached yet. You'll need to set up a Google Cloud project + YouTube Data API v3 OAuth2 credential in n8n and select it here before this node can run. privacyStatus is set to 'private' as a safe default until you're ready for public publishing \u2014 matches enable_autonomous_publishing defaulting to false in the backend's Settings."
+    },
+    {
+      "id": "ea9f6ef4-6eef-4fde-ad4d-151e79e8c2e6",
+      "name": "HTTP Request - Set YouTube Thumbnail (Credentials Required)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2340,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=' + $json.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "youTubeOAuth2Api",
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "={{ $('Receive Input').item.json.thumbnail }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "youTubeOAuth2Api": {
+          "id": "arya_youtube_oauth2",
+          "name": "Arya OS - YouTube OAuth2 (create once, reuse everywhere)"
+        }
+      },
+      "notes": "PLACEHOLDER CREDENTIALS \u2014 n8n's core YouTube node has no built-in 'set thumbnail' operation, so this calls the real YouTube Data API v3 thumbnails.set endpoint directly, reusing the same OAuth2 credential slot as the upload node above. 'thumbnail' from the input is expected to be a storage_path or URL \u2014 wire actual binary retrieval the same way as the video file (see the Read Video File node) once a real thumbnail file is available."
+    },
+    {
+      "id": "989099ba-8244-4d97-8fa5-dfbb9589782c",
+      "name": "Set - Build Published Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2600,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "013389e7-244f-4a19-b7e4-04c2ee4dd7eb",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $('Receive Input').item.json.workflow_run_id }}"
+            },
+            {
+              "id": "fcb62949-f432-46b2-94df-7013ad638a00",
+              "name": "youtube_video_id",
+              "type": "string",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "id": "01287a84-365a-4770-b74d-dae9767f0a79",
+              "name": "publish_status",
+              "type": "string",
+              "value": "published"
+            },
+            {
+              "id": "52d09afd-e5d0-48d7-bd0c-f46d0a6046fa",
+              "name": "reviewer_notes",
+              "type": "string",
+              "value": ""
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": false
+        }
+      },
+      "notes": "Successful path \u2014 video + thumbnail uploaded. Feeds into the final Merge below alongside the rejected path. FIXED: now also preserves workflow_run_id (was missing)."
+    },
+    {
+      "id": "da232329-1658-4ccb-9650-e75785601faf",
+      "name": "Merge - Combine Outcomes",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        2860,
+        430
+      ],
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 2
+      },
+      "notes": "Only one of 'Set - Build Rejected Output' / 'Set - Build Published Output' actually emits an item per execution (the If nodes above are mutually exclusive), so this just passes whichever one fired through to a single 'Return video URL' node."
+    },
+    {
+      "id": "ca532fe1-72ed-43ec-b016-c05d38885fc3",
+      "name": "Return video URL",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3120,
+        430
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8218708e-0cfb-41ed-823b-275afdb8a72f",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $json.workflow_run_id }}"
+            },
+            {
+              "id": "77c38a4b-5a3c-45e1-b770-41f5e21ca796",
+              "name": "video_url",
+              "type": "string",
+              "value": "={{ $json.youtube_video_id ? ('https://www.youtube.com/watch?v=' + $json.youtube_video_id) : null }}"
+            },
+            {
+              "id": "f8048a7f-2e08-41a3-b3a9-cdd7e86429ea",
+              "name": "youtube_video_id",
+              "type": "string",
+              "value": "={{ $json.youtube_video_id }}"
+            },
+            {
+              "id": "bbe5836c-79c4-48db-b03a-7c0da2df1a1c",
+              "name": "publish_status",
+              "type": "string",
+              "value": "={{ $json.publish_status }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": false
+        }
+      },
+      "notes": "Final output contract for this sub-workflow: video_url (null if not published), youtube_video_id, publish_status \u2014 consumed by the Main Orchestrator's final summary step. FIXED: now also preserves workflow_run_id in the final output (was missing)."
+    }
+  ],
+  "connections": {
+    "Receive Input": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Create Approval Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Create Approval Checkpoint": {
+      "main": [
+        [
+          {
+            "node": "Wait - Poll Interval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait - Poll Interval": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Get Approval Checkpoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Get Approval Checkpoint": {
+      "main": [
+        [
+          {
+            "node": "If - Decision Made?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If - Decision Made?": {
+      "main": [
+        [
+          {
+            "node": "If - Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait - Poll Interval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If - Approved?": {
+      "main": [
+        [
+          {
+            "node": "Placeholder - Read Video File From Storage",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set - Build Rejected Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Placeholder - Read Video File From Storage": {
+      "main": [
+        [
+          {
+            "node": "YouTube - Upload Video (Credentials Required)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "YouTube - Upload Video (Credentials Required)": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Set YouTube Thumbnail (Credentials Required)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - Set YouTube Thumbnail (Credentials Required)": {
+      "main": [
+        [
+          {
+            "node": "Set - Build Published Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Build Rejected Output": {
+      "main": [
+        [
+          {
+            "node": "Merge - Combine Outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Build Published Output": {
+      "main": [
+        [
+          {
+            "node": "Merge - Combine Outcomes",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge - Combine Outcomes": {
+      "main": [
+        [
+          {
+            "node": "Return video URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "notes": "Sprint 1-3 scaffold sub-workflow. Input contract: workflow_run_id, video_json, title, description, thumbnail. Human Approval uses the backend's REAL, already-built /approvals endpoints (create checkpoint -> poll every 5 min via a Wait node -> branch on the recorded action) \u2014 nothing AI-driven here, just data plumbing. YouTube Upload uses n8n's real native YouTube node plus a direct call to the YouTube Data API's thumbnails.set endpoint, both with PLACEHOLDER, unconfigured OAuth2 credentials since no Google Cloud project/credential has been set up yet. Reading the video file assumes local disk storage (STORAGE_BACKEND=local) and will need adjusting for S3/R2. Output contract: video_url, youtube_video_id, publish_status."
+  },
+  "id": "arya-os-youtube-upload",
+  "tags": []
+}

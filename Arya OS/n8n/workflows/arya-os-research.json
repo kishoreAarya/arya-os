@@ -1,0 +1,209 @@
+{
+  "name": "Arya OS - Research",
+  "nodes": [
+    {
+      "id": "d3b2d797-a86a-429e-ab4f-6de89fb23484",
+      "name": "Receive Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "workflow_run_id"
+            },
+            {
+              "name": "topic"
+            }
+          ]
+        }
+      },
+      "notes": "FIXED: was a plain Manual Trigger, which has no formal input contract and could not actually receive workflow_run_id/topic from the Main Orchestrator's Execute Workflow node. Now an Execute Workflow Trigger, matching every other sub-workflow. Can still be run standalone by pinning sample data on this node."
+    },
+    {
+      "id": "df4f8644-0d63-4283-8e4a-5d23ae4ae2a5",
+      "name": "HTTP Request - Trend Source (Placeholder)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        280,
+        300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "https://PLACEHOLDER-trend-source.example.com/api/trends",
+        "authentication": "none",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "topic",
+              "value": "={{ $json.topic || 'UNSPECIFIED_TOPIC' }}"
+            },
+            {
+              "name": "region",
+              "value": "PLACEHOLDER_REGION"
+            }
+          ]
+        },
+        "sendHeaders": false,
+        "options": {
+          "timeout": 15000,
+          "retryOnFail": true,
+          "maxTries": 3,
+          "waitBetweenTries": 2000
+        }
+      },
+      "notes": "PLACEHOLDER endpoint only \u2014 no real trend/research provider is wired in yet. Point this at a real source (YouTube Data API, Google Trends proxy, a news API, etc.) when one is chosen. This node intentionally does not call any AI/LLM provider. TODO: external trend-source provider still undecided \u2014 URL stays an example.com placeholder (not a backend route, so not swapped to host.docker.internal). retryOnFail added since this is a network call to an eventual third-party API.",
+      "continueOnFail": true
+    },
+    {
+      "id": "93da2998-9b36-4da2-bb02-b7b439dc18f8",
+      "name": "Extract Results",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        560,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f403e8c4-c425-4d41-86d7-529e98f8a938",
+              "name": "raw_results",
+              "type": "array",
+              "value": "={{ $json.items ?? $json.results ?? [] }}"
+            },
+            {
+              "id": "95c8f657-6900-45ec-ac56-2218e133986c",
+              "name": "http_status",
+              "type": "number",
+              "value": "={{ $json.statusCode ?? 200 }}"
+            },
+            {
+              "id": "176a4cf3-1921-4aa7-b6d7-d484fcfaf6a4",
+              "name": "source_url",
+              "type": "string",
+              "value": "={{ $('HTTP Request - Trend Source (Placeholder)').item.json.headers?.['x-request-url'] ?? 'PLACEHOLDER_SOURCE_URL' }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": false
+        }
+      },
+      "notes": "Pulls the relevant array out of whatever shape the placeholder HTTP node returns. Field names (items/results) are guesses to be adjusted once a real trend-source API response shape is known."
+    },
+    {
+      "id": "424fdb7a-6920-47e2-9890-04a6fe9be397",
+      "name": "Normalize Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "// Normalize whatever the placeholder source returned into a\n// stable shape the rest of the pipeline (Script Generation, etc.)\n// can rely on. No AI/inference happens here \u2014 this is pure\n// data shaping, with safe fallbacks since the upstream source\n// is currently a placeholder and may return nothing real.\nconst input = $input.first().json;\nconst rawResults = Array.isArray(input.raw_results) ? input.raw_results : [];\n\nconst normalized = rawResults.map((item, index) => {\n  return {\n    rank: index + 1,\n    title: item.title ?? item.name ?? 'PLACEHOLDER_TITLE',\n    summary: item.summary ?? item.description ?? 'PLACEHOLDER_SUMMARY',\n    source: item.source ?? input.source_url ?? 'PLACEHOLDER_SOURCE',\n    score: typeof item.score === 'number' ? item.score : null,\n  };\n});\n\n// Guarantee at least one placeholder row so downstream\n// sub-workflows (Script Generation) always receive a\n// well-formed research_data array, even before a real\n// trend source is wired in.\nif (normalized.length === 0) {\n  normalized.push({\n    rank: 1,\n    title: 'PLACEHOLDER_TITLE',\n    summary: 'PLACEHOLDER_SUMMARY',\n    source: 'PLACEHOLDER_SOURCE',\n    score: null,\n  });\n}\n\nreturn [{ json: { workflow_run_id: input.workflow_run_id ?? null, research_data: normalized } }];\n"
+      },
+      "notes": "Pure data normalization \u2014 no AI/LLM calls. Guarantees a non-empty research_data array even when the placeholder HTTP source returns nothing."
+    },
+    {
+      "id": "6d62faae-6af1-438b-a90a-a21d0b743cd4",
+      "name": "Return JSON",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1120,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0aa39cc5-6593-40f7-a941-1481ec600902",
+              "name": "workflow_run_id",
+              "type": "string",
+              "value": "={{ $json.workflow_run_id }}"
+            },
+            {
+              "id": "4d9a408a-6e1f-429d-910e-59b7392979d3",
+              "name": "research_data",
+              "type": "array",
+              "value": "={{ $json.research_data }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": false
+        }
+      },
+      "notes": "FIXED: previously only returned research_data, silently dropping workflow_run_id. Now returns { workflow_run_id, research_data } \u2014 consumed by the Main Orchestrator's Execute Workflow node."
+    }
+  ],
+  "connections": {
+    "HTTP Request - Trend Source (Placeholder)": {
+      "main": [
+        [
+          {
+            "node": "Extract Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Results": {
+      "main": [
+        [
+          {
+            "node": "Normalize Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Data": {
+      "main": [
+        [
+          {
+            "node": "Return JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Receive Input": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - Trend Source (Placeholder)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "notes": "Sprint 1-3 scaffold sub-workflow. The HTTP Request node points at a placeholder URL \u2014 no real trend/research source is wired in yet, and no AI/LLM provider is called anywhere in this workflow. Output contract: a single top-level 'research_data' array field, intended to be called via Execute Workflow from 'Arya OS - Main Orchestrator'."
+  },
+  "id": "arya-os-research",
+  "tags": []
+}

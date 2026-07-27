@@ -1,0 +1,218 @@
+{
+  "name": "Arya OS - Storyboard",
+  "nodes": [
+    {
+      "id": "17ece36c-96bf-4ae4-9492-35b93669fdca",
+      "name": "Receive Input",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "workflow_run_id"
+            },
+            {
+              "name": "script_json"
+            }
+          ]
+        }
+      },
+      "notes": "Formal input contract for this sub-workflow: workflow_run_id + script_json (the object produced by 'Arya OS - Script Generation', containing script_id/script_content). Can also be run manually for standalone testing with pinned sample data."
+    },
+    {
+      "id": "d86bc660-69c0-4817-8289-f76024aa813b",
+      "name": "Storyboard Generator API (Placeholder)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        280,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8000/api/agents/storyboard",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ workflow_run_id: $json.workflow_run_id, script_id: $json.script_json.script_id, script_content: $json.script_json.script_content }) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "retryOnFail": true,
+          "maxTries": 3,
+          "waitBetweenTries": 2000
+        }
+      },
+      "notes": "TODO: BACKEND ENDPOINT MISSING \u2014 'POST /api/agents/storyboard' does not exist today. Do not fabricate it; build deliberately when a Storyboard agent is implemented. Host fixed to host.docker.internal. Credential now references the shared 'arya_backend_shared_secret' httpHeaderAuth credential (same one used across the whole suite). retryOnFail added (3 tries, 2s apart); continueOnFail stays on so a missing endpoint routes to the Validation-Failed branch instead of crashing the pipeline.",
+      "continueOnFail": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "arya_backend_shared_secret",
+          "name": "Arya OS Backend - Shared Secret (create once, reuse everywhere)"
+        }
+      }
+    },
+    {
+      "id": "8cd982ae-85fa-478c-ba5a-1e272f8364cb",
+      "name": "Validation",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        560,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "8fb11d38-4e7e-4383-ab56-5a7c797b1278",
+              "leftValue": "={{ $json.error === undefined }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "c5f03df7-ab54-4b36-9de4-d3428d0e5fe7",
+              "leftValue": "={{ Array.isArray($json.shots) && $json.shots.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "notes": "Checks the placeholder HTTP call didn't error AND returned a non-empty shots array. This is a structural check only \u2014 no AI/content-quality validation happens here (that belongs to a dedicated Storyboard/Consistency validator sub-workflow later if one is added)."
+    },
+    {
+      "id": "ed0f8747-58d0-4d38-af1e-a83d95196b9d",
+      "name": "Set - Validation Failed (Placeholder)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        840,
+        520
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "13f58684-612c-4a46-99eb-5496571bd8a0",
+              "name": "storyboard_json",
+              "type": "object",
+              "value": "={{ { workflow_run_id: $('Receive Input').item.json.workflow_run_id, storyboard_id: null, shots: [], error: $json.error ?? 'PLACEHOLDER_STORYBOARD_AGENT_UNAVAILABLE' } }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": false
+        }
+      },
+      "notes": "PLACEHOLDER failure path \u2014 since /api/agents/storyboard doesn't exist yet, every real run currently lands here. Returns an empty storyboard_json with an error field so downstream stages (Image Generation, Human Approval) can detect the failure instead of silently receiving zero shots. FIXED: now also preserves workflow_run_id (was missing)."
+    },
+    {
+      "id": "9bdcfa24-a414-4fc1-84e2-1f6a498d2f95",
+      "name": "Return Output",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1120,
+        300
+      ],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cb1c9d2c-c790-466b-b8e2-084a7cf91ec7",
+              "name": "storyboard_json",
+              "type": "object",
+              "value": "={{ { workflow_run_id: $('Receive Input').item.json.workflow_run_id, storyboard_id: $json.storyboard_id ?? 'PLACEHOLDER_STORYBOARD_ID', shots: $json.shots, shot_count: Array.isArray($json.shots) ? $json.shots.length : 0 } }}"
+            }
+          ]
+        },
+        "options": {
+          "includeOtherFields": false
+        }
+      },
+      "notes": "Final output contract for this sub-workflow: a single top-level 'storyboard_json' object, consumed by the Main Orchestrator's Execute Workflow node. FIXED: now also preserves workflow_run_id (was missing)."
+    }
+  ],
+  "connections": {
+    "Receive Input": {
+      "main": [
+        [
+          {
+            "node": "Storyboard Generator API (Placeholder)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Storyboard Generator API (Placeholder)": {
+      "main": [
+        [
+          {
+            "node": "Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validation": {
+      "main": [
+        [
+          {
+            "node": "Return Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set - Validation Failed (Placeholder)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "notes": "Sprint 1-3 scaffold sub-workflow. Input contract: workflow_run_id + script_json. The HTTP Request node calls a FastAPI route ('/api/agents/storyboard') that does not exist yet \u2014 the current backend only has /approvals, /feature-flags, /lineage, and /health*. No AI/shot-breakdown logic lives in this workflow itself. Output contract: a single top-level 'storyboard_json' object, intended to be called via Execute Workflow from 'Arya OS - Main Orchestrator'."
+  },
+  "id": "arya-os-storyboard",
+  "tags": []
+}

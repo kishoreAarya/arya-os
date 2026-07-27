@@ -1,0 +1,9 @@
+# CODEOWNERS — Arya OS
+#
+# Single-maintainer project (Sprint 1-3 scaffold). This file exists so
+# review requests auto-assign and branch protection can require review,
+# not because ownership is actually split across a team yet. Update the
+# username below and split by path once there's more than one
+# contributor.
+
+* @somasekhar-owner-placeholder
