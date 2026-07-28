@@ -1,61 +1,62 @@
 """
-Execution Engine — Milestone 2: Provider Execution Integration.
+Execution Engine — Milestone 3: Validation Integration.
 
 Reference: ARCHITECTURE_v1.0.md was not found in this project — this
 was built against ARYA_OS_BUILD_INSTRUCTIONS.md's Step 1 spec instead.
 Flagging the substitution rather than silently assuming they're
-identical (same note as Milestone 1).
+identical (same note as Milestones 1 and 2).
 
-MILESTONE 2 DELTA (most of "integrate the Provider Router" was already
-done in Milestone 1, since _call_provider() was built as a real
-wrapper rather than a stub from the start — this milestone adds only
-what was genuinely still missing):
-- An explicit "execution succeeded" log line (Milestone 1 only logged
-  start and failure).
-- Field names on ExecutionResult aligned to this milestone's spec:
-  `provider_used` -> `provider`, `duration_seconds` -> `elapsed_time`
-  (the latter also now matches ExecutionContext's field name, fixing
-  a naming inconsistency Milestone 1 introduced between the two
-  dataclasses).
-- A `model` field on ExecutionResult, per spec — but see the note on
-  it below. Nothing else about provider selection, retries, or
-  fallback changed; that logic already existed in
-  app/providers/router.py before Milestone 1 and is untouched here.
+MILESTONE 3 DELTA: `_validate()` was a TODO stub returning None
+unconditionally since Milestone 1 — this milestone implements it for
+real, extending that same method rather than adding a new one.
+Validation is opt-in per call via a new `validator_name` parameter on
+execute(): pass None (the default) and nothing changes from Milestone
+2's behavior. Pass a real key from VALIDATOR_REGISTRY
+(app/validators/__init__.py — "story", "prompt", "image",
+"consistency", "video", "thumbnail", "brand") and, after a successful
+provider call, ExecutionEngine looks that validator up, runs it, and
+folds the result into ExecutionResult.
 
-KNOWN GAP, NOT INVENTED AROUND: `model` cannot actually be populated
-yet. Neither RouterResult (app/providers/router.py) nor
-openrouter.generate_text()'s return value carries which model was
-used — only the caller happens to know, because it chose the model
-itself before calling. Populating this for real means extending
-RouterResult's shape, which is a change to the Provider Router's own
-contract, not something in this milestone's scope ("integrate through
-its public interface only, do not bypass it" — extending its return
-shape is a design decision for a future milestone, not this one). The
-field exists on ExecutionResult now, per spec, and is always None
-until that decision is made.
+INTEGRATION CONTRACT WORTH KNOWING: BaseValidator.validate() takes a
+plain `artifact: dict` (e.g. StoryValidator expects
+`artifact["content"]`). ExecutionEngine passes `router_result.output`
+straight through as that artifact, unreshaped — it is the caller's
+responsibility to make sure whatever the provider call returns is
+already the shape the chosen validator expects. No agents exist yet
+that call ExecutionEngine at all (ScriptAgent still calls
+call_with_fallback directly, untouched — see below), so there is no
+real caller to get this wrong yet; this will matter starting with
+whichever agent is the first to pass a real validator_name.
 
-MILESTONE 1 SCOPE, STILL UNCHANGED — what this file still does NOT do:
-- No retry loop. `_call_provider` makes exactly one call to
-  call_with_fallback and returns or raises. call_with_fallback's own
-  internal provider-to-provider fallback still applies (that already
-  existed and isn't new retry logic) — what's deferred is retrying
-  the SAME step again after a validation failure, which needs the
-  Decision Engine to decide whether that's even the right move.
+KNOWN GAP CARRIED OVER FROM MILESTONE 2, NOT RE-LITIGATED HERE:
+`ExecutionResult.model` still cannot be populated — see Milestone 2's
+note, unchanged, still true, still not invented around.
+
+MILESTONE 1/2 SCOPE, STILL UNCHANGED — what this file still does NOT do:
+- No retry loop, anywhere, for any reason. A failed provider call or a
+  failed validation both return immediately. call_with_fallback's own
+  internal provider-to-provider fallback still applies (pre-existing,
+  not new retry logic) — what's still deferred is retrying the SAME
+  step again after a validation failure, which needs the Decision
+  Engine (not built) to decide whether that's even the right move.
 - No Decision Engine integration, no circuit breakers, no capability
   selection logic beyond what call_with_fallback already did, no
-  human approval, no analytics, no learning loop.
-- No real validation. `_validate` is a TODO stub returning None.
-- No persistence. `_persist` is a TODO stub — no GenerationAttempt
-  row is written yet, no quality_score is updated yet.
+  prompt rewriting, no provider switching, no human approval, no
+  analytics, no learning loop.
+- No new validators, no changes to any existing validator, no changes
+  to VALIDATOR_REGISTRY's contents — this milestone only calls what's
+  already there.
+- No persistence. `_persist` is still a TODO stub — no
+  GenerationAttempt row is written yet, no quality_score is updated
+  yet, even for a run that included a real validation result.
 
 Beginner note: this is the layer every future agent executes through
 instead of each one reimplementing its own provider call, cost
-tracking, and error handling. Script Agent (app/agents/script.py)
-predates this file and still calls app/providers/router.py's
-call_with_fallback() directly — it is NOT rewired to use this class in
-this milestone, on purpose, per this milestone's scope (rule 9: don't
-modify ScriptAgent). That's a follow-up milestone, once ExecutionEngine
-has proven itself on a second agent (Storyboard) first.
+tracking, validation dispatch, and error handling. Script Agent
+(app/agents/script.py) predates this file and still calls
+app/providers/router.py's call_with_fallback() directly — it is NOT
+rewired to use this class in this milestone either, on purpose, per
+this milestone's scope (rule 12: don't modify ScriptAgent).
 """
 
 import time
@@ -68,9 +69,24 @@ from app.core.logging import get_logger
 from app.events.log import EventType, log_event
 from app.providers.capabilities import Capability
 from app.providers.router import ProviderCall, RouterResult, call_with_fallback
+from app.validators import VALIDATOR_REGISTRY
 from app.validators.base import ValidationResult
 
 logger = get_logger(__name__)
+
+
+class UnknownValidatorError(RuntimeError):
+    """Raised when a validator_name doesn't match anything in
+    VALIDATOR_REGISTRY. Same treatment as AllProvidersFailedError in
+    app/providers/router.py: a clean, catchable error, not a typo
+    silently doing nothing."""
+
+    def __init__(self, validator_name: str):
+        self.validator_name = validator_name
+        super().__init__(
+            f"Unknown validator '{validator_name}' — not in VALIDATOR_REGISTRY "
+            f"(available: {sorted(VALIDATOR_REGISTRY.keys())})"
+        )
 
 
 @dataclass
@@ -133,14 +149,21 @@ class ExecutionEngine:
         workflow_run_id: uuid.UUID | str | None,
         stage: str,
         running_cost_usd: float = 0.0,
+        validator_name: str | None = None,
     ) -> ExecutionResult:
-        """Public entrypoint. Milestone 1: one provider call, no retry
-        loop, no Decision Engine, validation/persistence are no-ops.
+        """Public entrypoint.
 
         `capability` / `call` / `running_cost_usd` match
-        call_with_fallback's own parameters exactly, since this
-        milestone's `_call_provider` is a thin wrapper around it — see
-        the module docstring for why nothing beyond that is built yet.
+        call_with_fallback's own parameters exactly, since
+        `_call_provider` is a thin wrapper around it.
+
+        `validator_name` is new in Milestone 3 and optional: leave it
+        None (the default) to skip validation entirely — behavior is
+        identical to Milestone 2. Pass a real VALIDATOR_REGISTRY key
+        ("story", "prompt", "image", "consistency", "video",
+        "thumbnail", "brand") to have ExecutionEngine run that
+        validator against the provider's output after a successful
+        call, before returning.
         """
         context = ExecutionContext(workflow_run_id=workflow_run_id, stage=stage)
         started = time.monotonic()
@@ -160,7 +183,7 @@ class ExecutionEngine:
                 stage=stage,
                 running_cost_usd=running_cost_usd,
             )
-        # Milestone 1: no retry/decision path yet - any failure here is terminal.
+        # Milestone 1-3: no retry/decision path yet - any failure here is terminal.
         except Exception as exc:  # noqa: BLE001
             context.elapsed_time = time.monotonic() - started
             logger.error(
@@ -179,8 +202,48 @@ class ExecutionEngine:
         context.provider = router_result.provider_used
         context.accumulated_cost = running_cost_usd + router_result.cost_usd
 
-        # TODO (future milestone): real validation against a BaseValidator.
-        context.validation_result = await self._validate(router_result.output)
+        # Validation only ever runs after a successful provider call
+        # (requirement 5) — there's no path above that reaches here
+        # without router_result already being a success.
+        if validator_name is not None:
+            try:
+                validation_result = await self._validate(
+                    validator_name, router_result.output
+                )
+            except UnknownValidatorError as exc:
+                context.elapsed_time = time.monotonic() - started
+                logger.error(
+                    "execution_engine_unknown_validator",
+                    stage=stage,
+                    validator=validator_name,
+                    error=str(exc),
+                )
+                return ExecutionResult(
+                    success=False,
+                    provider=router_result.provider_used,
+                    cost_usd=router_result.cost_usd,
+                    error=str(exc),
+                    elapsed_time=context.elapsed_time,
+                    context=context,
+                )
+
+            context.validation_result = validation_result
+
+            if not validation_result.passed:
+                # Requirement 7: mark failed, attach the result, return
+                # immediately — no retry, no Decision Engine, no
+                # persistence call, no second provider call.
+                context.elapsed_time = time.monotonic() - started
+                return ExecutionResult(
+                    success=False,
+                    output=router_result.output,
+                    provider=router_result.provider_used,
+                    cost_usd=router_result.cost_usd,
+                    elapsed_time=context.elapsed_time,
+                    error=f"Validation '{validator_name}' failed: "
+                    f"{'; '.join(validation_result.issues) if validation_result.issues else 'no issues listed'}",
+                    context=context,
+                )
 
         # TODO (future milestone): write GenerationAttempt + update quality_score.
         await self._persist(context, router_result)
@@ -194,6 +257,7 @@ class ExecutionEngine:
             provider=router_result.provider_used,
             cost_usd=router_result.cost_usd,
             elapsed_time=context.elapsed_time,
+            validated=validator_name is not None,
         )
 
         return ExecutionResult(
@@ -229,15 +293,49 @@ class ExecutionEngine:
             running_cost_usd=running_cost_usd,
         )
 
-    async def _validate(self, output: object) -> ValidationResult | None:
-        """TODO (future milestone): call the matching BaseValidator
-        (app/validators/base.py) on `output` and return its
-        ValidationResult. Deliberately a no-op in Milestone 1 — no
-        validator is implemented yet, and wiring one in here without
-        a Decision Engine to act on a failed result would have
-        nowhere to route a failure anyway.
+    async def _validate(self, validator_name: str, output: dict) -> ValidationResult:
+        """Discovers, runs, and logs the requested validator.
+
+        Extends what was a TODO stub through Milestone 1-2 (it used to
+        take just `output` and always return None) — same method, now
+        implemented, not a new one alongside it.
+
+        Raises UnknownValidatorError if `validator_name` isn't in
+        VALIDATOR_REGISTRY (app/validators/__init__.py) — never
+        silently skips validation on a typo.
+
+        `output` is passed straight through as the `artifact` dict
+        BaseValidator.validate() expects — see the module docstring's
+        "INTEGRATION CONTRACT" note for what that implies.
+
+        BaseValidator.validate() is a synchronous method (unlike
+        BaseAgent.run(), which is async) — called directly here, not
+        awaited, since rule 2 forbids modifying the existing validator
+        contract.
         """
-        return None
+        validator = VALIDATOR_REGISTRY.get(validator_name)
+        if validator is None:
+            raise UnknownValidatorError(validator_name)
+
+        logger.info("execution_engine_validation_started", validator=validator_name)
+
+        result = validator.validate(output)
+
+        if result.passed:
+            logger.info(
+                "execution_engine_validation_succeeded",
+                validator=validator_name,
+                score=result.score,
+            )
+        else:
+            logger.warning(
+                "execution_engine_validation_failed",
+                validator=validator_name,
+                score=result.score,
+                issues=result.issues,
+            )
+
+        return result
 
     async def _persist(
         self, context: ExecutionContext, router_result: RouterResult
