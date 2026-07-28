@@ -13,7 +13,7 @@ dependencies = [
     "pydantic-settings>=2.6.0",
     "redis>=5.2.0",
     "structlog>=24.4.0",
-    "apscheduler>=3.10.4",
+    "apscheduler>=3.11.3",
 ]
 
 [project.optional-dependencies]
