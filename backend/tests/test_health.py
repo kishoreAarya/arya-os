@@ -14,4 +14,4 @@ def test_root_returns_running_status():
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "running"
-        assert body["sprint"] == 1
+        assert body["sprint"] == 3
