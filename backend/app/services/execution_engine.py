@@ -1,38 +1,61 @@
 """
-Execution Engine — Milestone 1.
+Execution Engine — Milestone 2: Provider Execution Integration.
 
 Reference: ARCHITECTURE_v1.0.md was not found in this project — this
-was built against ARYA_OS_BUILD_INSTRUCTIONS.md's Step 1 spec instead,
-which describes the same responsibilities (provider routing, provider
-execution, validation, cost tracking, logging, metrics, retry loop,
-Decision Engine integration, persistence). Flagging the substitution
-rather than silently assuming they're identical.
+was built against ARYA_OS_BUILD_INSTRUCTIONS.md's Step 1 spec instead.
+Flagging the substitution rather than silently assuming they're
+identical (same note as Milestone 1).
 
-Beginner note: this is the layer every future agent executes through
-instead of each one reimplementing its own provider call, cost
-tracking, and error handling. Script Agent (app/agents/script.py)
-predates this file and still calls app/providers/router.py's
-call_with_fallback() directly — it is NOT rewired to use this class in
-this milestone, on purpose, per this milestone's scope. That's a
-follow-up milestone, once ExecutionEngine has proven itself on a
-second agent (Storyboard) first.
+MILESTONE 2 DELTA (most of "integrate the Provider Router" was already
+done in Milestone 1, since _call_provider() was built as a real
+wrapper rather than a stub from the start — this milestone adds only
+what was genuinely still missing):
+- An explicit "execution succeeded" log line (Milestone 1 only logged
+  start and failure).
+- Field names on ExecutionResult aligned to this milestone's spec:
+  `provider_used` -> `provider`, `duration_seconds` -> `elapsed_time`
+  (the latter also now matches ExecutionContext's field name, fixing
+  a naming inconsistency Milestone 1 introduced between the two
+  dataclasses).
+- A `model` field on ExecutionResult, per spec — but see the note on
+  it below. Nothing else about provider selection, retries, or
+  fallback changed; that logic already existed in
+  app/providers/router.py before Milestone 1 and is untouched here.
 
-MILESTONE 1 SCOPE — what this file does NOT do yet:
+KNOWN GAP, NOT INVENTED AROUND: `model` cannot actually be populated
+yet. Neither RouterResult (app/providers/router.py) nor
+openrouter.generate_text()'s return value carries which model was
+used — only the caller happens to know, because it chose the model
+itself before calling. Populating this for real means extending
+RouterResult's shape, which is a change to the Provider Router's own
+contract, not something in this milestone's scope ("integrate through
+its public interface only, do not bypass it" — extending its return
+shape is a design decision for a future milestone, not this one). The
+field exists on ExecutionResult now, per spec, and is always None
+until that decision is made.
+
+MILESTONE 1 SCOPE, STILL UNCHANGED — what this file still does NOT do:
 - No retry loop. `_call_provider` makes exactly one call to
   call_with_fallback and returns or raises. call_with_fallback's own
   internal provider-to-provider fallback still applies (that already
   existed and isn't new retry logic) — what's deferred is retrying
   the SAME step again after a validation failure, which needs the
   Decision Engine to decide whether that's even the right move.
-- No Decision Engine integration. There is nowhere in this file that
-  asks "retry / switch provider / escalate" — that's Milestone 2+.
+- No Decision Engine integration, no circuit breakers, no capability
+  selection logic beyond what call_with_fallback already did, no
+  human approval, no analytics, no learning loop.
 - No real validation. `_validate` is a TODO stub returning None.
 - No persistence. `_persist` is a TODO stub — no GenerationAttempt
   row is written yet, no quality_score is updated yet.
 
-This milestone's only job is: does the public interface (`execute()`)
-have the right shape, and does everything wire together without
-touching anything that already works?
+Beginner note: this is the layer every future agent executes through
+instead of each one reimplementing its own provider call, cost
+tracking, and error handling. Script Agent (app/agents/script.py)
+predates this file and still calls app/providers/router.py's
+call_with_fallback() directly — it is NOT rewired to use this class in
+this milestone, on purpose, per this milestone's scope (rule 9: don't
+modify ScriptAgent). That's a follow-up milestone, once ExecutionEngine
+has proven itself on a second agent (Storyboard) first.
 """
 
 import time
@@ -71,13 +94,22 @@ class ExecutionContext:
 
 @dataclass
 class ExecutionResult:
-    """What execute() hands back to the caller (an agent, eventually)."""
+    """What execute() hands back to the caller (an agent, eventually).
+
+    Field names match this milestone's spec exactly: `provider` and
+    `elapsed_time` (Milestone 1 used `provider_used`/`duration_seconds`
+    — renamed here, not additive, since nothing outside this file's
+    own tests consumed the old names yet).
+    """
 
     success: bool
     output: object | None = None
-    provider_used: str | None = None
+    provider: str | None = None
+    model: str | None = (
+        None  # always None for now — see module docstring's "KNOWN GAP" note
+    )
     cost_usd: float = 0.0
-    duration_seconds: float = 0.0
+    elapsed_time: float = 0.0
     error: str | None = None
     context: ExecutionContext = field(
         default_factory=lambda: ExecutionContext(None, "unknown")
@@ -140,7 +172,7 @@ class ExecutionEngine:
             return ExecutionResult(
                 success=False,
                 error=str(exc),
-                duration_seconds=context.elapsed_time,
+                elapsed_time=context.elapsed_time,
                 context=context,
             )
 
@@ -155,12 +187,21 @@ class ExecutionEngine:
 
         context.elapsed_time = time.monotonic() - started
 
+        logger.info(
+            "execution_engine_call_succeeded",
+            stage=stage,
+            capability=capability.value,
+            provider=router_result.provider_used,
+            cost_usd=router_result.cost_usd,
+            elapsed_time=context.elapsed_time,
+        )
+
         return ExecutionResult(
             success=True,
             output=router_result.output,
-            provider_used=router_result.provider_used,
+            provider=router_result.provider_used,
             cost_usd=router_result.cost_usd,
-            duration_seconds=context.elapsed_time,
+            elapsed_time=context.elapsed_time,
             context=context,
         )
 
