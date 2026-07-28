@@ -1,32 +1,61 @@
 """
-Agent registry — a plain dict mapping agent name -> instance.
+Agent registry — a plain dict mapping agent name -> CLASS (not an
+instance).
 
-Beginner note: this is intentionally NOT a fancy plugin-loader with
+CHANGED FROM instance-per-entry TO class-per-entry: most agents now
+take `db: AsyncSession` in their constructor (they use ExecutionEngine,
+which itself needs a request-scoped session — see execution_engine.py).
+Instantiating every agent eagerly at module-import time (the original
+approach) is incompatible with that — there's no db session available
+at import time, and it would break the whole app's import chain the
+moment any agent needed one (which is exactly what happened while
+building this file). Storing classes and instantiating at the point of
+use (e.g. `AGENT_REGISTRY["image"](db)`) is what every other DI'd
+piece in this codebase already does (WorkflowRunRepository(db),
+ExecutionEngine(db)) — this brings the registry in line with that,
+rather than being the one exception.
+
+ScriptAgent, PromptAgent, and MusicAgent take no constructor args
+(`AGENT_REGISTRY["script"]()`) — the registry doesn't need to know or
+care which is which; the caller does, same as instantiating any class
+directly.
+
+Beginner note: still intentionally NOT a fancy plugin-loader with
 auto-discovery/entry-points — that's over-engineering for a
 single-developer project. To add a new agent: write agents/foo.py
 implementing BaseAgent, import it below, add one line to the dict.
-That's the whole "minimal change" requirement satisfied.
 """
-from app.agents.base import BaseAgent
-from app.agents.trend import TrendAgent
-from app.agents.script import ScriptAgent
-from app.agents.prompt import PromptAgent
-from app.agents.image import ImageAgent
-from app.agents.video import VideoAgent
-from app.agents.thumbnail import ThumbnailAgent
-from app.agents.music import MusicAgent
 
-AGENT_REGISTRY: dict[str, BaseAgent] = {
-    "trend": TrendAgent(),
-    "script": ScriptAgent(),
-    "prompt": PromptAgent(),
-    "image": ImageAgent(),
-    "video": VideoAgent(),
-    "thumbnail": ThumbnailAgent(),
-    "music": MusicAgent(),
+from app.agents.analytics import AnalyticsAgent
+from app.agents.base import BaseAgent
+from app.agents.image import ImageAgent
+from app.agents.music import MusicAgent
+from app.agents.prompt import PromptAgent
+from app.agents.publishing import PublishingAgent
+from app.agents.script import ScriptAgent
+from app.agents.storyboard import StoryboardAgent
+from app.agents.thumbnail import ThumbnailAgent
+from app.agents.trend import TrendAgent
+from app.agents.video import VideoAgent
+from app.agents.voice import VoiceAgent
+
+AGENT_REGISTRY: dict[str, type[BaseAgent]] = {
+    "trend": TrendAgent,
+    "script": ScriptAgent,
+    "prompt": PromptAgent,
+    "storyboard": StoryboardAgent,
+    "voice": VoiceAgent,
+    "image": ImageAgent,
+    "video": VideoAgent,
+    "thumbnail": ThumbnailAgent,
+    "publishing": PublishingAgent,
+    "analytics": AnalyticsAgent,
+    "music": MusicAgent,
 }
 
-# To add a new agent later (e.g. a Voice Agent):
-#   1. Create agents/voice.py with `class VoiceAgent(BaseAgent): ...`
+# To add a new agent later:
+#   1. Create agents/foo.py with `class FooAgent(BaseAgent): ...`
 #   2. Import it above
-#   3. Add "voice": VoiceAgent() to the dict
+#   3. Add "foo": FooAgent to the dict
+#   4. Instantiate at the point of use: AGENT_REGISTRY["foo"](db) if it
+#      needs a db session, or AGENT_REGISTRY["foo"]() if it doesn't.
