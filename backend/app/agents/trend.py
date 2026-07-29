@@ -34,10 +34,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.base import AgentResult, BaseAgent
-from app.core.secrets import SecretNotConfigured, get_secrets_manager
 from app.models.analytics import PerformanceLearningFeedback
-from app.providers import openrouter
-from app.providers.capabilities import Capability, ProviderCapability
+from app.providers.capabilities import Capability
+from app.providers.text_dispatch import build_text_generation_call
 from app.services.execution_engine import ExecutionEngine
 
 
@@ -119,27 +118,9 @@ class TrendAgent(BaseAgent):
         feedback = await self._read_learning_feedback()
         prompt = _build_research_prompt(topic, trend_signals, feedback)
 
-        async def call_provider(provider: ProviderCapability) -> tuple[str, float]:
-            if provider.name == "openrouter":
-                try:
-                    api_key = get_secrets_manager().get("openrouter_api_key")
-                except SecretNotConfigured as exc:
-                    raise RuntimeError(str(exc)) from exc
-                model = (
-                    provider.supported_models[0]
-                    if provider.supported_models
-                    else "deepseek/deepseek-chat"
-                )
-                return await openrouter.generate_text(
-                    prompt=prompt, api_key=api_key, model=model
-                )
-            raise RuntimeError(
-                f"No adapter implemented yet for provider '{provider.name}'"
-            )
-
         exec_result = await self._execution_engine.execute(
             capability=Capability.TEXT_GENERATION,
-            call=call_provider,
+            call=build_text_generation_call(prompt),
             workflow_run_id=context.get("workflow_run_id"),
             stage="research",
         )
