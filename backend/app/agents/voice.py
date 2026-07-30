@@ -1,19 +1,9 @@
 """
 VoiceAgent — generates narration audio from script content.
 
-Uses Capability.TTS (app/providers/capabilities.py) — this capability
-and its two registered providers (openai, replicate) already existed
-before this task; nothing was added to the registry for this agent.
-
-No TTS provider adapter exists yet (only app/providers/openrouter.py is
-a real adapter today) — per this milestone's "do not implement actual
-provider SDK integrations," `_call_provider`'s closure below honestly
-raises for both candidate providers rather than faking a working
-integration. Calling this agent today will surface a real
-AllProvidersFailedError via ExecutionEngine — that's correct,
-structural behavior, not a bug: it tells you exactly what's missing
-(a TTS adapter file), the same way ScriptAgent looked before
-app/providers/openrouter.py was written.
+Uses Capability.TTS via the shared media dispatch
+(app/providers/media_dispatch.py) to route to openai or replicate
+depending on provider availability and cost ceilings.
 """
 
 from dataclasses import dataclass
@@ -21,7 +11,8 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.base import AgentResult, BaseAgent
-from app.providers.capabilities import Capability, ProviderCapability
+from app.providers.capabilities import Capability
+from app.providers.media_dispatch import build_media_generation_call
 from app.services.execution_engine import ExecutionEngine
 
 
@@ -39,14 +30,6 @@ class VoiceResult:
     voice_profile: str | None = None
 
 
-def _build_narration_request(script_content: str, voice_profile: str | None) -> dict:
-    """TODO: real TTS request shape depends on which provider adapter
-    is eventually written (OpenAI's audio API and Replicate's TTS
-    models have different request shapes) — this is a placeholder
-    payload describing intent, not a real API call body."""
-    return {"text": script_content, "voice_profile": voice_profile or "default"}
-
-
 class VoiceAgent(BaseAgent):
     name = "voice_agent"
 
@@ -58,10 +41,10 @@ class VoiceAgent(BaseAgent):
         """Expected context keys:
         script_content (str, required)
         script_id (str, optional)
-        voice_profile (str, optional) — per the Workflow Manifest
-            concept in ARYA_OS_BUILD_INSTRUCTIONS.md section 6
-            (not implemented as a real object yet — just a plain
-            optional string here until that exists for real)
+        voice_profile (str, optional) — carried through to VoiceResult
+            for downstream use; not passed to the TTS provider since
+            the shared dispatch does not yet support voice-selection
+            parameters (all providers use their default voice).
         """
         script_content = context.get("script_content")
         if not script_content or not str(script_content).strip():
@@ -70,21 +53,13 @@ class VoiceAgent(BaseAgent):
             )
 
         voice_profile = context.get("voice_profile")
-        request_payload = _build_narration_request(script_content, voice_profile)
-
-        async def call_provider(provider: ProviderCapability) -> tuple[dict, float]:
-            # TODO: real integration required — no TTS provider adapter
-            # exists yet (see module docstring). Both "openai" and
-            # "replicate" (the two Capability.TTS candidates) raise
-            # here until one is written.
-            raise RuntimeError(
-                f"No TTS adapter implemented yet for provider '{provider.name}' "
-                f"(request would have been: {request_payload})"
-            )
 
         exec_result = await self._execution_engine.execute(
             capability=Capability.TTS,
-            call=call_provider,
+            call=build_media_generation_call(
+                capability=Capability.TTS,
+                prompt=script_content,
+            ),
             workflow_run_id=context.get("workflow_run_id"),
             stage="voice_generation",
         )
@@ -92,9 +67,6 @@ class VoiceAgent(BaseAgent):
         if not exec_result.success:
             return AgentResult(success=False, error=exec_result.error)
 
-        # Unreachable until a real TTS adapter exists — kept so the
-        # success path's shape is correct and ready, matching every
-        # other agent in this file set.
         output = exec_result.output or {}
         voice_result = VoiceResult(
             script_id=context.get("script_id"),

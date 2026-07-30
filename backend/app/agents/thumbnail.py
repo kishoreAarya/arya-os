@@ -1,9 +1,9 @@
 """
 ThumbnailAgent — generates a thumbnail image.
 
-Reuses Capability.IMAGE_GENERATION (thumbnails are images; no separate
-capability needed) — same fal/comfyui candidates as ImageAgent, same
-honest "no adapter yet" stub pattern.
+Uses Capability.IMAGE_GENERATION via the shared media dispatch
+(app/providers/media_dispatch.py) to route to fal, comfyui, or
+replicate depending on provider availability and cost ceilings.
 """
 
 from dataclasses import dataclass
@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.base import AgentResult, BaseAgent
-from app.providers.capabilities import Capability, ProviderCapability
+from app.providers.capabilities import Capability
+from app.providers.media_dispatch import build_media_generation_call
 from app.services.execution_engine import ExecutionEngine
 
 
@@ -56,17 +57,12 @@ class ThumbnailAgent(BaseAgent):
 
         prompt = _build_thumbnail_prompt(topic, context.get("style_guide"))
 
-        async def call_provider(provider: ProviderCapability) -> tuple[dict, float]:
-            # TODO: real integration required — no image provider
-            # adapter exists yet (see ImageAgent's identical note).
-            raise RuntimeError(
-                f"No image-generation adapter implemented yet for provider "
-                f"'{provider.name}' (prompt would have been: {prompt!r})"
-            )
-
         exec_result = await self._execution_engine.execute(
             capability=Capability.IMAGE_GENERATION,
-            call=call_provider,
+            call=build_media_generation_call(
+                capability=Capability.IMAGE_GENERATION,
+                prompt=prompt,
+            ),
             workflow_run_id=context.get("workflow_run_id"),
             stage="thumbnail_generation",
         )

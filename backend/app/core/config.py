@@ -104,6 +104,16 @@ class Settings(BaseSettings):
     storage_secret_key: str | None = None
     storage_public_base_url: str | None = None
 
+    # ------------------------------------------------------------------
+    # YouTube / Platform Settings
+    # ------------------------------------------------------------------
+    youtube_api_key: str | None = None
+    youtube_client_id: str | None = None
+    youtube_client_secret: str | None = None
+    youtube_refresh_token: str | None = None
+    youtube_channel_id: str | None = None
+
+
 
 @lru_cache
 def get_settings() -> Settings:

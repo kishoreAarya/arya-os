@@ -1,34 +1,11 @@
 """
-AnalyticsAgent — STRUCTURAL SHELL for "collect", REAL implementation
-for "store". Read this before wiring anything to it.
+AnalyticsAgent — collects platform analytics and stores snapshots.
 
-STOPPED, NOT INVENTED — WHY (same root cause as PublishingAgent, see
-that file's docstring for the full explanation): "Collect platform
-analytics" requires a PlatformAdapter's fetch_analytics() method,
-which doesn't exist anywhere in this codebase — only documented as a
-future note. Per this task's final instruction, that interface was
-not invented here.
-
-What IS real and implemented: the Analytics model
-(app/models/analytics.py) already exists with exactly the fields a
-real fetch_analytics() call would need to fill (views, likes,
-comments, shares, subscribers_gained, click_through_rate,
-average_view_duration_seconds, average_view_percentage). Storing a
-snapshot — once real data exists to store — is genuinely buildable
-against real, existing schema, not a placeholder. What's missing is
-purely the "go get the real numbers from YouTube/Instagram/etc."
-step, which needs the same PlatformAdapter decision PublishingAgent
-is waiting on.
-
-"Produce LearningFeedback input" is left as a TODO for the same
-reason: PerformanceLearningFeedback (app/models/analytics.py) already
-exists and is real, but turning a raw Analytics snapshot into a
-genuine insight ("high Image Quality correlates with higher CTR") is
-real analysis logic this task explicitly said not to build
-("actual analytics API calls" / heavy business logic where a
-placeholder is more appropriate) — deferred, not invented.
+Uses the shared PlatformAdapter architecture (app/platforms/) to
+fetch analytics from any registered platform. The agent itself only
+knows the platform name and published_content_id; all platform-
+specific API calls live in the adapter.
 """
-
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,14 +13,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.base import AgentResult, BaseAgent
 from app.core.logging import get_logger
 from app.models.analytics import Analytics
+from app.platforms.registry import UnknownPlatformError, get_platform_adapter
 
 logger = get_logger(__name__)
 
 
 @dataclass
 class AnalyticsResult:
-    """Strongly-typed output of AnalyticsAgent.run() — attached under
-    AgentResult.output["analytics_result"]."""
+    """Strongly-typed output of AnalyticsAgent.run()."""
 
     video_id: str | None
     snapshot_stored: bool = False
@@ -59,22 +36,26 @@ class AnalyticsAgent(BaseAgent):
     async def _fetch_platform_analytics(
         self, platform: str, published_content_id: str
     ) -> dict:
-        """TODO: real integration required — needs a PlatformAdapter's
-        fetch_analytics() (see module docstring). Raises rather than
-        returning fabricated numbers."""
-        raise NotImplementedError(
-            f"Cannot fetch analytics from '{platform}': no PlatformAdapter "
-            "abstraction exists in this codebase yet. See this module's "
-            "docstring, and app/agents/publishing.py's for the shared root "
-            "cause."
+        """Fetch analytics via the shared PlatformAdapter architecture."""
+        adapter = get_platform_adapter(platform, self._db)
+
+        auth_result = await adapter.authenticate()
+        if not auth_result.success:
+            raise RuntimeError(
+                f"Authentication failed for '{platform}': {auth_result.error}"
+            )
+
+        data = await adapter.fetch_analytics(
+            published_content_id=published_content_id,
+            credentials=auth_result.credentials,
         )
+        return data
 
     async def run(self, context: dict) -> AgentResult:
         """Expected context keys:
         platform (str, required)
         video_id (str, required)
-        published_content_id (str, required) — the platform's own ID
-            for the published content (e.g. a YouTube video ID)
+        published_content_id (str, required)
         """
         platform = context.get("platform")
         video_id = context.get("video_id")
@@ -96,38 +77,49 @@ class AnalyticsAgent(BaseAgent):
             )
 
         try:
-            await self._fetch_platform_analytics(platform, published_content_id)
-        except NotImplementedError as exc:
-            logger.warning(
-                "analytics_agent_no_platform_adapter",
+            data = await self._fetch_platform_analytics(
+                platform, published_content_id
+            )
+        except UnknownPlatformError as exc:
+            logger.error(
+                "analytics_agent_unknown_platform",
                 platform=platform,
-                video_id=video_id,
-                reason=str(exc),
+                error=str(exc),
             )
             return AgentResult(success=False, error=str(exc))
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "analytics_agent_fetch_failed",
+                platform=platform,
+                video_id=video_id,
+                error=str(exc),
+            )
+            return AgentResult(
+                success=False,
+                error=f"Failed to fetch analytics from '{platform}': {exc}",
+            )
 
-        # Unreachable until a real PlatformAdapter exists — kept so the
-        # storage half (genuinely implementable against the real
-        # Analytics model) is ready the moment fetch works.
+        # Store the snapshot
+        snapshot = await self._store_snapshot(video_id, data)
+
         return AgentResult(
             success=True,
             output={
                 "analytics_result": AnalyticsResult(
-                    video_id=video_id, snapshot_stored=False
+                    video_id=video_id,
+                    snapshot_stored=True,
+                    analytics_id=str(snapshot.id),
                 )
             },
         )
 
     async def _store_snapshot(self, video_id: str, data: dict) -> Analytics:
-        """Real, implemented persistence against the actual Analytics
-        model — not a stub. Not yet reachable from run() because
-        _fetch_platform_analytics always raises first; kept as its own
-        method so wiring it in later is a one-line change in run(),
-        not new code here.
-        """
+        """Real persistence against the Analytics model."""
+        import datetime
+
         snapshot = Analytics(
             video_id=video_id,
-            snapshot_at=data["snapshot_at"],
+            snapshot_at=datetime.datetime.utcnow(),
             views=data.get("views", 0),
             likes=data.get("likes", 0),
             comments=data.get("comments", 0),

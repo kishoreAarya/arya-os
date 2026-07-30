@@ -1,14 +1,9 @@
 """
 ImageAgent — generates one image per storyboard shot.
 
-Uses Capability.IMAGE_GENERATION (app/providers/capabilities.py — fal
-and comfyui already registered; nothing added here). No image
-provider adapter exists yet (only app/providers/openrouter.py is a
-real adapter today) — per this milestone's "do not implement actual
-image generation logic," `_call_provider`'s closure honestly raises
-for every candidate provider rather than faking a working call.
-Calling this agent today surfaces a real AllProvidersFailedError via
-ExecutionEngine, same as VoiceAgent — that's correct, not a bug.
+Uses Capability.IMAGE_GENERATION via the shared media dispatch
+(app/providers/media_dispatch.py) to route to fal, comfyui, or
+replicate depending on provider availability and cost ceilings.
 """
 
 from dataclasses import dataclass
@@ -16,7 +11,8 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.base import AgentResult, BaseAgent
-from app.providers.capabilities import Capability, ProviderCapability
+from app.providers.capabilities import Capability
+from app.providers.media_dispatch import build_media_generation_call
 from app.services.execution_engine import ExecutionEngine
 
 
@@ -34,11 +30,8 @@ class ImageResult:
 
 
 def _build_image_prompt(shot_description: str, style_guide: str | None) -> str:
-    """TODO: real prompt-engineering (negative prompts, style/LoRA
-    selection, aspect ratio per the Workflow Manifest concept in
-    ARYA_OS_BUILD_INSTRUCTIONS.md section 6) is deliberately not built
-    here — this is the simplest prompt that could work, matching how
-    ScriptAgent's own _build_prompt started."""
+    """Build the image generation prompt from shot description and
+    optional style guide."""
     prompt = shot_description
     if style_guide:
         prompt = f"{shot_description}, style: {style_guide}"
@@ -67,19 +60,12 @@ class ImageAgent(BaseAgent):
 
         prompt = _build_image_prompt(shot_description, context.get("style_guide"))
 
-        async def call_provider(provider: ProviderCapability) -> tuple[dict, float]:
-            # TODO: real integration required — no image provider
-            # adapter exists yet (see module docstring). Both "fal"
-            # and "comfyui" (the Capability.IMAGE_GENERATION
-            # candidates) raise here until one is written.
-            raise RuntimeError(
-                f"No image-generation adapter implemented yet for provider "
-                f"'{provider.name}' (prompt would have been: {prompt!r})"
-            )
-
         exec_result = await self._execution_engine.execute(
             capability=Capability.IMAGE_GENERATION,
-            call=call_provider,
+            call=build_media_generation_call(
+                capability=Capability.IMAGE_GENERATION,
+                prompt=prompt,
+            ),
             workflow_run_id=context.get("workflow_run_id"),
             stage="image_generation",
         )

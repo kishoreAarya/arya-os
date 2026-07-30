@@ -1,10 +1,9 @@
 """
 VideoAgent — generates one video clip per shot (image-to-video).
 
-Uses Capability.VIDEO_GENERATION (fal, comfyui already registered).
-No video provider adapter exists yet — same honest-stub pattern as
-ImageAgent/VoiceAgent: `_call_provider` raises for every candidate,
-surfacing a real AllProvidersFailedError rather than faking output.
+Uses Capability.VIDEO_GENERATION via the shared media dispatch
+(app/providers/media_dispatch.py) to route to fal, comfyui, or
+replicate depending on provider availability and cost ceilings.
 """
 
 from dataclasses import dataclass
@@ -12,7 +11,8 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.base import AgentResult, BaseAgent
-from app.providers.capabilities import Capability, ProviderCapability
+from app.providers.capabilities import Capability
+from app.providers.media_dispatch import build_media_generation_call
 from app.services.execution_engine import ExecutionEngine
 
 
@@ -45,6 +45,10 @@ class VideoAgent(BaseAgent):
             ARYA_OS_BUILD_INSTRUCTIONS.md's Voice-before-Video fix:
             the Voice Agent's narration duration should drive this,
             not the other way around.
+        prompt (str, optional) — text description of the desired video;
+            falls back to shot_description if not provided.
+        shot_description (str, optional) — the original storyboard shot
+            description; used as prompt fallback.
         """
         source_image_path = context.get("source_image_path")
         if not source_image_path:
@@ -55,20 +59,22 @@ class VideoAgent(BaseAgent):
 
         target_duration = context.get("target_duration_seconds")
 
-        async def call_provider(provider: ProviderCapability) -> tuple[dict, float]:
-            # TODO: real integration required — no video provider
-            # adapter exists yet. Both "fal" and "comfyui" (the
-            # Capability.VIDEO_GENERATION candidates) raise here until
-            # one is written.
-            raise RuntimeError(
-                f"No video-generation adapter implemented yet for provider "
-                f"'{provider.name}' (source_image_path={source_image_path!r}, "
-                f"target_duration_seconds={target_duration!r})"
-            )
+        # Use an explicit prompt if the caller provided one (e.g. from
+        # PromptAgent or the image-generation prompt), otherwise fall
+        # back to the shot description, then to a generic descriptor.
+        prompt = (
+            context.get("prompt")
+            or context.get("shot_description")
+            or f"Animate this image into a short video clip"
+        )
 
         exec_result = await self._execution_engine.execute(
             capability=Capability.VIDEO_GENERATION,
-            call=call_provider,
+            call=build_media_generation_call(
+                capability=Capability.VIDEO_GENERATION,
+                prompt=prompt,
+                image_url=source_image_path,
+            ),
             workflow_run_id=context.get("workflow_run_id"),
             stage="video_generation",
         )
