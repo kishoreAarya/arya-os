@@ -39,10 +39,16 @@ class Shot:
    camera_angle: str | None = None
    camera_movement: str | None = None
    lens: str | None = None
+   framing: str | None = None
    lighting: str | None = None
-   composition: str | None = None
    mood: str | None = None
+   environment: str | None = None
    continuity_notes: str | None = None
+   dialogue: str | None = None
+   voiceover: str | None = None
+   transition: str | None = None
+   image_prompt_hint: str | None = None
+   negative_prompt_hint: str | None = None
 
 
 @dataclass
@@ -70,7 +76,7 @@ def _build_storyboard_prompt(
    target_model: str | None = None,
 ) -> str:
    lines = [
-       "You are an elite cinematic storyboard artist and film director.",
+       "You are an elite cinematic storyboard artist, film director, and visual storyteller.",
        "",
        "Your task: analyze the provided script and generate a professional shot-by-shot storyboard.",
        "",
@@ -80,16 +86,22 @@ def _build_storyboard_prompt(
        '- "shots" is a list of shot objects.',
        '- Each shot object must contain these keys:',
        '    "shot_number" (int, 1-indexed),',
-       '    "description" (string, vivid visual description),',
-       '    "shot_type" (string: Wide / Medium / Close-Up / Extreme Close-Up / Establishing / Aerial / POV / Over-the-Shoulder),',
+       '    "description" (string, vivid visual description of the frame),',
+       '    "shot_type" (string: Wide / Medium / Close-Up / Extreme Close-Up / Establishing / Aerial / POV / Over-the-Shoulder / Two-Shot / Insert),',
        '    "duration_seconds" (int, estimated shot duration),',
-       '    "camera_angle" (string: Eye Level / Low Angle / High Angle / Dutch Tilt / Bird\'s Eye / Worm\'s Eye / Overhead),',
-       '    "camera_movement" (string: Static / Slow Dolly In / Dolly Out / Pan Left / Pan Right / Tilt Up / Tilt Down / Tracking / Steadicam / Handheld / Crane Up / Crane Down / Zoom In / Zoom Out / Rack Focus),',
-       '    "lens" (string: 14mm / 24mm / 35mm / 50mm / 85mm / 135mm / 200mm / Macro / Fisheye),',
-       '    "lighting" (string: Key light direction, fill ratio, practicals, volumetrics, time of day),',
-       '    "composition" (string: Rule of Thirds / Symmetry / Leading Lines / Negative Space / Depth Layers / Framing Device / Centered / Golden Ratio),',
+       '    "camera_angle" (string: Eye Level / Low Angle / High Angle / Dutch Tilt / Bird\'s Eye / Worm\'s Eye / Overhead / Canted),',
+       '    "camera_movement" (string: Static / Slow Dolly In / Dolly Out / Pan Left / Pan Right / Tilt Up / Tilt Down / Tracking / Steadicam / Handheld / Crane Up / Crane Down / Zoom In / Zoom Out / Rack Focus / Push In / Pull Back / Whip Pan),',
+       '    "lens" (string: 14mm / 24mm / 35mm / 50mm / 85mm / 135mm / 200mm / Macro / Fisheye / Anamorphic),',
+       '    "framing" (string: Centered / Rule of Thirds / Symmetry / Leading Lines / Negative Space / Depth Layers / Framing Device / Off-Center / Golden Ratio / Headroom),',
+       '    "lighting" (string: key light direction, fill ratio, practicals, volumetrics, time of day, color temperature),',
        '    "mood" (string: emotional tone conveyed through color temperature, shadow weight, and atmosphere),',
-       '    "continuity_notes" (string: eyeline match, screen direction, prop placement, costume state, hair continuity).',
+       '    "environment" (string: location, weather, time of day, ambient details),',
+       '    "continuity_notes" (string: eyeline match, screen direction, prop placement, costume state, hair continuity, makeup state),',
+       '    "dialogue" (string, optional: spoken lines in this shot, or empty string if none),',
+       '    "voiceover" (string, optional: narration or inner monologue heard over this shot, or empty string if none),',
+       '    "transition" (string: Cut / Fade In / Fade Out / Dissolve / Wipe / Smash Cut / Match Cut / J-Cut / L-Cut / Iris / Zoom Transition),',
+       '    "image_prompt_hint" (string: a concise, vivid prompt fragment optimized for AI image generation — include subject, action, setting, lighting, camera, and style keywords),',
+       '    "negative_prompt_hint" (string: a concise negative prompt fragment for AI image generation — list what must be excluded).',
        "",
        "CINEMATIC STORYBOARD REQUIREMENTS (incorporate all that apply):",
        "• Character consistency — same face, age, build, ethnicity, and distinguishing features across every shot.",
@@ -98,6 +110,9 @@ def _build_storyboard_prompt(
        "• Shot continuity — logical progression from previous shots, matching eyelines, consistent screen direction.",
        "• Subject placement — clear foreground, midground, background hierarchy; intentional focal placement.",
        "• Image quality — 8K UHD, highly detailed, sharp focus, HDR, cinematic.",
+       "• Dialogue and voiceover must be transcribed exactly from the script when present.",
+       "• Transitions must serve the narrative rhythm — do not default to 'Cut' for every shot.",
+       "• image_prompt_hint must be detailed enough for a downstream AI image generator to render the frame accurately.",
        "",
        "INPUT CONTEXT:",
        f"Script:\n{script_content}",
@@ -133,12 +148,12 @@ def _build_storyboard_prompt(
        lines.append("")
 
    if target_model:
-       lines.append(f"Target Model: {target_model} — optimize descriptions for this engine.")
+       lines.append(f"Target Model: {target_model} — optimize image_prompt_hint syntax for this engine.")
        lines.append("")
 
    lines.extend([
        "OUTPUT FORMAT:",
-       '{"shots":[{"shot_number":1,"description":"...","shot_type":"Wide","duration_seconds":5,"camera_angle":"Eye Level","camera_movement":"Static","lens":"24mm","lighting":"Golden hour key from camera-left, soft fill, warm bounce","composition":"Rule of Thirds with subject on left third","mood":"Melancholic and contemplative","continuity_notes":"Subject wears same leather jacket from previous shot, hair slightly wind-tousled"}]}',
+       '{"shots":[{"shot_number":1,"description":"A lone figure stands at the edge of a cliff, wind tearing at their coat, storm clouds gathering overhead","shot_type":"Wide","duration_seconds":5,"camera_angle":"Low Angle","camera_movement":"Slow Dolly In","lens":"24mm","framing":"Rule of Thirds with subject on right third","lighting":"Dramatic side-key from storm break, cool fill, high contrast","mood":"Ominous and determined","environment":"Coastal cliff at dusk, crashing waves, salt spray","continuity_notes":"Subject wears same charcoal coat from opening shot, hair wind-swept to left","dialogue":"","voiceover":"He knew there was no turning back.","transition":"Fade In","image_prompt_hint":"cinematic wide shot, lone figure on cliff edge, storm clouds, wind-blown coat, dramatic side lighting, 24mm lens, rule of thirds, 8k uhd, photorealistic, moody atmosphere","negative_prompt_hint":"blurry, deformed, extra limbs, oversaturated, watermark, text, logo"}]}',
    ])
 
    return "\n".join(lines)
@@ -173,16 +188,22 @@ def _parse_shots_from_json(raw_text: str) -> list[Shot] | None:
        shots.append(
            Shot(
                shot_number=shot_number,
-               description=str(item.get("description") or ""),
-               shot_type=str(item.get("shot_type") or "medium"),
+               description=_to_str_or_none(item.get("description")) or "",
+               shot_type=_to_str_or_none(item.get("shot_type")) or "medium",
                duration_seconds=_to_int_or_none(item.get("duration_seconds")),
                camera_angle=_to_str_or_none(item.get("camera_angle")),
                camera_movement=_to_str_or_none(item.get("camera_movement")),
                lens=_to_str_or_none(item.get("lens")),
+               framing=_to_str_or_none(item.get("framing")),
                lighting=_to_str_or_none(item.get("lighting")),
-               composition=_to_str_or_none(item.get("composition")),
                mood=_to_str_or_none(item.get("mood")),
+               environment=_to_str_or_none(item.get("environment")),
                continuity_notes=_to_str_or_none(item.get("continuity_notes")),
+               dialogue=_to_str_or_none(item.get("dialogue")),
+               voiceover=_to_str_or_none(item.get("voiceover")),
+               transition=_to_str_or_none(item.get("transition")),
+               image_prompt_hint=_to_str_or_none(item.get("image_prompt_hint")),
+               negative_prompt_hint=_to_str_or_none(item.get("negative_prompt_hint")),
            )
        )
 
