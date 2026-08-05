@@ -128,7 +128,7 @@ def build_media_generation_call(
             except SecretNotConfigured as exc:
                 raise RuntimeError(str(exc)) from exc
 
-        model = provider.supported_models[0] if provider.supported_models else None
+        model = provider.get_model(capability)
 
         if method_name == "run_gpu_job":
             return await method(payload=payload or {}, api_key=api_key, model=model)

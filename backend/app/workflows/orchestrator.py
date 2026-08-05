@@ -121,11 +121,23 @@ class Orchestrator:
         total_cost_usd = 0.0
 
         # Seed the execution context with workflow parameters
-        context = dict(workflow_input)
+
+        if hasattr(workflow_input, "model_dump"):
+            context = workflow_input.model_dump()
+        else:
+            context = dict(workflow_input)
+
+        logger.info(
+            "workflow_input_received",
+            topic=context.get("topic"),
+            platform=context.get("platform"),
+            language=context.get("language"),
+            style=context.get("style"),
+        )
+
         context["workflow_run_id"] = str(workflow_run_id)
 
         for stage_key in _PIPELINE:
-            # Advance persistent state machine
             pipeline_stage = _KEY_TO_PIPELINE_STAGE.get(stage_key, PipelineStage.CREATED)
             try:
                 await advance_stage(self._db, workflow_run_id, pipeline_stage)
@@ -156,7 +168,6 @@ class Orchestrator:
                 stage=stage_key,
             )
 
-            # Execute the stage
             result = await self._execute_stage(stage_key, context)
             stage_results.append(result)
 
@@ -187,39 +198,45 @@ class Orchestrator:
                     context=context,
                 )
 
-            # Success — propagate output
             completed_stages.append(stage_key)
             total_cost_usd += result.cost_usd
+
             logger.info(
-                    "context_before_merge",
-                    stage=stage_key,
-                    platform=context.get("platform"),
-                )
+                "context_before_merge",
+                stage=stage_key,
+                platform=context.get("platform"),
+            )
 
             if result.output:
                 context = self._merge_context(context, result.output)
 
-                logger.info(
-                    "context_after_merge",
-                    stage=stage_key,
-                    platform=context.get("platform"),
-                )
-                # Persist the Video aggregate immediately after successful video generation.
-                if stage_key == "video":
-                    video_result = context.get("video_result")
+            logger.info(
+                "context_after_merge",
+                stage=stage_key,
+                platform=context.get("platform"),
+            )
 
-                    if isinstance(video_result, dict):
-                        video_row = Video(
-                            workflow_run_id=workflow_run_id,
-                            storage_path=video_result.get("storage_path"),
-                            duration_seconds=video_result.get("duration_seconds"),
-                            publish_status=PublishStatus.DRAFT,
-                        )
+            if stage_key == "video":
+                video_result = context.get("video_result")
 
-                        self._db.add(video_row)
-                        await self._db.flush()
+                if isinstance(video_result, dict):
+                    video_row = Video(
+                        workflow_run_id=workflow_run_id,
+                        storage_path=video_result.get("storage_path"),
+                        duration_seconds=video_result.get("duration_seconds"),
+                        publish_status=PublishStatus.DRAFT,
+                    )
 
-                        context["video_id"] = str(video_row.id)   
+                    self._db.add(video_row)
+                    await self._db.flush()
+
+                    context["video_id"] = str(video_row.id)
+
+                    logger.info(
+                        "video_row_created",
+                        video_id=context["video_id"],
+                        storage_path=video_result.get("storage_path"),
+                    )
 
             logger.info(
                 "stage_completed",
@@ -229,7 +246,6 @@ class Orchestrator:
                 cost_usd=result.cost_usd,
             )
 
-        # All stages completed
         total_time_ms = round((time.perf_counter() - start_perf) * 1000, 3)
         await log_event(
             EventType.WORKFLOW_COMPLETED,

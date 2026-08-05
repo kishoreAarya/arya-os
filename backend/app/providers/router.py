@@ -67,7 +67,15 @@ async def call_with_fallback(
     blow the max_cost_per_video_usd ceiling, per item #3's config.
     """
     settings = get_settings()
-    timeout = timeout_seconds or settings.api_timeout_seconds
+
+    if timeout_seconds is not None:
+        timeout = timeout_seconds
+    elif capability == Capability.VIDEO_GENERATION:
+        timeout = 360  # 6 minutes
+    elif capability == Capability.IMAGE_GENERATION:
+        timeout = 120  # 2 minutes
+    else:
+        timeout = settings.api_timeout_seconds
 
     candidates = providers_for(capability)
     if priority:

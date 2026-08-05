@@ -71,14 +71,22 @@ class ThumbnailAgent(BaseAgent):
             return AgentResult(success=False, error=exec_result.error)
 
         output = exec_result.output or {}
+        storage_path = output.get("storage_path")
+
         thumbnail_result = ThumbnailResult(
             prompt=prompt,
-            storage_path=output.get("storage_path"),
+            storage_path=storage_path,
         )
+
+        result_output = {
+            "thumbnail_result": thumbnail_result,
+            "thumbnail_storage_path": storage_path,
+            "topic": topic,
+        }
 
         return AgentResult(
             success=True,
-            output={"thumbnail_result": thumbnail_result},
+            output=result_output,
             provider_used=exec_result.provider,
             cost_usd=exec_result.cost_usd,
             duration_seconds=exec_result.elapsed_time,

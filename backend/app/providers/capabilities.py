@@ -34,8 +34,18 @@ class ProviderCapability:
     avg_latency_seconds: float             # rough expectation, used for timeout defaults
     max_context_tokens: int | None = None  # None where not applicable (image/video/gpu providers)
     supported_models: tuple[str, ...] = field(default_factory=tuple)
+    capability_models: dict[Capability, tuple[str, ...]] = field(default_factory=dict)
     secret_name: str | None = None         # field name on Settings, resolved via SecretsManager
 
+
+    def get_model(self, capability: Capability) -> str | None:
+        if capability in self.capability_models and self.capability_models[capability]:
+            return self.capability_models[capability][0]
+
+        if self.supported_models:
+            return self.supported_models[0]
+
+        return None
 
 # --- Registry -----------------------------------------------------------
 # Ordering within a capability list (see `providers_for`) determines the
@@ -76,12 +86,16 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
         max_context_tokens=128_000,
         secret_name="openai_api_key",
     ),
-    "fal": ProviderCapability(
+   "fal": ProviderCapability(
         name="fal",
         capabilities=(Capability.IMAGE_GENERATION, Capability.VIDEO_GENERATION),
         cost_tier=2,
         avg_latency_seconds=45,
-        supported_models=("flux-kontext", "ltx-video"),
+        supported_models=("flux-dev", "ltx-video"),
+        capability_models={
+            Capability.IMAGE_GENERATION: ("flux-dev",),
+            Capability.VIDEO_GENERATION: ("ltx-video",),
+        },
         secret_name="fal_api_key",
     ),
     "comfyui": ProviderCapability(
@@ -100,9 +114,14 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
     ),
     "replicate": ProviderCapability(
         name="replicate",
-        capabilities=(Capability.IMAGE_GENERATION, Capability.VIDEO_GENERATION, Capability.TTS),
+        capabilities=(
+            Capability.TTS,
+        ),
         cost_tier=3,
         avg_latency_seconds=40,
+        supported_models=(
+            "jaaari/kokoro-82m:f559560eb822dc509045f3921a1921234918b91739db4bf3daab2169b71c7a13",
+        ),
         secret_name="replicate_api_key",
     ),
 }

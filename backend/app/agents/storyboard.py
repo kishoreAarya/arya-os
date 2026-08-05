@@ -108,9 +108,25 @@ class StoryboardAgent(BaseAgent):
             script_id=context.get("script_id"), shots=shots
         )
 
+        output: dict = {
+            "shots": shots,
+            "storyboard_result": storyboard_result,
+        }
+
+        # Carry script_id forward for downstream traceability if present
+        script_id = context.get("script_id")
+        if script_id:
+            output["script_id"] = script_id
+
+        # Expose first shot details for downstream single-shot processing
+        if shots:
+            first_shot = shots[0]
+            output["shot_description"] = first_shot.description
+            output["shot_number"] = first_shot.shot_number
+
         return AgentResult(
             success=True,
-            output={"storyboard_result": storyboard_result},
+            output=output,
             provider_used=exec_result.provider,
             cost_usd=exec_result.cost_usd,
             duration_seconds=exec_result.elapsed_time,

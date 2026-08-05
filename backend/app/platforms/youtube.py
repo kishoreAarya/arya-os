@@ -46,8 +46,7 @@ logger = get_logger(__name__)
 # YouTube Data API v3 constants
 YOUTUBE_API_SERVICE_NAME = "youtube"
 YOUTUBE_API_VERSION = "v3"
-YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
-YOUTUBE_READ_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
+YOUTUBE_SCOPE = "https://www.googleapis.com/auth/youtube"
 YOUTUBE_URL_FORMAT = "https://www.youtube.com/watch?v={video_id}"
 
 # Maximum chunk size for resumable upload (256MB)
@@ -106,7 +105,7 @@ class YouTubeAdapter(PlatformAdapter):
             token_uri="https://oauth2.googleapis.com/token",
             client_id=client_id,
             client_secret=client_secret,
-            scopes=[YOUTUBE_UPLOAD_SCOPE, YOUTUBE_READ_SCOPE],
+            scopes=[YOUTUBE_SCOPE],
         )
 
         # Refresh to get a valid access token

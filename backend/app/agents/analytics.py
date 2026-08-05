@@ -42,7 +42,7 @@ class AnalyticsAgent(BaseAgent):
         auth_result = await adapter.authenticate()
         if not auth_result.success:
             raise RuntimeError(
-                f"Authentication failed for '{platform}': {auth_result.error}"
+                f"Authentication failed for \'{platform}\': {auth_result.error}"
             )
 
         data = await adapter.fetch_analytics(
@@ -53,20 +53,24 @@ class AnalyticsAgent(BaseAgent):
 
     async def run(self, context: dict) -> AgentResult:
         """Expected context keys:
-        platform (str, required)
-        video_id (str, required)
-        published_content_id (str, required)
+        published_video_id (str, required) — the platform content ID
+        public_url (str, optional) — for reference/link tracking
+        platform (str, required) — e.g. "youtube"
+        topic (str, optional) — carried forward for LearningAgent
+        video_id (str, optional) — internal video reference
         """
         platform = context.get("platform")
+        published_video_id = context.get("published_video_id")
         video_id = context.get("video_id")
-        published_content_id = context.get("published_content_id")
+
+        # Support both new key (published_video_id) and legacy key (published_content_id)
+        published_content_id = published_video_id or context.get("published_content_id")
 
         missing = [
             name
             for name, value in (
                 ("platform", platform),
-                ("video_id", video_id),
-                ("published_content_id", published_content_id),
+                ("published_video_id", published_content_id),
             )
             if not value
         ]
@@ -96,21 +100,40 @@ class AnalyticsAgent(BaseAgent):
             )
             return AgentResult(
                 success=False,
-                error=f"Failed to fetch analytics from '{platform}': {exc}",
+                error=f"Failed to fetch analytics from \'{platform}\': {exc}",
             )
 
         # Store the snapshot
         snapshot = await self._store_snapshot(video_id, data)
 
+        analytics_result = AnalyticsResult(
+            video_id=video_id,
+            snapshot_stored=True,
+            analytics_id=str(snapshot.id),
+        )
+
+        result_output = {
+            "analytics_result": analytics_result,
+            "analytics_metrics": data,
+        }
+
+        # Carry forward context for LearningAgent
+        if platform:
+            result_output["platform"] = platform
+        topic = context.get("topic")
+        if topic:
+            result_output["topic"] = topic
+        if video_id:
+            result_output["video_id"] = video_id
+        if published_content_id:
+            result_output["published_video_id"] = published_content_id
+        public_url = context.get("public_url")
+        if public_url:
+            result_output["public_url"] = public_url
+
         return AgentResult(
             success=True,
-            output={
-                "analytics_result": AnalyticsResult(
-                    video_id=video_id,
-                    snapshot_stored=True,
-                    analytics_id=str(snapshot.id),
-                )
-            },
+            output=result_output,
         )
 
     async def _store_snapshot(self, video_id: str, data: dict) -> Analytics:

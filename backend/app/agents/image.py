@@ -47,10 +47,18 @@ class ImageAgent(BaseAgent):
 
     async def run(self, context: dict) -> AgentResult:
         """Expected context keys:
-        shot_description (str, required)
+        prompt (str, required) — the AI image generation prompt
+        shot_description (str, required) — the original shot description
         shot_number (int, optional)
         style_guide (str, optional)
         """
+        prompt = context.get("prompt")
+        if not prompt or not str(prompt).strip():
+            return AgentResult(
+                success=False,
+                error="context.prompt is required and was empty",
+            )
+
         shot_description = context.get("shot_description")
         if not shot_description or not str(shot_description).strip():
             return AgentResult(
@@ -58,13 +66,14 @@ class ImageAgent(BaseAgent):
                 error="context.shot_description is required and was empty",
             )
 
-        prompt = _build_image_prompt(shot_description, context.get("style_guide"))
+        # Use the provided prompt directly; fall back to building from shot_description
+        generation_prompt = prompt if prompt else _build_image_prompt(shot_description, context.get("style_guide"))
 
         exec_result = await self._execution_engine.execute(
             capability=Capability.IMAGE_GENERATION,
             call=build_media_generation_call(
                 capability=Capability.IMAGE_GENERATION,
-                prompt=prompt,
+                prompt=generation_prompt,
             ),
             workflow_run_id=context.get("workflow_run_id"),
             stage="image_generation",
@@ -74,15 +83,31 @@ class ImageAgent(BaseAgent):
             return AgentResult(success=False, error=exec_result.error)
 
         output = exec_result.output or {}
+        storage_path = output.get("storage_path")
+
         image_result = ImageResult(
             shot_number=context.get("shot_number"),
-            prompt=prompt,
-            storage_path=output.get("storage_path"),
+            prompt=generation_prompt,
+            storage_path=storage_path,
         )
+
+        result_output = {
+            "image_result": image_result,
+            "source_image_path": storage_path,
+        }
+
+        # Carry shot context forward for downstream agents (VoiceAgent, VideoAgent)
+        shot_number = context.get("shot_number")
+        if shot_number is not None:
+            result_output["shot_number"] = shot_number
+        if shot_description:
+            result_output["shot_description"] = shot_description
+        if generation_prompt:
+            result_output["prompt"] = generation_prompt
 
         return AgentResult(
             success=True,
-            output={"image_result": image_result},
+            output=result_output,
             provider_used=exec_result.provider,
             cost_usd=exec_result.cost_usd,
             duration_seconds=exec_result.elapsed_time,

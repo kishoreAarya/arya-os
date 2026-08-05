@@ -32,6 +32,12 @@ def _build_script_prompt(
         "- Clear, spoken-language sentences (this will be read aloud by a voice AI)",
         "- End with a natural call-to-action",
         "- Do not include scene directions, camera angles, or [brackets] — narration text only",
+        "",
+        "Return only the narration.",
+        "Do not use markdown.",
+        "Do not use headings.",
+        "Do not use bullet points.",
+        "Do not include camera directions.",
     ]
 
     if research_data:
@@ -90,17 +96,11 @@ class ScriptAgent(BaseAgent):
         return AgentResult(
             success=True,
             output={
-                "script_result": script_result
+                "script": content,
+                "script_content": content,
+                "script_result": script_result,
             },
             provider_used=exec_result.provider,
             cost_usd=exec_result.cost_usd,
             duration_seconds=exec_result.elapsed_time,
         )
-
-
-        lines.append("")
-        lines.append("Return only the narration.")
-        lines.append("Do not use markdown.")
-        lines.append("Do not use headings.")
-        lines.append("Do not use bullet points.")
-        lines.append("Do not include camera directions.")

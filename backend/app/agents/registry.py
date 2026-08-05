@@ -16,9 +16,9 @@ ExecutionEngine(db)) — this brings the registry in line with that,
 rather than being the one exception.
 
 ScriptAgent, PromptAgent, and MusicAgent take no constructor args
-(`AGENT_REGISTRY["script"]()`) — the registry doesn't need to know or
-care which is which; the caller does, same as instantiating any class
-directly.
+(`AGENT_REGISTRY["script"]()`), but the registry stores classes
+uniformly — the caller instantiates with or without db as needed,
+same pattern as every other DI'd class in this codebase.
 
 Beginner note: still intentionally NOT a fancy plugin-loader with
 auto-discovery/entry-points — that's over-engineering for a
@@ -29,7 +29,6 @@ implementing BaseAgent, import it below, add one line to the dict.
 from app.agents.analytics import AnalyticsAgent
 from app.agents.base import BaseAgent
 from app.agents.image import ImageAgent
-from app.agents.music import MusicAgent
 from app.agents.prompt import PromptAgent
 from app.agents.publishing import PublishingAgent
 from app.agents.script import ScriptAgent
@@ -39,18 +38,25 @@ from app.agents.trend import TrendAgent
 from app.agents.video import VideoAgent
 from app.agents.voice import VoiceAgent
 
+# Registry keys match orchestrator.py _PIPELINE stage names exactly:
+# ["trend", "script", "storyboard", "prompt", "image", "voice",
+#  "video", "thumbnail", "publishing", "analytics"]
+#
+# "learning" is intentionally omitted — no LearningAgent exists yet.
+# "music" is intentionally omitted — not in the finalized pipeline.
+# "storage" is intentionally omitted — synthetic stage handled by
+#   orchestrator._execute_storage_stage(), not an agent.
 AGENT_REGISTRY: dict[str, type[BaseAgent]] = {
     "trend": TrendAgent,
     "script": ScriptAgent,
-    "prompt": PromptAgent,
     "storyboard": StoryboardAgent,
-    "voice": VoiceAgent,
+    "prompt": PromptAgent,
     "image": ImageAgent,
+    "voice": VoiceAgent,
     "video": VideoAgent,
     "thumbnail": ThumbnailAgent,
     "publishing": PublishingAgent,
     "analytics": AnalyticsAgent,
-    "music": MusicAgent,
 }
 
 # To add a new agent later:

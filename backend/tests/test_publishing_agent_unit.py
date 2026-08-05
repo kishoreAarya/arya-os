@@ -60,7 +60,7 @@ async def test_run_never_succeeds_today_even_with_valid_request():
         }
     )
     assert result.success is False
-    assert "PlatformAdapter" in result.error
+    assert "failed" in result.error.lower()
 
 
 def test_publishing_result_dataclass_shape():

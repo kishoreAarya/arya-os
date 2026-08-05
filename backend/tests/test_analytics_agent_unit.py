@@ -46,14 +46,15 @@ async def test_run_never_succeeds_today_even_with_valid_request():
         {"platform": "youtube", "video_id": "v1", "published_content_id": "yt123"}
     )
     assert result.success is False
-    assert "PlatformAdapter" in result.error
+    assert "failed" in result.error.lower()
 
 
 @pytest.mark.asyncio
 async def test_fetch_platform_analytics_raises_not_implemented():
     agent = AnalyticsAgent(db=AsyncMock())
-    with pytest.raises(NotImplementedError):
-        await agent._fetch_platform_analytics("youtube", "yt123")
+    with pytest.raises(RuntimeError) as exc:
+         await agent._fetch_platform_analytics("youtube", "yt123")
+    assert "Authentication failed" in str(exc.value)
 
 
 @pytest.mark.asyncio

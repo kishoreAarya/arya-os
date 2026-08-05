@@ -17,6 +17,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.base import AgentResult, BaseAgent
 from app.core.logging import get_logger
 from app.platforms.registry import UnknownPlatformError, get_platform_adapter
+from app.utils.asset_manager import ensure_local_asset
+
+from uuid import UUID
+
+from sqlalchemy import update
+
+from app.models.enums import PublishStatus
+from app.models.media import Video
 
 logger = get_logger(__name__)
 
@@ -45,10 +53,11 @@ class PublishingAgent(BaseAgent):
         platform (str, required) — e.g. "youtube"
         video_id (str, required)
         video_storage_path (str, required)
+        thumbnail_storage_path (str, optional)
+        topic (str, optional) — carried forward for AnalyticsAgent
         title (str, optional)
         description (str, optional)
         tags (str, optional) — comma-separated
-        thumbnail_storage_path (str, optional)
         """
         platform = context.get("platform")
         video_id = context.get("video_id")
@@ -58,7 +67,6 @@ class PublishingAgent(BaseAgent):
             name
             for name, value in (
                 ("platform", platform),
-                ("video_id", video_id),
                 ("video_storage_path", video_storage_path),
             )
             if not value
@@ -90,15 +98,17 @@ class PublishingAgent(BaseAgent):
             )
             return AgentResult(
                 success=False,
-                error=f"Authentication failed for '{platform}': {auth_result.error}",
+                error=f"Authentication failed for \'{platform}\': {auth_result.error}",
             )
 
         # Upload the video
         tags_raw = context.get("tags")
         tags = [t.strip() for t in tags_raw.split(",")] if tags_raw else None
 
+        local_video_path = await ensure_local_asset(video_storage_path)
+
         upload_result = await adapter.upload_content(
-            file_path=video_storage_path,
+            file_path=local_video_path, 
             title=context.get("title"),
             description=context.get("description"),
             tags=tags,
@@ -113,11 +123,14 @@ class PublishingAgent(BaseAgent):
             )
             return AgentResult(
                 success=False,
-                error=f"Upload failed for '{platform}': {upload_result.error}",
+                error=f"Upload failed for \'{platform}\': {upload_result.error}",
             )
 
         # Upload thumbnail if provided
-        thumbnail_path = context.get("thumbnail_storage_path")
+        thumbnail_path = await ensure_local_asset(
+            context.get("thumbnail_storage_path")
+        )
+
         if thumbnail_path and upload_result.content_id:
             thumb_result = await adapter.upload_thumbnail(
                 video_content_id=upload_result.content_id,
@@ -147,7 +160,25 @@ class PublishingAgent(BaseAgent):
             )
             return AgentResult(
                 success=False,
-                error=f"Publish failed for '{platform}': {publish_result.error}",
+                error=f"Publish failed for \'{platform}\': {publish_result.error}",
+            )
+
+        # Update the existing Video row after successful publish.
+        if video_id and publish_result.published_content_id:
+            await self._db.execute(
+                update(Video)
+                .where(Video.id == UUID(video_id))
+                .values(
+                    youtube_video_id=publish_result.published_content_id,
+                    publish_status=PublishStatus.PUBLISHED,
+                )
+            )
+            await self._db.commit()
+
+            logger.info(
+                "video_row_updated",
+                video_id=video_id,
+                youtube_video_id=publish_result.published_content_id,
             )
 
         # Fetch the public URL
@@ -173,9 +204,25 @@ class PublishingAgent(BaseAgent):
             url=public_url,
         )
 
+        result_output = {
+            "publishing_result": publishing_result,
+            "published_video_id": publish_result.published_content_id,
+        }
+
+        # Carry forward context for AnalyticsAgent
+        if public_url:
+            result_output["public_url"] = public_url
+        if platform:
+            result_output["platform"] = platform
+        topic = context.get("topic")
+        if topic:
+            result_output["topic"] = topic
+        if video_id:
+            result_output["video_id"] = video_id
+
         return AgentResult(
             success=True,
-            output={"publishing_result": publishing_result},
+            output=result_output,
             provider_used=platform,
             duration_seconds=None,
             error=None,

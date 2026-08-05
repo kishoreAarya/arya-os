@@ -40,7 +40,6 @@ class VideoAgent(BaseAgent):
     async def run(self, context: dict) -> AgentResult:
         """Expected context keys:
         source_image_path (str, required) — the shot's generated image
-        shot_number (int, optional)
         target_duration_seconds (float, optional) — per
             ARYA_OS_BUILD_INSTRUCTIONS.md's Voice-before-Video fix:
             the Voice Agent's narration duration should drive this,
@@ -49,6 +48,8 @@ class VideoAgent(BaseAgent):
             falls back to shot_description if not provided.
         shot_description (str, optional) — the original storyboard shot
             description; used as prompt fallback.
+        voice_path (str, optional) — the generated voice audio path,
+            carried forward for downstream assembly.
         """
         source_image_path = context.get("source_image_path")
         if not source_image_path:
@@ -83,16 +84,43 @@ class VideoAgent(BaseAgent):
             return AgentResult(success=False, error=exec_result.error)
 
         output = exec_result.output or {}
+        storage_path = output.get("storage_path")
+        duration_seconds = output.get("duration_seconds")
+
         video_result = VideoResult(
             shot_number=context.get("shot_number"),
             source_image_path=source_image_path,
-            storage_path=output.get("storage_path"),
-            duration_seconds=output.get("duration_seconds"),
+            storage_path=storage_path,
+            duration_seconds=duration_seconds,
         )
+
+        result_output = {
+            "video_result": video_result,
+            "video_storage_path": storage_path,
+        }
+
+        # Carry forward media paths for downstream agents (ThumbnailAgent, PublishingAgent)
+        if storage_path:
+            result_output["source_video_path"] = storage_path
+        voice_path = context.get("voice_path")
+        if voice_path:
+            result_output["voice_path"] = voice_path
+
+        # Carry shot context forward for traceability
+        shot_number = context.get("shot_number")
+        if shot_number is not None:
+            result_output["shot_number"] = shot_number
+        shot_description = context.get("shot_description")
+        if shot_description:
+            result_output["shot_description"] = shot_description
+        if prompt:
+            result_output["prompt"] = prompt
+        if target_duration is not None:
+            result_output["target_duration_seconds"] = target_duration
 
         return AgentResult(
             success=True,
-            output={"video_result": video_result},
+            output=result_output,
             provider_used=exec_result.provider,
             cost_usd=exec_result.cost_usd,
             duration_seconds=exec_result.elapsed_time,

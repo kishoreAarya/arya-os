@@ -22,3 +22,29 @@ venv/
 # Coverage
 .coverage
 htmlcov/
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+
+# macOS zip metadata
+__MACOSX/
+
+# Local secrets
+client_secret.json
+
+# Local database
+arya.db
+
+# Logs
+*.log
+server.log
+
+# OAuth helper
+get_refresh_token.py

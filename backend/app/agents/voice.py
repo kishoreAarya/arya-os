@@ -68,16 +68,35 @@ class VoiceAgent(BaseAgent):
             return AgentResult(success=False, error=exec_result.error)
 
         output = exec_result.output or {}
+        duration_seconds = output.get("duration_seconds")
+        storage_path = output.get("storage_path")
+
         voice_result = VoiceResult(
             script_id=context.get("script_id"),
-            storage_path=output.get("storage_path"),
-            duration_seconds=output.get("duration_seconds"),
+            storage_path=storage_path,
+            duration_seconds=duration_seconds,
             voice_profile=voice_profile,
         )
 
+        result_output = {
+            "voice_result": voice_result,
+            "target_duration_seconds": duration_seconds,
+        }
+
+        # Carry forward media path for VideoAgent
+        if storage_path:
+            result_output["voice_path"] = storage_path
+
+        # Carry script context forward for VideoAgent traceability
+        script_id = context.get("script_id")
+        if script_id:
+            result_output["script_id"] = script_id
+        if script_content:
+            result_output["script_content"] = script_content
+
         return AgentResult(
             success=True,
-            output={"voice_result": voice_result},
+            output=result_output,
             provider_used=exec_result.provider,
             cost_usd=exec_result.cost_usd,
             duration_seconds=exec_result.elapsed_time,

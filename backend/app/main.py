@@ -7,14 +7,13 @@ pipeline routes) attaches in later sprints without touching this file's
 core shape.
 """
 from contextlib import asynccontextmanager
-from app.api.routers import agents
 
 import redis.asyncio as redis
 from fastapi import FastAPI
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
-from app.api.routers import approvals, feature_flags, health, lineage, workflow_runs
+from app.api.routers import agents, approvals, feature_flags, health, lineage, workflow_runs, workflows
 from app.workers.scheduler import start_scheduler, stop_scheduler
 
 settings = get_settings()
@@ -48,6 +47,7 @@ app.include_router(feature_flags.router)
 app.include_router(lineage.router)
 app.include_router(workflow_runs.router)
 app.include_router(agents.router)
+app.include_router(workflows.router)
 
 
 @app.get("/")

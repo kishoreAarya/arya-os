@@ -11,6 +11,10 @@ instead of re-running the whole pipeline from scratch.
 
 Every WorkflowRun is always in exactly ONE PipelineStage — enforced by
 only ever writing it through `advance_stage()` below.
+
+Transition table matches the orchestrator pipeline exactly.
+VALIDATION_FAILED and RETRY are legacy stages kept for backward
+compatibility but have no transitions in the current pipeline.
 """
 import uuid
 
@@ -21,29 +25,23 @@ from app.models.core import WorkflowRun
 from app.models.enums import PipelineStage
 from app.services.workflow_service import get_workflow_run
 
-# The "happy path" edges. VALIDATION_FAILED and RETRY are the two
-# recovery states — from either one, the machine returns to whichever
-# stage is being retried (the caller passes that stage explicitly to
-# advance_stage, so it isn't in this table as a fixed edge).
+# Happy-path edges exactly as orchestrator.py advances through its
+# _PIPELINE stages. Self-loops exist where multiple logical stages
+# (voice/video, thumbnail/storage) map to the same PipelineStage.
 STAGE_TRANSITIONS: dict[PipelineStage, set[PipelineStage]] = {
     PipelineStage.CREATED: {PipelineStage.TREND_SELECTED},
     PipelineStage.TREND_SELECTED: {PipelineStage.SCRIPT_GENERATED},
-    PipelineStage.SCRIPT_GENERATED: {PipelineStage.STORYBOARD_GENERATED, PipelineStage.VALIDATION_FAILED},
-    PipelineStage.STORYBOARD_GENERATED: {PipelineStage.PROMPT_GENERATED, PipelineStage.VALIDATION_FAILED},
-    PipelineStage.PROMPT_GENERATED: {PipelineStage.IMAGE_GENERATED, PipelineStage.VALIDATION_FAILED},
-    PipelineStage.IMAGE_GENERATED: {PipelineStage.APPROVED, PipelineStage.VALIDATION_FAILED},
-    PipelineStage.VALIDATION_FAILED: {PipelineStage.RETRY},
-    PipelineStage.RETRY: {
-        PipelineStage.SCRIPT_GENERATED,
-        PipelineStage.STORYBOARD_GENERATED,
-        PipelineStage.PROMPT_GENERATED,
-        PipelineStage.IMAGE_GENERATED,
-    },
-    PipelineStage.APPROVED: {PipelineStage.VIDEO_GENERATED},
-    PipelineStage.VIDEO_GENERATED: {PipelineStage.PUBLISHED, PipelineStage.VALIDATION_FAILED},
+    PipelineStage.SCRIPT_GENERATED: {PipelineStage.STORYBOARD_GENERATED},
+    PipelineStage.STORYBOARD_GENERATED: {PipelineStage.PROMPT_GENERATED},
+    PipelineStage.PROMPT_GENERATED: {PipelineStage.IMAGE_GENERATED},
+    PipelineStage.IMAGE_GENERATED: {PipelineStage.VIDEO_GENERATED},
+    PipelineStage.VIDEO_GENERATED: {PipelineStage.VIDEO_GENERATED, PipelineStage.APPROVED},
+    PipelineStage.APPROVED: {PipelineStage.APPROVED, PipelineStage.PUBLISHED},
     PipelineStage.PUBLISHED: {PipelineStage.ANALYTICS_COLLECTED},
     PipelineStage.ANALYTICS_COLLECTED: {PipelineStage.LEARNING_UPDATED},
     PipelineStage.LEARNING_UPDATED: set(),
+    PipelineStage.VALIDATION_FAILED: set(),
+    PipelineStage.RETRY: set(),
 }
 
 
