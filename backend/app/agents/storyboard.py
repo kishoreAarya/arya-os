@@ -28,7 +28,9 @@ from app.agents.base import AgentResult, BaseAgent
 from app.providers.capabilities import Capability
 from app.providers.text_dispatch import build_text_generation_call
 from app.services.execution_engine import ExecutionEngine
+from app.core.logging import get_logger
 
+logger = get_logger("arya.agents.storyboard")
 
 @dataclass
 class Shot:
@@ -291,14 +293,25 @@ class StoryboardAgent(BaseAgent):
            return AgentResult(success=False, error=exec_result.error)
 
        shots = _parse_shots(exec_result.output)
+
+       # TEMP: limit storyboard size during development
+       MAX_SHOTS = 12
+       shots = shots[:MAX_SHOTS]
+
+       logger.info(
+                "storyboard_parsed",
+                shot_count=len(shots),
+       )
+
        storyboard_result = StoryboardResult(
-           script_id=context.get("script_id"), shots=shots
+                script_id=context.get("script_id"),
+                shots=shots,
        )
 
        output: dict = {
-           "shots": shots,
-           "storyboard_result": storyboard_result,
-       }
+            "shots": shots,
+            "storyboard_result": storyboard_result,
+        }
 
        # Carry script_id forward for downstream traceability if present
        script_id = context.get("script_id")
