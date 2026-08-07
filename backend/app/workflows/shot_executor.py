@@ -92,6 +92,12 @@ class ShotExecutor:
 
         if not shots:
             logger.warning("shot_executor_no_shots")
+            logger.info(
+                "shot_summary_debug",
+                video_clips=video_clips,
+                image_paths=image_paths,
+                voice_paths=voice_paths,
+            )
             return ShotExecutionSummary()
 
         results: list[ShotExecutionResult] = []
@@ -137,7 +143,7 @@ class ShotExecutor:
             shot_description = shot.get("description", "")
         else:
             shot_number = shot.shot_number
-            shot_description = shot_description
+            shot_description = shot.description
 
         result = ShotExecutionResult(
             shot_number=shot_number,
@@ -231,6 +237,13 @@ class ShotExecutor:
             shot_number=shot_number,
             cost_usd=shot_cost,
             duration_seconds=result.duration_seconds,
+        )
+
+        logger.info(
+            "shot_result_debug",
+            video_path=result.video_path,
+            image_path=result.image_path,
+            voice_path=result.voice_path,
         )
 
         return result

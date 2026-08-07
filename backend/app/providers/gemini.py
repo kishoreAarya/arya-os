@@ -62,8 +62,11 @@ async def generate_text(prompt: str, api_key: str, model: str) -> tuple[str, flo
         log.warning("provider_auth_failed", status_code=response.status_code)
         raise RuntimeError(f"Gemini rejected the API key ({response.status_code})")
     if response.status_code == 429:
-        log.warning("provider_rate_limited")
-        raise RuntimeError("Gemini rate limit exceeded (429)")
+        log.warning(
+            "provider_rate_limited",
+            body=response.text,
+        )
+        raise RuntimeError(f"Gemini rate limit exceeded (429): {response.text}")
     if response.status_code >= 400:
         log.warning(
             "provider_error_response",

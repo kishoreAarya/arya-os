@@ -165,6 +165,14 @@ class Orchestrator:
 
            if result.output:
                context = _merge_context(context, result.output)
+               summary = context.get("shot_execution_summary")
+
+               logger.info(
+                    "orchestrator_summary_debug",
+                    summary_is_none=summary is None,
+                    result_count=len(summary.results) if summary else 0,
+                    video_clips=summary.video_clips if summary else [],
+               )
 
            logger.info(
                "context_after_merge",

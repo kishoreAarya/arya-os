@@ -11,9 +11,12 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.base import AgentResult, BaseAgent
+from app.core.logging import get_logger
 from app.providers.capabilities import Capability
 from app.providers.media_dispatch import build_media_generation_call
 from app.services.execution_engine import ExecutionEngine
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -84,7 +87,15 @@ class VideoAgent(BaseAgent):
             return AgentResult(success=False, error=exec_result.error)
 
         output = exec_result.output or {}
+        logger.info(
+            "video_agent_output",
+            output=output,
+        )
         storage_path = output.get("storage_path")
+        logger.info(
+            "video_storage_path",
+            storage_path=storage_path,
+        )
         duration_seconds = output.get("duration_seconds")
 
         video_result = VideoResult(

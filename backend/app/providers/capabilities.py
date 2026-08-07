@@ -54,7 +54,7 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
     "openrouter": ProviderCapability(
         name="openrouter",
         capabilities=(Capability.TEXT_GENERATION,),
-        cost_tier=1,
+        cost_tier=2,
         avg_latency_seconds=8,
         max_context_tokens=128_000,
         supported_models=("deepseek/deepseek-chat", "moonshotai/kimi-k2"),
@@ -63,10 +63,10 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
     "gemini": ProviderCapability(
         name="gemini",
         capabilities=(Capability.TEXT_GENERATION, Capability.VISION, Capability.EMBEDDINGS),
-        cost_tier=2,
+        cost_tier=1,
         avg_latency_seconds=6,
         max_context_tokens=1_000_000,
-        supported_models=("gemini-2.0-flash", "gemini-2.0-pro"),
+        supported_models=("gemini-3.1-flash-lite", "gemini-3-flash-preview","gemini-3.1-pro-preview","gemini-3.5-flash","gemini-3.5-flash","gemini-3.6-flash"),
         secret_name="gemini_api_key",
     ),
     "anthropic": ProviderCapability(
