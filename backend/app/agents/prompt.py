@@ -158,11 +158,12 @@ class PromptAgent(BaseAgent):
        )
 
        exec_result = await self._execution_engine.execute(
-           capability=Capability.TEXT_GENERATION,
-           call=build_text_generation_call(prompt),
-           workflow_run_id=context.get("workflow_run_id"),
-           stage="prompt_generation",
-       )
+            capability=Capability.TEXT_GENERATION,
+            call=build_text_generation_call(prompt),
+            workflow_run_id=context.get("workflow_run_id"),
+            stage="prompt_generation",
+            validator_name="prompt",
+        )
 
        if not exec_result.success:
            return AgentResult(
