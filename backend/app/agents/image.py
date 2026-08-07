@@ -77,6 +77,7 @@ class ImageAgent(BaseAgent):
             ),
             workflow_run_id=context.get("workflow_run_id"),
             stage="image_generation",
+            validator_name="image",
         )
 
         if not exec_result.success:

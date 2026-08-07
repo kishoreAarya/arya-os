@@ -18,6 +18,10 @@ from app.services.execution_engine import ExecutionEngine
 
 logger = get_logger(__name__)
 
+import structlog
+
+logger = structlog.get_logger()
+
 
 @dataclass
 class VideoResult:
@@ -81,6 +85,7 @@ class VideoAgent(BaseAgent):
             ),
             workflow_run_id=context.get("workflow_run_id"),
             stage="video_generation",
+            validator_name="video",
         )
 
         if not exec_result.success:
@@ -92,11 +97,12 @@ class VideoAgent(BaseAgent):
             output=output,
         )
         storage_path = output.get("storage_path")
-        logger.info(
-            "video_storage_path",
-            storage_path=storage_path,
-        )
         duration_seconds = output.get("duration_seconds")
+        logger.info(
+            "video_agent_values",
+            storage_path=storage_path,
+            duration_seconds=duration_seconds,
+        )
 
         video_result = VideoResult(
             shot_number=context.get("shot_number"),

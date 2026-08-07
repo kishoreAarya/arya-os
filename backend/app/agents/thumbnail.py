@@ -65,6 +65,7 @@ class ThumbnailAgent(BaseAgent):
             ),
             workflow_run_id=context.get("workflow_run_id"),
             stage="thumbnail_generation",
+            validator_name="thumbnail",
         )
 
         if not exec_result.success:
