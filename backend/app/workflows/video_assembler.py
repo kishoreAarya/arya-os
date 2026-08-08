@@ -88,19 +88,26 @@ class VideoAssembler:
                 )
 
             if clip_count == 1:
-                final_path = video_paths[0]
-                duration = await self._probe_duration(final_path)
+                source_path = video_paths[0]
+                duration = await self._probe_duration(source_path)
                 if duration is None:
                     duration = summary.total_duration
 
+                # Copy single clip to a stable location so tmp_dir cleanup
+                # doesn't delete the only video we have.
+                stable_name = f"arya_assembled_{uuid.uuid4().hex}.mp4"
+                stable_path = Path(tempfile.gettempdir()) / stable_name
+                shutil.copy2(source_path, stable_path)
+
                 logger.info(
                     "video_assembler_single_clip",
-                    clip=final_path,
+                    source=str(source_path),
+                    final=str(stable_path),
                     duration_seconds=duration,
                 )
 
                 return VideoAssemblyResult(
-                    final_video_path=final_path,
+                    final_video_path=str(stable_path),
                     clip_count=1,
                     duration_seconds=duration,
                     success=True,

@@ -1,25 +1,11 @@
 """
 Agent execution router.
 
-Missing API route, flagged explicitly in agents/storyboard.py's own
-docstring ("a future backend route... not built here, out of scope
-for this agent-layer-only milestone") and confirmed by inspection: no
-router anywhere in app/api/routers/ calls into AGENT_REGISTRY or
-instantiates an agent. Every agent (TrendAgent, ScriptAgent,
-ImageAgent, ...), ExecutionEngine, and DecisionEngine are fully wired
-to each other, but nothing HTTP-reachable invokes any of it — n8n (the
-orchestrator) has no way to actually ask this backend to run a stage.
+Looks up the agent class in AGENT_REGISTRY, instantiates it with
+db session injection when required, runs it, and returns AgentResult
+as JSON.
 
-This route is deliberately thin: look up the agent class in the
-EXISTING `AGENT_REGISTRY` (app/agents/registry.py, unmodified),
-instantiate it the same way the registry's own docstring documents
-(`AGENT_REGISTRY[name](db)` if it takes a session, `AGENT_REGISTRY[name]()`
-if not), call `.run(context)` (awaiting it if the agent is async — the
-three stub agents, ScriptAgent/PromptAgent/MusicAgent, are sync and
-raise NotImplementedError, which this route reports as a normal 501,
-not a 500), and return the resulting AgentResult as JSON.
-
-No agent, ExecutionEngine, or DecisionEngine code is modified.
+All agents in AGENT_REGISTRY are async and fully implemented.
 """
 import dataclasses
 import inspect
@@ -37,21 +23,13 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 
 
 def _needs_db_session(agent_cls: type) -> bool:
-    """True if this agent's __init__ takes anything beyond `self`
-    (every real agent takes `db: AsyncSession`; ScriptAgent, PromptAgent,
-    and MusicAgent don't define __init__ at all, per registry.py's own
-    docstring)."""
+    """True if the agent's __init__ takes anything beyond `self`."""
     params = inspect.signature(agent_cls.__init__).parameters
     return len(params) > 1  # more than just `self`
 
 
 def _serialize(value: object) -> object:
-    """AgentResult.output often holds a nested dataclass (e.g.
-    TrendAgent's ResearchResult, StoryboardAgent's StoryboardResult) —
-    plain `dict()` on AgentResult wouldn't recurse into those. This
-    converts any dataclass instance (top-level or nested in a
-    dict/list) into a JSON-safe structure without needing to know each
-    agent's specific output dataclass ahead of time."""
+    """Recursively serialize dataclass instances to JSON-safe dicts."""
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return {k: _serialize(v) for k, v in dataclasses.asdict(value).items()}
     if isinstance(value, dict):
@@ -63,8 +41,7 @@ def _serialize(value: object) -> object:
 
 @router.get("/")
 async def list_agents():
-    """Which agent names are callable via POST /agents/{name}/run —
-    lets n8n (or a human) discover this without reading source."""
+    """Return all registered agent names callable via POST /agents/{name}/run."""
     return {"agents": list(AGENT_REGISTRY.keys())}
 
 
@@ -94,9 +71,6 @@ async def run_agent_endpoint(
             await maybe_result if inspect.isawaitable(maybe_result) else maybe_result
         )
     except NotImplementedError as exc:
-        # The three pure stubs (ScriptAgent/PromptAgent/MusicAgent)
-        # raise this on purpose — a 501 accurately reports "this agent
-        # isn't built yet" instead of looking like a server error.
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc)
         ) from exc

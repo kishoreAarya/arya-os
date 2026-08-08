@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
@@ -30,17 +30,16 @@ router = APIRouter(prefix="/workflows", tags=["workflows"])
     summary="Execute a complete YouTube content workflow",
     description=(
         "Runs the full pipeline sequentially: TrendAgent → ScriptAgent → "
-        "PromptAgent → StoryboardAgent → ImageAgent → VideoAgent → "
-        "VoiceAgent → ThumbnailAgent → Storage → PublishingAgent → "
-        "AnalyticsAgent → LearningFeedbackAgent. Each stage receives "
-        "the previous stage's output. If any stage fails, execution "
-        "stops and structured error information is returned."
+        "StoryboardAgent → ShotExecutor → VideoAssembler → "
+        "ThumbnailAgent → Storage → PublishingAgent → AnalyticsAgent. "
+        "Each stage receives the previous stage's output. If any stage "
+        "fails, execution stops and structured error information is returned."
     ),
 )
 async def create_youtube_workflow(
     workflow_input: WorkflowInput,
     db: Annotated[AsyncSession, Depends(get_db)],
-    project_id: uuid.UUID,
+    project_id: Annotated[uuid.UUID, Query(..., description="Project UUID to associate this run with")],
     mode: WorkflowMode = WorkflowMode.AUTONOMOUS,
 ) -> WorkflowResult:
     """Execute a complete YouTube content workflow.

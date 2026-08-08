@@ -73,64 +73,66 @@ class ShotExecutor:
         self._db = db
         self._max_retries = max_retries
 
-    async def execute(self, context: dict[str, Any]) -> ShotExecutionSummary:
-        """Run every shot in *context["shots"]* through the pipeline.
+        async def execute(self, context: dict[str, Any]) -> ShotExecutionSummary:
+            """Run every shot in *context["shots"]* through the pipeline.
 
-        Args:
-            context: Execution context containing at least ``shots``.
-                Each entry is a :class:`Shot` dataclass.
+            Args:
+                context: Execution context containing at least ``shots``.
+                    Each entry is a :class:`Shot` dataclass.
 
-        Returns:
-            Summary with per-shot results and rolled-up totals.
-        """
-        shots: list[Shot] = context.get("shots", [])
+            Returns:
+                Summary with per-shot results and rolled-up totals.
+            """
+            shots: list[Shot] = context.get("shots", [])
 
-        logger.info(
-            "shot_executor_summary",
-            shot_count=len(shots),
-        )
+            # Initialize accumulators BEFORE any early-return check
+            video_clips: list[str] = []
+            image_paths: list[str] = []
+            voice_paths: list[str] = []
 
-        if not shots:
-            logger.warning("shot_executor_no_shots")
             logger.info(
-                "shot_summary_debug",
+                "shot_executor_summary",
+                shot_count=len(shots),
+            )
+
+            if not shots:
+                logger.warning("shot_executor_no_shots")
+                logger.info(
+                    "shot_summary_debug",
+                    video_clips=video_clips,
+                    image_paths=image_paths,
+                    voice_paths=voice_paths,
+                )
+                return ShotExecutionSummary(
+                    video_clips=video_clips,
+                    image_paths=image_paths,
+                    voice_paths=voice_paths,
+                )
+
+            results: list[ShotExecutionResult] = []
+            total_cost = 0.0
+            total_duration = 0.0
+
+            for shot in shots:
+                shot_result = await self._execute_single_shot(shot, context)
+                results.append(shot_result)
+                if shot_result.video_path:
+                    video_clips.append(shot_result.video_path)
+                if shot_result.image_path:
+                    image_paths.append(shot_result.image_path)
+                if shot_result.voice_path:
+                    voice_paths.append(shot_result.voice_path)
+                total_cost += shot_result.cost_usd
+                total_duration += shot_result.duration_seconds
+
+            return ShotExecutionSummary(
+                results=results,
                 video_clips=video_clips,
                 image_paths=image_paths,
                 voice_paths=voice_paths,
+                total_cost=total_cost,
+                total_duration=total_duration,
             )
-            return ShotExecutionSummary()
-
-        results: list[ShotExecutionResult] = []
-        total_cost = 0.0
-        total_duration = 0.0
-
-        video_clips = []
-        image_paths = []
-        voice_paths = []
-
-        for shot in shots:
-            shot_result = await self._execute_single_shot(shot, context)
-            results.append(shot_result)
-            if shot_result.video_path:
-                video_clips.append(shot_result.video_path)
-
-            if shot_result.image_path:
-                image_paths.append(shot_result.image_path)
-
-            if shot_result.voice_path:
-                voice_paths.append(shot_result.voice_path)
-            total_cost += shot_result.cost_usd
-            total_duration += shot_result.duration_seconds
-
-        return ShotExecutionSummary(
-            results=results,
-            video_clips=video_clips,
-            image_paths=image_paths,
-            voice_paths=voice_paths,
-            total_cost=total_cost,
-            total_duration=total_duration,
-        )
-
     async def _execute_single_shot(
         self,
         shot: Shot,
