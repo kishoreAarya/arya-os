@@ -15,7 +15,6 @@ from app.providers.capabilities import Capability
 from app.providers.media_dispatch import build_media_generation_call
 from app.services.execution_engine import ExecutionEngine
 
-
 @dataclass
 class VoiceResult:
     """Strongly-typed output of VoiceAgent.run() — attached under
@@ -39,17 +38,20 @@ class VoiceAgent(BaseAgent):
 
     async def run(self, context: dict) -> AgentResult:
         """Expected context keys:
-        script_content (str, required)
+        voiceover (str, preferred) — per-shot voiceover line from storyboard
+        script_content (str, fallback) — full script if voiceover not available
         script_id (str, optional)
         voice_profile (str, optional) — carried through to VoiceResult
-            for downstream use; not passed to the TTS provider since
-            the shared dispatch does not yet support voice-selection
-            parameters (all providers use their default voice).
+        for downstream use; not passed to the TTS provider since
+        the shared dispatch does not yet support voice-selection
+        parameters (all providers use their default voice).
         """
-        script_content = context.get("script_content")
-        if not script_content or not str(script_content).strip():
+        # P0 FIX: Use per-shot voiceover if available, fall back to full script
+        voice_text = context.get("voiceover") or context.get("script_content")
+        if not voice_text or not str(voice_text).strip():
             return AgentResult(
-                success=False, error="context.script_content is required and was empty"
+                success=False,
+                error="context.voiceover or context.script_content is required and was empty",
             )
 
         voice_profile = context.get("voice_profile")
@@ -58,7 +60,7 @@ class VoiceAgent(BaseAgent):
             capability=Capability.TTS,
             call=build_media_generation_call(
                 capability=Capability.TTS,
-                prompt=script_content,
+                prompt=voice_text,
             ),
             workflow_run_id=context.get("workflow_run_id"),
             stage="voice_generation",
@@ -91,8 +93,9 @@ class VoiceAgent(BaseAgent):
         script_id = context.get("script_id")
         if script_id:
             result_output["script_id"] = script_id
-        if script_content:
-            result_output["script_content"] = script_content
+        # Carry the actual text that was narrated (voiceover or script)
+        if voice_text:
+            result_output["voice_text"] = voice_text
 
         return AgentResult(
             success=True,
