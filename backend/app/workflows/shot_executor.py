@@ -141,9 +141,19 @@ class ShotExecutor:
         if isinstance(shot, dict):
             shot_number = shot.get("shot_number", 0)
             shot_description = shot.get("description", "")
+            shot_voiceover = shot.get("voiceover")  # ADD THIS
+            shot_dialogue = shot.get("dialogue")    # ADD THIS
         else:
             shot_number = shot.shot_number
             shot_description = shot.description
+            shot_voiceover = getattr(shot, "voiceover", None)  # ADD THIS
+            shot_dialogue = getattr(shot, "dialogue", None)    # ADD THIS
+
+        # Then inject into context:
+        if shot_voiceover:
+            shot_context["voiceover"] = shot_voiceover
+        if shot_dialogue:
+            shot_context["dialogue"] = shot_dialogue
 
         result = ShotExecutionResult(
             shot_number=shot_number,
@@ -177,6 +187,11 @@ class ShotExecutor:
             shot_context["image_prompt_hint"] = shot.image_prompt_hint
         if getattr(shot, "negative_prompt_hint", None):
             shot_context["negative_prompt_hint"] = shot.negative_prompt_hint
+                # Inject voiceover and dialogue for per-shot narration
+        if shot_voiceover:
+            shot_context["voiceover"] = shot_voiceover
+        if shot_dialogue:
+            shot_context["dialogue"] = shot_dialogue    
 
         logger.info(
             "shot_execution_started",
