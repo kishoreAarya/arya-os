@@ -138,22 +138,34 @@ class ShotExecutor:
     ) -> ShotExecutionResult:
         """Execute one shot through Prompt → Image → Video → Voice."""
         shot_start = time.perf_counter()
+        
+        # P0 FIX: Extract all fields from both dict and dataclass shots
         if isinstance(shot, dict):
             shot_number = shot.get("shot_number", 0)
             shot_description = shot.get("description", "")
-            shot_voiceover = shot.get("voiceover")  # ADD THIS
-            shot_dialogue = shot.get("dialogue")    # ADD THIS
+            shot_voiceover = shot.get("voiceover")
+            shot_dialogue = shot.get("dialogue")
+            shot_camera_angle = shot.get("camera_angle")
+            shot_lighting = shot.get("lighting")
+            shot_environment = shot.get("environment")
+            shot_continuity_notes = shot.get("continuity_notes")
+            shot_duration_seconds = shot.get("duration_seconds")
+            shot_transition = shot.get("transition")
+            shot_image_prompt_hint = shot.get("image_prompt_hint")
+            shot_negative_prompt_hint = shot.get("negative_prompt_hint")
         else:
             shot_number = shot.shot_number
             shot_description = shot.description
-            shot_voiceover = getattr(shot, "voiceover", None)  # ADD THIS
-            shot_dialogue = getattr(shot, "dialogue", None)    # ADD THIS
-
-        # Then inject into context:
-        if shot_voiceover:
-            shot_context["voiceover"] = shot_voiceover
-        if shot_dialogue:
-            shot_context["dialogue"] = shot_dialogue
+            shot_voiceover = getattr(shot, "voiceover", None)
+            shot_dialogue = getattr(shot, "dialogue", None)
+            shot_camera_angle = getattr(shot, "camera_angle", None)
+            shot_lighting = getattr(shot, "lighting", None)
+            shot_environment = getattr(shot, "environment", None)
+            shot_continuity_notes = getattr(shot, "continuity_notes", None)
+            shot_duration_seconds = getattr(shot, "duration_seconds", None)
+            shot_transition = getattr(shot, "transition", None)
+            shot_image_prompt_hint = getattr(shot, "image_prompt_hint", None)
+            shot_negative_prompt_hint = getattr(shot, "negative_prompt_hint", None)
 
         result = ShotExecutionResult(
             shot_number=shot_number,
@@ -167,31 +179,26 @@ class ShotExecutor:
         })
 
         # Inject optional cinematic metadata if present on the shot.
-        if getattr(shot, "camera_angle", None):
-            shot_context["camera_style"] = shot.camera_angle
-        if getattr(shot, "lighting", None):
-            shot_context["lighting_style"] = shot.lighting
-        if getattr(shot, "environment", None):
-            shot_context["environment_bible"] = shot.environment
-        if getattr(shot, "continuity_notes", None):
-            shot_context["continuity_notes"] = shot.continuity_notes
-        if getattr(shot, "duration_seconds", None):
-            shot_context["duration_seconds"] = shot.duration_seconds
-        if getattr(shot, "dialogue", None):
-            shot_context["dialogue"] = shot.dialogue
-        if getattr(shot, "voiceover", None):
-            shot_context["voiceover"] = shot.voiceover
-        if getattr(shot, "transition", None):
-            shot_context["transition"] = shot.transition
-        if getattr(shot, "image_prompt_hint", None):
-            shot_context["image_prompt_hint"] = shot.image_prompt_hint
-        if getattr(shot, "negative_prompt_hint", None):
-            shot_context["negative_prompt_hint"] = shot.negative_prompt_hint
-                # Inject voiceover and dialogue for per-shot narration
+        if shot_camera_angle:
+            shot_context["camera_style"] = shot_camera_angle
+        if shot_lighting:
+            shot_context["lighting_style"] = shot_lighting
+        if shot_environment:
+            shot_context["environment_bible"] = shot_environment
+        if shot_continuity_notes:
+            shot_context["continuity_notes"] = shot_continuity_notes
+        if shot_duration_seconds:
+            shot_context["duration_seconds"] = shot_duration_seconds
+        if shot_dialogue:
+            shot_context["dialogue"] = shot_dialogue
         if shot_voiceover:
             shot_context["voiceover"] = shot_voiceover
-        if shot_dialogue:
-            shot_context["dialogue"] = shot_dialogue    
+        if shot_transition:
+            shot_context["transition"] = shot_transition
+        if shot_image_prompt_hint:
+            shot_context["image_prompt_hint"] = shot_image_prompt_hint
+        if shot_negative_prompt_hint:
+            shot_context["negative_prompt_hint"] = shot_negative_prompt_hint
 
         logger.info(
             "shot_execution_started",
