@@ -43,7 +43,11 @@ class VideoAssembler:
     def __init__(self, db: Any) -> None:
         self._db = db
 
-    async def assemble(self, summary: ShotExecutionSummary) -> VideoAssemblyResult:
+    async def assemble(
+        self,
+        summary: ShotExecutionSummary,
+        music_path: str | None = None,
+    ) -> VideoAssemblyResult:
         """Concatenate shot videos into one final video with voiceover."""
         if summary is None:
             logger.warning("video_assembler_empty_summary")
@@ -56,7 +60,7 @@ class VideoAssembler:
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            # P0 FIX: Build pairs of (video_path, voice_path) per shot
+            # Build pairs of (video_path, voice_path) per shot
             shot_media: list[tuple[str, str | None]] = []
 
             for r in summary.results:
@@ -125,14 +129,24 @@ class VideoAssembler:
                     duration_seconds=duration,
                 )
 
-                return VideoAssemblyResult(
+                result = VideoAssemblyResult(
                     final_video_path=str(stable_path),
                     clip_count=1,
                     duration_seconds=duration,
                     success=True,
                 )
+            else:
+                result = await self._concatenate(merged_clips, summary)
 
-            return await self._concatenate(merged_clips, summary)
+            # Merge background music if provided
+            if result.success and music_path:
+                result = await self._merge_background_music(result, music_path)
+
+            # Apply fade in/out to final video
+            if result.success:
+                result = await self._apply_fade(result)
+
+            return result
 
         finally:
             try:
@@ -221,7 +235,7 @@ class VideoAssembler:
                 error="FFmpeg not found in PATH",
             )
 
-        # FIX: Remove duplicate clips
+        # Remove duplicate clips
         unique_paths = list(dict.fromkeys(video_paths))
         if len(unique_paths) != len(video_paths):
             logger.warning(
@@ -250,7 +264,6 @@ class VideoAssembler:
                 output_path=str(output_path),
             )
 
-            # FIX: Re-encode instead of -c copy to fix audio stream boundaries
             cmd = [
                 ffmpeg,
                 "-y",
@@ -327,6 +340,163 @@ class VideoAssembler:
                     shutil.rmtree(tmp_dir)
             except Exception as exc:
                 logger.warning("concat_cleanup_failed", path=str(tmp_dir), error=str(exc))
+
+    async def _apply_fade(
+        self,
+        assembly_result: VideoAssemblyResult,
+    ) -> VideoAssemblyResult:
+        """Apply fade in at start and fade out at end of video."""
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            return assembly_result
+
+        video_path = assembly_result.final_video_path
+        tmp_dir = Path(tempfile.gettempdir()) / f"arya_fade_{uuid.uuid4().hex}"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        fade_output = tmp_dir / "output_faded.mp4"
+
+        try:
+            duration = await self._probe_duration(video_path)
+            fade_out_start = max(0, (duration or 0) - 1.5)
+
+            cmd = [
+                ffmpeg,
+                "-y",
+                "-i", video_path,
+                "-vf", f"fade=t=in:st=0:d=0.5,fade=t=out:st={fade_out_start}:d=1.0",
+                "-c:a", "copy",
+                str(fade_output),
+            ]
+
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            if proc.returncode == 0 and fade_output.exists() and fade_output.stat().st_size > 0:
+                stable_path = Path(tempfile.gettempdir()) / f"arya_final_{uuid.uuid4().hex}.mp4"
+                shutil.move(str(fade_output), str(stable_path))
+
+                logger.info(
+                    "fade_applied",
+                    duration=duration,
+                    fade_out_start=fade_out_start,
+                    final_path=str(stable_path),
+                )
+
+                return VideoAssemblyResult(
+                    final_video_path=str(stable_path),
+                    clip_count=assembly_result.clip_count,
+                    duration_seconds=duration or assembly_result.duration_seconds,
+                    success=True,
+                )
+            else:
+                logger.warning(
+                    "fade_failed",
+                    stderr=proc.stderr[:500],
+                )
+                return assembly_result
+
+        except Exception as exc:
+            logger.exception("fade_unexpected_error", error=str(exc))
+            return assembly_result
+        finally:
+            try:
+                if tmp_dir.exists():
+                    shutil.rmtree(tmp_dir)
+            except Exception:
+                pass
+
+    async def _merge_background_music(
+        self,
+        assembly_result: VideoAssemblyResult,
+        music_path: str,
+    ) -> VideoAssemblyResult:
+        """Merge background music with the assembled video."""
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            logger.warning("ffmpeg_not_found_for_music_merge")
+            return assembly_result
+
+        tmp_dir = Path(tempfile.gettempdir()) / f"arya_music_{uuid.uuid4().hex}"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            local_music = await self._resolve_local_path(music_path, tmp_dir, ".mp3")
+            if not local_music:
+                logger.warning("music_download_failed", path=music_path)
+                return assembly_result
+
+            video_path = assembly_result.final_video_path
+            output_path = tmp_dir / f"final_with_music_{uuid.uuid4().hex}.mp4"
+
+            cmd = [
+                ffmpeg,
+                "-y",
+                "-i", video_path,
+                "-i", local_music,
+                "-filter_complex",
+                "[1:a]aloop=loop=-1:size=0,asetpts=PTS-STARTPTS,volume=0.2[music];"
+                "[0:a][music]amix=inputs=2:duration=first:dropout_transition=2[aout]",
+                "-map", "0:v:0",
+                "-map", "[aout]",
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                str(output_path),
+            ]
+
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            if proc.returncode != 0:
+                logger.error(
+                    "ffmpeg_music_merge_failed",
+                    returncode=proc.returncode,
+                    stderr=proc.stderr[:1000],
+                )
+                return assembly_result
+
+            if not output_path.exists() or output_path.stat().st_size == 0:
+                logger.error("ffmpeg_music_merge_empty_output")
+                return assembly_result
+
+            stable_path = Path(tempfile.gettempdir()) / f"arya_final_{uuid.uuid4().hex}.mp4"
+            shutil.move(str(output_path), str(stable_path))
+
+            duration = await self._probe_duration(str(stable_path))
+
+            logger.info(
+                "ffmpeg_music_merge_succeeded",
+                final_path=str(stable_path),
+                music_path=music_path,
+                duration_seconds=duration,
+            )
+
+            return VideoAssemblyResult(
+                final_video_path=str(stable_path),
+                clip_count=assembly_result.clip_count,
+                duration_seconds=duration or assembly_result.duration_seconds,
+                success=True,
+            )
+
+        except Exception as exc:
+            logger.exception("music_merge_unexpected_error", error=str(exc))
+            return assembly_result
+        finally:
+            try:
+                if tmp_dir.exists():
+                    shutil.rmtree(tmp_dir)
+            except Exception:
+                pass
 
     async def _resolve_local_path(
         self,

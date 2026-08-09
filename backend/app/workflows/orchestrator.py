@@ -50,6 +50,7 @@ _PIPELINE: List[str] = [
    "script",
    "storyboard",
    "shot_executor",
+   "music", 
    "video_assembler",
    "thumbnail",
    "storage",
@@ -307,7 +308,8 @@ class Orchestrator:
                    )
 
                assembler = VideoAssembler(self._db)
-               assembly = await assembler.assemble(summary)
+               music_path = context.get("music_path")
+               assembly = await assembler.assemble(summary, music_path=music_path)
                execution_time_ms = round((time.perf_counter() - stage_start) * 1000, 3)
 
                if not assembly.success:

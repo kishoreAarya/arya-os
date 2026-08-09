@@ -48,6 +48,7 @@ class ShotExecutionSummary:
     video_clips: list[str] = field(default_factory=list)
     image_paths: list[str] = field(default_factory=list)
     voice_paths: list[str] = field(default_factory=list)
+    music_path: str | None = None
 
     total_cost: float = 0.0
     total_duration: float = 0.0

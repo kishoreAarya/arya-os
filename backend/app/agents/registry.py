@@ -37,6 +37,7 @@ from app.agents.thumbnail import ThumbnailAgent
 from app.agents.trend import TrendAgent
 from app.agents.video import VideoAgent
 from app.agents.voice import VoiceAgent
+from app.agents.music import MusicAgent
 
 # Registry keys match orchestrator.py _PIPELINE stage names exactly:
 # ["trend", "script", "storyboard", "prompt", "image", "voice",
@@ -57,6 +58,7 @@ AGENT_REGISTRY: dict[str, type[BaseAgent]] = {
     "thumbnail": ThumbnailAgent,
     "publishing": PublishingAgent,
     "analytics": AnalyticsAgent,
+    "music": MusicAgent,
 }
 
 # To add a new agent later:
