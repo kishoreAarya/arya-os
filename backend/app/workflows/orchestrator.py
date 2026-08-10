@@ -50,7 +50,6 @@ _PIPELINE: List[str] = [
    "script",
    "storyboard",
    "shot_executor",
-   "music", 
    "video_assembler",
    "thumbnail",
    "storage",
