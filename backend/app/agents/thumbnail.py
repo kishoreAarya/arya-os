@@ -31,7 +31,7 @@ def _build_thumbnail_prompt(topic: str, style_guide: str | None) -> str:
     bold text overlays, face/expression emphasis) is deliberately not
     built here — same "simplest prompt that could work" approach as
     ImageAgent."""
-    prompt = f"Eye-catching YouTube thumbnail for a video about: {topic}"
+    prompt = f"YouTube thumbnail: dramatic close-up of {topic}, bold contrasting colors, cinematic lighting, face showing strong emotion, text overlay space at top, viral-style composition, 4K, photorealistic"
     if style_guide:
         prompt += f", style: {style_guide}"
     return prompt
