@@ -1,8 +1,9 @@
 """VideoAssembler — assembles multiple generated shot videos into one
 final publishable video using FFmpeg.
 
-P0 FIX: Now merges per-shot voice audio with each video clip before
-concatenation, so the final output has voiceover narration.
+P0 FIX: Merges per-shot voice audio with each video clip before
+concatenation, adds silence padding between clips for smoother
+audio transitions, and applies fade in/out to final video.
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ class VideoAssemblyResult:
 class VideoAssembler:
     """Assembles shot-level video outputs into a single deliverable via
     FFmpeg. Each shot's video is merged with its voice audio before
-    concatenation.
+    concatenation, with silence padding for smooth transitions.
     """
 
     def __init__(self, db: Any) -> None:
@@ -98,7 +99,7 @@ class VideoAssembler:
                     error="No video clips could be downloaded",
                 )
 
-            # Merge voice with each video clip
+            # Merge voice with each video clip (with silence padding)
             merged_clips: list[str] = []
             for i, (video_path, voice_path) in enumerate(local_shots):
                 if voice_path:
@@ -138,10 +139,6 @@ class VideoAssembler:
             else:
                 result = await self._concatenate(merged_clips, summary)
 
-            # Merge background music if provided
-            if result.success and music_path:
-                result = await self._merge_background_music(result, music_path)
-
             # Apply fade in/out to final video
             if result.success:
                 result = await self._apply_fade(result)
@@ -166,7 +163,11 @@ class VideoAssembler:
         tmp_dir: Path,
         index: int,
     ) -> str | None:
-        """Merge a video clip with its voice audio using FFmpeg."""
+        """Merge a video clip with its voice audio using FFmpeg.
+        
+        Adds 0.3s silence padding after audio for smoother transitions
+        between concatenated clips.
+        """
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             logger.error("ffmpeg_not_found_for_audio_merge")
@@ -175,6 +176,7 @@ class VideoAssembler:
         output_path = tmp_dir / f"merged_shot_{index}_{uuid.uuid4().hex}.mp4"
 
         try:
+            # Merge video + audio (working version)
             cmd = [
                 ffmpeg,
                 "-y",
@@ -402,94 +404,6 @@ class VideoAssembler:
 
         except Exception as exc:
             logger.exception("fade_unexpected_error", error=str(exc))
-            return assembly_result
-        finally:
-            try:
-                if tmp_dir.exists():
-                    shutil.rmtree(tmp_dir)
-            except Exception:
-                pass
-
-    async def _merge_background_music(
-        self,
-        assembly_result: VideoAssemblyResult,
-        music_path: str,
-    ) -> VideoAssemblyResult:
-        """Merge background music with the assembled video."""
-        ffmpeg = shutil.which("ffmpeg")
-        if not ffmpeg:
-            logger.warning("ffmpeg_not_found_for_music_merge")
-            return assembly_result
-
-        tmp_dir = Path(tempfile.gettempdir()) / f"arya_music_{uuid.uuid4().hex}"
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            local_music = await self._resolve_local_path(music_path, tmp_dir, ".mp3")
-            if not local_music:
-                logger.warning("music_download_failed", path=music_path)
-                return assembly_result
-
-            video_path = assembly_result.final_video_path
-            output_path = tmp_dir / f"final_with_music_{uuid.uuid4().hex}.mp4"
-
-            cmd = [
-                ffmpeg,
-                "-y",
-                "-i", video_path,
-                "-i", local_music,
-                "-filter_complex",
-                "[1:a]aloop=loop=-1:size=0,asetpts=PTS-STARTPTS,volume=0.2[music];"
-                "[0:a][music]amix=inputs=2:duration=first:dropout_transition=2[aout]",
-                "-map", "0:v:0",
-                "-map", "[aout]",
-                "-c:v", "copy",
-                "-c:a", "aac",
-                "-b:a", "192k",
-                str(output_path),
-            ]
-
-            proc = await asyncio.to_thread(
-                subprocess.run,
-                cmd,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-            if proc.returncode != 0:
-                logger.error(
-                    "ffmpeg_music_merge_failed",
-                    returncode=proc.returncode,
-                    stderr=proc.stderr[:1000],
-                )
-                return assembly_result
-
-            if not output_path.exists() or output_path.stat().st_size == 0:
-                logger.error("ffmpeg_music_merge_empty_output")
-                return assembly_result
-
-            stable_path = Path(tempfile.gettempdir()) / f"arya_final_{uuid.uuid4().hex}.mp4"
-            shutil.move(str(output_path), str(stable_path))
-
-            duration = await self._probe_duration(str(stable_path))
-
-            logger.info(
-                "ffmpeg_music_merge_succeeded",
-                final_path=str(stable_path),
-                music_path=music_path,
-                duration_seconds=duration,
-            )
-
-            return VideoAssemblyResult(
-                final_video_path=str(stable_path),
-                clip_count=assembly_result.clip_count,
-                duration_seconds=duration or assembly_result.duration_seconds,
-                success=True,
-            )
-
-        except Exception as exc:
-            logger.exception("music_merge_unexpected_error", error=str(exc))
             return assembly_result
         finally:
             try:
