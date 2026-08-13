@@ -35,7 +35,6 @@ class ShotExecutionResult:
     image_path: str | None = None
     video_path: str | None = None
     voice_path: str | None = None
-    voice_text: str = ""
     cost_usd: float = 0.0
     duration_seconds: float = 0.0
     success: bool = False
@@ -208,7 +207,7 @@ class ShotExecutor:
             description=shot_description,
         )
 
-        stages = ["prompt", "image", "video"]
+        stages = ["prompt", "image", "video", "voice"]
 
         for stage_key in stages:
             stage_result = await execute_stage(
@@ -251,7 +250,6 @@ class ShotExecutor:
             _extract_str(shot_context, "voice_path")
             or _extract_str(shot_context, "audio_path")
         )
-        result.voice_text = _extract_str(shot_context, "voiceover") or _extract_str(shot_context, "voice_text") or ""
         result.stage_results = stage_results
         result.cost_usd = shot_cost
         result.duration_seconds = time.perf_counter() - shot_start

@@ -49,7 +49,6 @@ _PIPELINE: List[str] = [
    "trend",
    "script",
    "storyboard",
-   "voice_first",
    "shot_executor",
    "video_assembler",
    "thumbnail",
@@ -64,7 +63,6 @@ _PIPELINE: List[str] = [
 _KEY_TO_PIPELINE_STAGE: Dict[str, PipelineStage] = {
    "trend": PipelineStage.TREND_SELECTED,
    "script": PipelineStage.SCRIPT_GENERATED,
-   "voice_first": PipelineStage.SCRIPT_GENERATED,
    "storyboard": PipelineStage.STORYBOARD_GENERATED,
    "shot_executor": PipelineStage.VIDEO_GENERATED,
    "video_assembler": PipelineStage.VIDEO_GENERATED,
@@ -309,8 +307,8 @@ class Orchestrator:
                    )
 
                assembler = VideoAssembler(self._db)
-               voice_path = context.get("voice_path")
-               assembly = await assembler.assemble(summary, voice_path=voice_path)
+               music_path = context.get("music_path")
+               assembly = await assembler.assemble(summary, music_path=music_path)
                execution_time_ms = round((time.perf_counter() - stage_start) * 1000, 3)
 
                if not assembly.success:

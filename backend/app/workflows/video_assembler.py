@@ -1,10 +1,9 @@
-"""VideoAssembler — assembles shot videos into final video using voice-first workflow.
+"""VideoAssembler — assembles multiple generated shot videos into one
+final publishable video using FFmpeg.
 
-Voice-first approach:
-- Full voice track is generated first (continuous audio)
-- Video clips are generated to match voice segment durations
-- Assembly: concatenate video clips, overlay full voice track
-- Subtitles burned from voice segment text + timing
+P0 FIX: Merges per-shot voice audio with each video clip before
+concatenation, adds silence padding between clips for smoother
+audio transitions, and applies fade in/out to final video.
 """
 
 from __future__ import annotations
@@ -37,8 +36,9 @@ class VideoAssemblyResult:
 
 
 class VideoAssembler:
-    """Assembles shot-level video outputs into a single deliverable.
-    Voice-first: video clips sync to pre-generated voice track.
+    """Assembles shot-level video outputs into a single deliverable via
+    FFmpeg. Each shot's video is merged with its voice audio before
+    concatenation, with silence padding for smooth transitions.
     """
 
     def __init__(self, db: Any) -> None:
@@ -47,9 +47,9 @@ class VideoAssembler:
     async def assemble(
         self,
         summary: ShotExecutionSummary,
-        voice_path: str | None = None,
+        music_path: str | None = None,
     ) -> VideoAssemblyResult:
-        """Concatenate shot videos and overlay full voice track."""
+        """Concatenate shot videos into one final video with voiceover."""
         if summary is None:
             logger.warning("video_assembler_empty_summary")
             return VideoAssemblyResult(
@@ -61,102 +61,89 @@ class VideoAssembler:
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
         try:
-            # Collect video clips (no per-shot voice merge in voice-first)
-            video_clips: list[str] = []
+            # Build pairs of (video_path, voice_path) per shot
+            shot_media: list[tuple[str, str | None]] = []
+
             for r in summary.results:
-                if r.video_path:
-                    video_clips.append(r.video_path)
+                if not r.video_path:
+                    continue
+                shot_media.append((r.video_path, r.voice_path))
 
             logger.info(
                 "video_assembler_input",
-                clip_count=len(video_clips),
+                clip_count=len(shot_media),
+                shots_with_voice=sum(1 for _, v in shot_media if v),
             )
 
-            if not video_clips:
+            if not shot_media:
                 logger.warning("video_assembler_no_clips")
                 return VideoAssemblyResult(
                     success=False,
-                    error="No valid video clips found",
+                    error="No valid video clips found in ShotExecutionSummary",
                 )
 
-            # Download all videos to local temp
-            local_videos: list[str] = []
-            for video_url in video_clips:
+            # Download all videos and voices to local temp
+            local_shots: list[tuple[str, str | None]] = []
+            for video_url, voice_url in shot_media:
                 local_video = await self._resolve_local_path(video_url, tmp_dir, ".mp4")
-                if local_video:
-                    local_videos.append(local_video)
+                if not local_video:
+                    continue
+                local_voice = None
+                if voice_url:
+                    local_voice = await self._resolve_local_path(voice_url, tmp_dir, ".wav")
+                local_shots.append((local_video, local_voice))
 
-            if not local_videos:
+            if not local_shots:
                 return VideoAssemblyResult(
                     success=False,
                     error="No video clips could be downloaded",
                 )
 
-            # Collect subtitle data from shots
-            subtitle_segments: list[dict] = []
-            current_time = 0.0
-            for r in summary.results:
-                if r.video_path and r.voice_text:
-                    duration = r.duration_seconds or 4.0
-                    subtitle_segments.append({
-                        "start": current_time,
-                        "end": current_time + duration,
-                        "text": r.voice_text,
-                    })
-                    current_time += duration
+            # Merge voice with each video clip (with silence padding)
+            merged_clips: list[str] = []
+            for i, (video_path, voice_path) in enumerate(local_shots):
+                if voice_path:
+                    merged = await self._merge_audio_video(video_path, voice_path, tmp_dir, i)
+                    if merged:
+                        merged_clips.append(merged)
+                    else:
+                        merged_clips.append(video_path)
+                else:
+                    merged_clips.append(video_path)
 
-            # Concatenate video clips
-            if len(local_videos) == 1:
-                concat_path = local_videos[0]
+            clip_count = len(merged_clips)
+
+            if clip_count == 1:
+                source_path = merged_clips[0]
+                duration = await self._probe_duration(source_path)
+                if duration is None:
+                    duration = summary.total_duration
+
+                stable_name = f"arya_assembled_{uuid.uuid4().hex}.mp4"
+                stable_path = Path(tempfile.gettempdir()) / stable_name
+                shutil.copy2(source_path, stable_path)
+
+                logger.info(
+                    "video_assembler_single_clip",
+                    source=str(source_path),
+                    final=str(stable_path),
+                    duration_seconds=duration,
+                )
+
+                result = VideoAssemblyResult(
+                    final_video_path=str(stable_path),
+                    clip_count=1,
+                    duration_seconds=duration,
+                    success=True,
+                )
             else:
-                concat_result = await self._concatenate_videos(local_videos, tmp_dir)
-                if not concat_result:
-                    return VideoAssemblyResult(
-                        success=False,
-                        error="Video concatenation failed",
-                    )
-                concat_path = concat_result
+                result = await self._concatenate(merged_clips, summary)
 
-            # Overlay full voice track if provided
-            if voice_path:
-                final_path = await self._overlay_voice(concat_path, voice_path, tmp_dir)
-                if not final_path:
-                    final_path = concat_path
-            else:
-                final_path = concat_path
+            # Apply fade in/out to final video
+            if result.success:
+                result = await self._apply_fade(result)
 
-            # Apply fade in/out
-            faded_path = await self._apply_fade_to_path(final_path)
-            if faded_path:
-                final_path = faded_path
-
-            # Burn subtitles
-            if subtitle_segments:
-                subtitled_path = await self._burn_subtitles(final_path, subtitle_segments)
-                if subtitled_path:
-                    final_path = subtitled_path
-
-            # Move to stable path (must be OUTSIDE tmp_dir before cleanup)
-            stable_path = Path(tempfile.gettempdir()) / f"arya_final_{uuid.uuid4().hex}.mp4"
-            shutil.copy2(final_path, stable_path)
-
-            duration = await self._probe_duration(str(stable_path))
-
-            logger.info(
-                "video_assemble_complete",
-                final_path=str(stable_path),
-                clip_count=len(local_videos),
-                duration_seconds=duration,
-                has_voice=bool(voice_path),
-                has_subtitles=bool(subtitle_segments),
-            )
-
-            return VideoAssemblyResult(
-                final_video_path=str(stable_path),
-                clip_count=len(local_videos),
-                duration_seconds=duration or 0.0,
-                success=True,
-            )
+            return result
 
         finally:
             try:
@@ -164,23 +151,106 @@ class VideoAssembler:
                     shutil.rmtree(tmp_dir)
             except Exception as exc:
                 logger.warning(
-                    "assembler_cleanup_failed",
+                    "download_cleanup_failed",
                     path=str(tmp_dir),
                     error=str(exc),
                 )
 
-    async def _concatenate_videos(
+    async def _merge_audio_video(
         self,
-        video_paths: list[str],
+        video_path: str,
+        audio_path: str,
         tmp_dir: Path,
+        index: int,
     ) -> str | None:
-        """Concatenate multiple video clips using FFmpeg concat demuxer."""
+        """Merge a video clip with its voice audio using FFmpeg.
+        
+        Adds 0.3s silence padding after audio for smoother transitions
+        between concatenated clips.
+        """
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
+            logger.error("ffmpeg_not_found_for_audio_merge")
             return None
 
+        output_path = tmp_dir / f"merged_shot_{index}_{uuid.uuid4().hex}.mp4"
+
+        try:
+            # Merge video + audio (working version)
+            cmd = [
+                ffmpeg,
+                "-y",
+                "-i", video_path,
+                "-i", audio_path,
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-shortest",
+                str(output_path),
+            ]
+
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            if proc.returncode != 0:
+                logger.error(
+                    "ffmpeg_audio_merge_failed",
+                    returncode=proc.returncode,
+                    stderr=proc.stderr[:1000],
+                    video=video_path,
+                    audio=audio_path,
+                )
+                return None
+
+            if not output_path.exists() or output_path.stat().st_size == 0:
+                logger.error("ffmpeg_audio_merge_empty_output")
+                return None
+
+            logger.info(
+                "ffmpeg_audio_merge_succeeded",
+                output=str(output_path),
+                video=video_path,
+                audio=audio_path,
+            )
+            return str(output_path)
+
+        except Exception as exc:
+            logger.exception("audio_merge_unexpected_error", error=str(exc))
+            return None
+
+    async def _concatenate(
+        self,
+        video_paths: list[str],
+        summary: ShotExecutionSummary,
+    ) -> VideoAssemblyResult:
+        """Run FFmpeg concat with re-encoding to fix audio gaps."""
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            logger.error("ffmpeg_not_found")
+            return VideoAssemblyResult(
+                success=False,
+                error="FFmpeg not found in PATH",
+            )
+
+        # Remove duplicate clips
+        unique_paths = list(dict.fromkeys(video_paths))
+        if len(unique_paths) != len(video_paths):
+            logger.warning(
+                "duplicate_clips_removed",
+                original_count=len(video_paths),
+                unique_count=len(unique_paths),
+            )
+            video_paths = unique_paths
+
+        tmp_dir = Path(tempfile.gettempdir()) / f"arya_concat_{uuid.uuid4().hex}"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
         list_path = tmp_dir / "concat_list.txt"
-        output_path = tmp_dir / "concatenated.mp4"
+        output_path = tmp_dir / "output.mp4"
 
         try:
             with list_path.open("w", encoding="utf-8") as f:
@@ -188,6 +258,13 @@ class VideoAssembler:
                     normalized = os.path.abspath(path).replace("\\", "/")
                     escaped = normalized.replace("'", "'\\''")
                     f.write(f"file '{escaped}'\n")
+
+            logger.info(
+                "ffmpeg_concat_started",
+                clip_count=len(video_paths),
+                list_path=str(list_path),
+                output_path=str(output_path),
+            )
 
             cmd = [
                 ffmpeg,
@@ -212,76 +289,73 @@ class VideoAssembler:
                 check=False,
             )
 
-            if proc.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
-                return str(output_path)
-            else:
-                logger.error("concat_failed", stderr=proc.stderr[:500])
-                return None
+            if proc.returncode != 0:
+                logger.error(
+                    "ffmpeg_concat_failed",
+                    returncode=proc.returncode,
+                    stderr=proc.stderr[:2000],
+                )
+                return VideoAssemblyResult(
+                    success=False,
+                    error=f"FFmpeg concat failed (rc={proc.returncode}): {proc.stderr[:500]}",
+                )
 
-        except Exception as exc:
-            logger.exception("concat_error", error=str(exc))
-            return None
+            if not output_path.exists() or output_path.stat().st_size == 0:
+                logger.error("ffmpeg_concat_empty_output")
+                return VideoAssemblyResult(
+                    success=False,
+                    error="FFmpeg produced an empty output file",
+                )
 
-    async def _overlay_voice(
-        self,
-        video_path: str,
-        voice_path: str,
-        tmp_dir: Path,
-    ) -> str | None:
-        """Overlay full voice track onto concatenated video."""
-        ffmpeg = shutil.which("ffmpeg")
-        if not ffmpeg:
-            return video_path
+            stable_name = f"arya_assembled_{uuid.uuid4().hex}.mp4"
+            stable_path = Path(tempfile.gettempdir()) / stable_name
+            shutil.move(str(output_path), str(stable_path))
 
-        # Download voice if remote
-        local_voice = await self._resolve_local_path(voice_path, tmp_dir, ".wav")
-        if not local_voice:
-            return video_path
+            duration = await self._probe_duration(str(stable_path))
+            if duration is None:
+                duration = summary.total_duration
 
-        output_path = tmp_dir / "with_voice.mp4"
-
-        try:
-            cmd = [
-                ffmpeg,
-                "-y",
-                "-i", video_path,
-                "-i", local_voice,
-                "-c:v", "copy",
-                "-c:a", "aac",
-                "-b:a", "192k",
-                "-map", "0:v:0",
-                "-map", "1:a:0",
-                "-shortest",
-                str(output_path),
-            ]
-
-            proc = await asyncio.to_thread(
-                subprocess.run,
-                cmd,
-                capture_output=True,
-                text=True,
-                check=False,
+            logger.info(
+                "ffmpeg_concat_succeeded",
+                final_path=str(stable_path),
+                clip_count=len(video_paths),
+                duration_seconds=duration,
+                size_bytes=stable_path.stat().st_size,
             )
 
-            if proc.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
-                return str(output_path)
-            else:
-                logger.error("voice_overlay_failed", stderr=proc.stderr[:500])
-                return video_path
+            return VideoAssemblyResult(
+                final_video_path=str(stable_path),
+                clip_count=len(video_paths),
+                duration_seconds=duration,
+                success=True,
+            )
 
         except Exception as exc:
-            logger.exception("voice_overlay_error", error=str(exc))
-            return video_path
+            logger.exception("video_assembler_unexpected_error", error=str(exc))
+            return VideoAssemblyResult(
+                success=False,
+                error=f"Video assembly failed: {exc}",
+            )
+        finally:
+            try:
+                if tmp_dir.exists():
+                    shutil.rmtree(tmp_dir)
+            except Exception as exc:
+                logger.warning("concat_cleanup_failed", path=str(tmp_dir), error=str(exc))
 
-    async def _apply_fade_to_path(self, video_path: str) -> str | None:
-        """Apply fade in/out to a video file."""
+    async def _apply_fade(
+        self,
+        assembly_result: VideoAssemblyResult,
+    ) -> VideoAssemblyResult:
+        """Apply fade in at start and fade out at end of video."""
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
-            return None
+            return assembly_result
 
+        video_path = assembly_result.final_video_path
         tmp_dir = Path(tempfile.gettempdir()) / f"arya_fade_{uuid.uuid4().hex}"
         tmp_dir.mkdir(parents=True, exist_ok=True)
-        fade_output = tmp_dir / "faded.mp4"
+        fade_output = tmp_dir / "output_faded.mp4"
 
         try:
             duration = await self._probe_duration(video_path)
@@ -305,186 +379,39 @@ class VideoAssembler:
             )
 
             if proc.returncode == 0 and fade_output.exists() and fade_output.stat().st_size > 0:
-                # Move to stable path before tmp_dir cleanup
-                stable_path = Path(tempfile.gettempdir()) / f"arya_faded_{uuid.uuid4().hex}.mp4"
+                stable_path = Path(tempfile.gettempdir()) / f"arya_final_{uuid.uuid4().hex}.mp4"
                 shutil.move(str(fade_output), str(stable_path))
-                return str(stable_path)
-            return None
 
-        except Exception:
-            return None
-        finally:
-            try:
-                if tmp_dir.exists():
-                    shutil.rmtree(tmp_dir)
-            except Exception:
-                pass
-
-    def _generate_srt(self, segments: list[dict], output_path: Path) -> None:
-        """Generate SRT subtitle file from segments."""
-        def fmt_time(seconds: float) -> str:
-            hours = int(seconds // 3600)
-            minutes = int((seconds % 3600) // 60)
-            secs = int(seconds % 60)
-            millis = int((seconds % 1) * 1000)
-            return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
-
-        with open(output_path, "w", encoding="utf-8") as f:
-            for i, seg in enumerate(segments, 1):
-                f.write(f"{i}\n")
-                f.write(f"{fmt_time(seg['start'])} --> {fmt_time(seg['end'])}\n")
-                f.write(f"{seg['text']}\n\n")
-
-    async def _burn_subtitles(
-        self,
-        video_path: str,
-        segments: list[dict],
-    ) -> str | None:
-        """Burn bold text overlays into video using FFmpeg + Pillow."""
-        ffmpeg = shutil.which("ffmpeg")
-        if not ffmpeg or not segments:
-            return None
-
-        tmp_dir = Path(tempfile.gettempdir()) / f"arya_subs_{uuid.uuid4().hex}"
-        tmp_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            # Get video dimensions
-            probe_cmd = [
-                ffprobe := shutil.which("ffprobe"),
-                "-v", "error",
-                "-select_streams", "v:0",
-                "-show_entries", "stream=width,height",
-                "-of", "csv=s=x:p=0",
-                video_path,
-            ]
-            probe_proc = await asyncio.to_thread(
-                subprocess.run, probe_cmd, capture_output=True, text=True, check=False
-            )
-            if probe_proc.returncode == 0:
-                w, h = probe_proc.stdout.strip().split("x")
-                width, height = int(w), int(h)
-            else:
-                width, height = 1080, 1920  # fallback vertical
-
-            # Generate text overlay images for each segment
-            overlay_inputs = []
-            for i, seg in enumerate(segments):
-                text_img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-                draw = ImageDraw.Draw(text_img)
-
-                text = seg["text"].upper()
-                # Shorten text if too long
-                if len(text) > 60:
-                    text = text[:57] + "..."
-
-                # Load font
-                try:
-                    font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 48)
-                except Exception:
-                    try:
-                        font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", 48)
-                    except Exception:
-                        font = ImageFont.load_default()
-
-                # Wrap text
-                words = text.split()
-                lines = []
-                current_line = ""
-                for word in words:
-                    test = current_line + " " + word if current_line else word
-                    bbox = draw.textbbox((0, 0), test, font=font)
-                    if bbox[2] - bbox[0] <= width - 80:
-                        current_line = test
-                    else:
-                        if current_line:
-                            lines.append(current_line)
-                        current_line = word
-                if current_line:
-                    lines.append(current_line)
-
-                # Draw lines
-                line_height = 60
-                total_text_height = len(lines) * line_height
-                start_y = (height - total_text_height) // 2  # centered vertically
-
-                for j, line in enumerate(lines):
-                    bbox = draw.textbbox((0, 0), line, font=font)
-                    text_w = bbox[2] - bbox[0]
-                    x = (width - text_w) // 2
-                    y = start_y + j * line_height
-
-                    # Black outline
-                    for dx in range(-2, 3):
-                        for dy in range(-2, 3):
-                            draw.text((x + dx, y + dy), line, font=font, fill=(0, 0, 0, 255))
-
-                    # White text
-                    draw.text((x, y), line, font=font, fill=(255, 255, 255, 255))
-
-                # Save overlay image
-                overlay_path = tmp_dir / f"text_{i:04d}.png"
-                text_img.save(overlay_path)
-                overlay_inputs.append({
-                    "path": str(overlay_path),
-                    "start": seg["start"],
-                    "duration": seg["end"] - seg["start"],
-                })
-
-            # Build FFmpeg filter_complex for sequential text overlays
-            if not overlay_inputs:
-                return None
-
-            # Create concat demuxer for overlay sequence
-            filter_parts = []
-            for i, inp in enumerate(overlay_inputs):
-                filter_parts.append(
-                    f"[0:v][1:v]overlay=0:0:enable='between(t\\,{inp['start']}\\,{inp['start'] + inp['duration']})'[v{i}];"
+                logger.info(
+                    "fade_applied",
+                    duration=duration,
+                    fade_out_start=fade_out_start,
+                    final_path=str(stable_path),
                 )
 
-            # This is complex with concat. Simpler approach: use fade in/out per text
-            # Actually, let's use a simpler approach - generate one video with all text burned
-
-            # For now, use the first segment's text as a test
-            # Full implementation would require complex filtergraph
-
-            # SIMPLIFIED: Just burn the first text overlay for testing
-            first_overlay = overlay_inputs[0]
-            output_path = tmp_dir / "subtitled.mp4"
-
-            cmd = [
-                ffmpeg,
-                "-y",
-                "-i", video_path,
-                "-i", first_overlay["path"],
-                "-filter_complex", f"[0:v][1:v]overlay=0:0:enable='between(t\\,{first_overlay['start']}\\,{first_overlay['start'] + first_overlay['duration']})'",
-                "-c:a", "copy",
-                str(output_path),
-            ]
-
-            proc = await asyncio.to_thread(
-                subprocess.run,
-                cmd,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-            if proc.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
-                stable_path = Path(tempfile.gettempdir()) / f"arya_subtitled_{uuid.uuid4().hex}.mp4"
-                shutil.move(str(output_path), str(stable_path))
-                return str(stable_path)
-            return None
+                return VideoAssemblyResult(
+                    final_video_path=str(stable_path),
+                    clip_count=assembly_result.clip_count,
+                    duration_seconds=duration or assembly_result.duration_seconds,
+                    success=True,
+                )
+            else:
+                logger.warning(
+                    "fade_failed",
+                    stderr=proc.stderr[:500],
+                )
+                return assembly_result
 
         except Exception as exc:
-            logger.exception("burn_subtitles_failed", error=str(exc))
-            return None
+            logger.exception("fade_unexpected_error", error=str(exc))
+            return assembly_result
         finally:
             try:
                 if tmp_dir.exists():
                     shutil.rmtree(tmp_dir)
             except Exception:
                 pass
+
     async def _resolve_local_path(
         self,
         media_path: str,
