@@ -33,6 +33,8 @@ class VideoAssemblyResult:
     duration_seconds: float = 0.0
     success: bool = False
     error: str | None = None
+    captions_burned_in: bool = False
+    captions: list[Any] | None = None
 
 
 class VideoAssembler:
@@ -48,6 +50,11 @@ class VideoAssembler:
         self,
         summary: ShotExecutionSummary,
         music_path: str | None = None,
+        aspect_ratio: str = "9:16",
+        narration_timing: Any = None,
+        captions_enabled: bool = False,
+        captions_required: bool = False,
+        **kwargs: Any,
     ) -> VideoAssemblyResult:
         """Concatenate shot videos into one final video with voiceover."""
         if summary is None:
@@ -88,6 +95,11 @@ class VideoAssembler:
                 local_video = await self._resolve_local_path(video_url, tmp_dir, ".mp4")
                 if not local_video:
                     continue
+                norm_video = await self._normalize_video_clip(
+                    local_video, tmp_dir, len(local_shots), aspect_ratio=aspect_ratio
+                )
+                if norm_video:
+                    local_video = norm_video
                 local_voice = None
                 if voice_url:
                     local_voice = await self._resolve_local_path(voice_url, tmp_dir, ".wav")
@@ -103,7 +115,7 @@ class VideoAssembler:
             merged_clips: list[str] = []
             for i, (video_path, voice_path) in enumerate(local_shots):
                 if voice_path:
-                    merged = await self._merge_audio_video(video_path, voice_path, tmp_dir, i)
+                    merged = await self._merge_audio_video(video_path, voice_path, tmp_dir, i, aspect_ratio=aspect_ratio)
                     if merged:
                         merged_clips.append(merged)
                     else:
@@ -143,6 +155,29 @@ class VideoAssembler:
             if result.success:
                 result = await self._apply_fade(result)
 
+            # Mix background music if provided
+            if result.success and music_path:
+                result = await self._mix_background_music(result, music_path)
+
+            # Burn captions if enabled or required
+            if result.success and (captions_enabled or captions_required) and narration_timing:
+                try:
+                    from app.core.captions import build_caption_timeline, burn_captions_to_video
+                    timeline = build_caption_timeline(narration_timing, video_duration=result.duration_seconds)
+                    if timeline and timeline.segments:
+                        captioned_path = await burn_captions_to_video(result.final_video_path, timeline)
+                        if captioned_path:
+                            result.final_video_path = captioned_path
+                            result.captions_burned_in = True
+                            result.captions = timeline.segments
+                except Exception as exc:
+                    logger.warning("caption_burn_failed", error=str(exc))
+                    if captions_required:
+                        return VideoAssemblyResult(
+                            success=False,
+                            error=f"Caption burn-in required but failed: {exc}",
+                        )
+
             return result
 
         finally:
@@ -156,18 +191,90 @@ class VideoAssembler:
                     error=str(exc),
                 )
 
+    async def _probe_has_audio(self, path: str) -> bool:
+        """Best-effort check if a video file has an audio stream."""
+        ffprobe = shutil.which("ffprobe")
+        if not ffprobe:
+            return False
+        try:
+            cmd = [
+                ffprobe,
+                "-v", "error",
+                "-select_streams", "a",
+                "-show_entries", "stream=codec_type",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                path,
+            ]
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=15,
+            )
+            return proc.returncode == 0 and "audio" in proc.stdout.lower()
+        except Exception:
+            return False
+
+    async def _normalize_video_clip(
+        self,
+        video_path: str,
+        tmp_dir: Path,
+        index: int,
+        aspect_ratio: str = "9:16",
+    ) -> str | None:
+        """Normalize video clip resolution, pixel format, and frame rate to match target aspect ratio."""
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg:
+            return video_path
+
+        output_path = tmp_dir / f"norm_shot_{index}_{uuid.uuid4().hex}.mp4"
+
+        if aspect_ratio == "16:9":
+            vf = "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,setsar=1"
+        else:
+            vf = "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,setsar=1"
+
+        try:
+            cmd = [
+                ffmpeg,
+                "-y",
+                "-i", video_path,
+                "-vf", vf,
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "23",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                str(output_path),
+            ]
+
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            if proc.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
+                return str(output_path)
+            return video_path
+        except Exception as exc:
+            logger.exception("normalize_clip_error", error=str(exc))
+            return video_path
+
     async def _merge_audio_video(
         self,
         video_path: str,
         audio_path: str,
         tmp_dir: Path,
         index: int,
+        aspect_ratio: str = "9:16",
+        target_shot_duration: float | None = None,
     ) -> str | None:
-        """Merge a video clip with its voice audio using FFmpeg.
-        
-        Adds 0.3s silence padding after audio for smoother transitions
-        between concatenated clips.
-        """
+        """Merge a video clip with its voice audio using FFmpeg."""
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             logger.error("ffmpeg_not_found_for_audio_merge")
@@ -176,18 +283,32 @@ class VideoAssembler:
         output_path = tmp_dir / f"merged_shot_{index}_{uuid.uuid4().hex}.mp4"
 
         try:
-            # Merge video + audio (working version)
-            cmd = [
-                ffmpeg,
-                "-y",
-                "-i", video_path,
-                "-i", audio_path,
-                "-c:v", "copy",
-                "-c:a", "aac",
-                "-b:a", "192k",
-                "-shortest",
-                str(output_path),
-            ]
+            if target_shot_duration is not None and target_shot_duration > 0:
+                cmd = [
+                    ffmpeg,
+                    "-y",
+                    "-stream_loop", "-1",
+                    "-i", video_path,
+                    "-i", audio_path,
+                    "-c:v", "copy",
+                    "-c:a", "aac",
+                    "-b:a", "192k",
+                    "-af", "apad",
+                    "-t", str(target_shot_duration),
+                    str(output_path),
+                ]
+            else:
+                cmd = [
+                    ffmpeg,
+                    "-y",
+                    "-i", video_path,
+                    "-i", audio_path,
+                    "-c:v", "copy",
+                    "-c:a", "aac",
+                    "-b:a", "192k",
+                    "-shortest",
+                    str(output_path),
+                ]
 
             proc = await asyncio.to_thread(
                 subprocess.run,
@@ -222,6 +343,99 @@ class VideoAssembler:
         except Exception as exc:
             logger.exception("audio_merge_unexpected_error", error=str(exc))
             return None
+
+    async def _mix_background_music(
+        self,
+        assembly_result: VideoAssemblyResult,
+        music_path: str,
+        music_volume: float = 0.20,
+        music_ducking_volume: float = 0.08,
+        fade_in_seconds: float = 1.0,
+        fade_out_seconds: float = 1.5,
+    ) -> VideoAssemblyResult:
+        """Mix background music into assembled video with optional ducking."""
+        ffmpeg = shutil.which("ffmpeg")
+        if not ffmpeg or not assembly_result.final_video_path:
+            return assembly_result
+
+        tmp_dir = Path(tempfile.gettempdir()) / f"arya_music_{uuid.uuid4().hex}"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        mixed_output = tmp_dir / "output_with_music.mp4"
+
+        try:
+            has_audio = await self._probe_has_audio(assembly_result.final_video_path)
+            duration = await self._probe_duration(assembly_result.final_video_path)
+            if duration is None:
+                duration = assembly_result.duration_seconds
+
+            if has_audio:
+                filtergraph = (
+                    f"[1:a]volume={music_volume},afade=t=in:st=0:d={fade_in_seconds}[music];"
+                    f"[music][0:a]sidechaincompress=threshold={music_ducking_volume}:ratio=4:attack=50:release=500[ducked];"
+                    f"[0:a][ducked]amix=inputs=2:duration=first[aout]"
+                )
+                cmd = [
+                    ffmpeg,
+                    "-y",
+                    "-i", assembly_result.final_video_path,
+                    "-stream_loop", "-1",
+                    "-i", music_path,
+                    "-filter_complex", filtergraph,
+                    "-map", "0:v:0",
+                    "-map", "[aout]",
+                    "-c:v", "copy",
+                    "-c:a", "aac",
+                    "-b:a", "192k",
+                    str(mixed_output),
+                ]
+            else:
+                filtergraph = f"[1:a]volume={music_volume},afade=t=in:st=0:d={fade_in_seconds}[aout]"
+                cmd = [
+                    ffmpeg,
+                    "-y",
+                    "-i", assembly_result.final_video_path,
+                    "-stream_loop", "-1",
+                    "-i", music_path,
+                    "-filter_complex", filtergraph,
+                    "-map", "0:v:0",
+                    "-map", "[aout]",
+                    "-c:v", "copy",
+                    "-c:a", "aac",
+                    "-b:a", "192k",
+                    "-t", str(duration),
+                    str(mixed_output),
+                ]
+
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            if proc.returncode == 0 and mixed_output.exists() and mixed_output.stat().st_size > 0:
+                stable_path = Path(tempfile.gettempdir()) / f"arya_music_final_{uuid.uuid4().hex}.mp4"
+                shutil.move(str(mixed_output), str(stable_path))
+                return VideoAssemblyResult(
+                    final_video_path=str(stable_path),
+                    clip_count=assembly_result.clip_count,
+                    duration_seconds=duration,
+                    success=True,
+                )
+            else:
+                logger.warning("music_mixing_failed", stderr=proc.stderr[:500])
+                return assembly_result
+
+        except Exception as exc:
+            logger.exception("music_mixing_unexpected_error", error=str(exc))
+            return assembly_result
+        finally:
+            try:
+                if tmp_dir.exists():
+                    shutil.rmtree(tmp_dir)
+            except Exception:
+                pass
 
     async def _concatenate(
         self,

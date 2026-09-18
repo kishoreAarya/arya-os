@@ -67,6 +67,7 @@ class PublishingAgent(BaseAgent):
             name
             for name, value in (
                 ("platform", platform),
+                ("video_id", video_id),
                 ("video_storage_path", video_storage_path),
             )
             if not value
@@ -98,20 +99,40 @@ class PublishingAgent(BaseAgent):
             )
             return AgentResult(
                 success=False,
-                error=f"Authentication failed for \'{platform}\': {auth_result.error}",
+                error=f"Authentication failed for '{platform}': {auth_result.error}",
             )
 
-        # Upload the video
+        aspect_ratio = context.get("aspect_ratio", "16:9")
+        title = context.get("title")
+        description = context.get("description")
         tags_raw = context.get("tags")
-        tags = [t.strip() for t in tags_raw.split(",")] if tags_raw else None
+        tags = [t.strip() for t in tags_raw.split(",")] if tags_raw else []
 
-        local_video_path = await ensure_local_asset(video_storage_path)
+        if aspect_ratio == "9:16":
+            if "#Shorts" not in (title or "") and "#Shorts" not in (description or ""):
+                description = f"{description or ''}\n\n#Shorts".strip()
+            if "Shorts" not in tags:
+                tags.append("Shorts")
+
+        try:
+            local_video_path = await ensure_local_asset(video_storage_path)
+        except RuntimeError as exc:
+            logger.error(
+                "publishing_agent_asset_error",
+                platform=platform,
+                video_id=video_id,
+                error=str(exc),
+            )
+            return AgentResult(
+                success=False,
+                error=f"Asset resolution failed for '{platform}': {exc}",
+            )
 
         upload_result = await adapter.upload_content(
             file_path=local_video_path, 
-            title=context.get("title"),
-            description=context.get("description"),
-            tags=tags,
+            title=title,
+            description=description,
+            tags=tags or None,
             credentials=auth_result.credentials,
         )
         if not upload_result.success:
@@ -146,10 +167,12 @@ class PublishingAgent(BaseAgent):
                 )
                 # Non-fatal: video uploaded successfully, thumbnail failed.
 
-        # Publish the video
+        # Publish the video (preserving private/unlisted status unless explicitly configured)
+        privacy_status = context.get("privacy_status") or (context.get("metadata") or {}).get("privacy_status") or "private"
         publish_result = await adapter.publish(
             content_id=upload_result.content_id,
             credentials=auth_result.credentials,
+            privacy_status=privacy_status,
         )
         if not publish_result.success:
             logger.error(
@@ -219,6 +242,8 @@ class PublishingAgent(BaseAgent):
             result_output["topic"] = topic
         if video_id:
             result_output["video_id"] = video_id
+        result_output["aspect_ratio"] = aspect_ratio
+
 
         return AgentResult(
             success=True,

@@ -38,6 +38,7 @@ from app.models.analytics import PerformanceLearningFeedback
 from app.providers.capabilities import Capability
 from app.providers.text_dispatch import build_text_generation_call
 from app.services.execution_engine import ExecutionEngine
+from app.services.trend_sources import TrendDiscoveryService, TrendSignal
 
 
 @dataclass
@@ -51,20 +52,20 @@ class ResearchResult:
     research_brief: str | None = None
 
 
-async def _discover_trends(topic_hint: str | None) -> list[dict]:
-    """TODO: real integration required — Google Trends (pytrends),
-    Reddit, YouTube Trends, RSS, or News APIs, per
-    ARYA_OS_BUILD_INSTRUCTIONS.md's TrendSource interface note.
-    Explicitly out of scope this milestone ("do not implement actual
-    provider SDK integrations"). Returns an empty list rather than
-    fabricated data — an honest "nothing discovered yet", not a fake
-    placeholder trend.
-    """
-    return []
+async def _discover_trends(
+    topic_hint: str | None,
+    feedback: list[PerformanceLearningFeedback] | None = None,
+) -> list[dict]:
+    """Discover trend signals using TrendDiscoveryService with automatic fallback."""
+    service = TrendDiscoveryService()
+    signals = await service.discover_trends(topic_hint=topic_hint or "", feedback=feedback)
+    return [s.to_dict() if hasattr(s, "to_dict") else s for s in signals]
 
 
 def _build_research_prompt(
-    topic: str, trend_signals: list[dict], feedback: list[PerformanceLearningFeedback]
+    topic: str,
+    trend_signals: list[dict],
+    feedback: list[PerformanceLearningFeedback],
 ) -> str:
     lines = [
         "You are a research assistant preparing a brief for a video script writer.",
@@ -74,7 +75,15 @@ def _build_research_prompt(
         lines.append("")
         lines.append("Trend signals discovered:")
         for item in trend_signals[:5]:
-            lines.append(f"- {item}")
+            if isinstance(item, dict):
+                src = item.get("source", "trend")
+                t = item.get("topic", topic)
+                sig = item.get("search_volume_or_signal") or item.get("signal", "")
+                comp = item.get("competition") or "N/A"
+                conf = item.get("confidence", 0.5)
+                lines.append(f"- [{src}] {t}: {sig} (competition: {comp}, confidence: {conf})")
+            else:
+                lines.append(f"- {item}")
     if feedback:
         lines.append("")
         lines.append("Apply these lessons learned from past published videos:")
@@ -90,9 +99,14 @@ def _build_research_prompt(
 class TrendAgent(BaseAgent):
     name = "trend_agent"
 
-    def __init__(self, db: AsyncSession):
+    def __init__(
+        self,
+        db: AsyncSession,
+        trend_service: TrendDiscoveryService | None = None,
+    ):
         self._db = db
         self._execution_engine = ExecutionEngine(db)
+        self._trend_service = trend_service or TrendDiscoveryService()
 
     async def _read_learning_feedback(self) -> list[PerformanceLearningFeedback]:
         """Real query — is_active feedback only, most recent first.
@@ -114,9 +128,17 @@ class TrendAgent(BaseAgent):
                 success=False, error="context.topic is required and was empty"
             )
 
-        trend_signals = await _discover_trends(topic)
         feedback = await self._read_learning_feedback()
-        prompt = _build_research_prompt(topic, trend_signals, feedback)
+        discovered_signals = await self._trend_service.discover_trends(
+            topic_hint=str(topic),
+            feedback=feedback,
+            limit=5,
+        )
+        trend_signals = [
+            s.to_dict() if hasattr(s, "to_dict") else s for s in discovered_signals
+        ]
+
+        prompt = _build_research_prompt(str(topic), trend_signals, feedback)
 
         exec_result = await self._execution_engine.execute(
             capability=Capability.TEXT_GENERATION,
@@ -129,7 +151,7 @@ class TrendAgent(BaseAgent):
             return AgentResult(success=False, error=exec_result.error)
 
         research_result = ResearchResult(
-            topic=topic,
+            topic=str(topic),
             trend_signals=trend_signals,
             learning_feedback_applied=[fb.insight for fb in feedback],
             research_brief=exec_result.output,
@@ -137,8 +159,14 @@ class TrendAgent(BaseAgent):
 
         return AgentResult(
             success=True,
-            output={"research_result": research_result},
+            output={
+                "research_result": research_result,
+                "research_brief": exec_result.output,
+                "trend_signals": trend_signals,
+                "research_data": trend_signals,
+            },
             provider_used=exec_result.provider,
             cost_usd=exec_result.cost_usd,
             duration_seconds=exec_result.elapsed_time,
         )
+

@@ -49,9 +49,8 @@ async def test_run_success_produces_thumbnail_result():
 
 @pytest.mark.asyncio
 async def test_run_reflects_current_no_image_adapter_reality():
-    agent = ThumbnailAgent(db=AsyncMock())
-    with patch("app.services.execution_engine.asyncio.sleep", new=AsyncMock()):
-        result = await agent.run({"topic": "cats"})
+    agent = _agent_with_mocked_engine(ExecutionResult(success=False, error="All providers failed"))
+    result = await agent.run({"topic": "cats"})
     assert result.success is False
 
 

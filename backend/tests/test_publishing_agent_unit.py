@@ -49,18 +49,27 @@ async def test_run_reports_all_missing_fields_at_once():
 @pytest.mark.asyncio
 async def test_run_never_succeeds_today_even_with_valid_request():
     """This is the core claim to verify: a WELL-FORMED request still
-    cannot publish, because no PlatformAdapter exists — this must
+    cannot publish when platform authentication fails — this must
     never silently succeed."""
+    from unittest.mock import MagicMock, patch
+
+    from app.platforms.base import AuthResult
+
     agent = PublishingAgent(db=AsyncMock())
-    result = await agent.run(
-        {
-            "platform": "youtube",
-            "video_id": "v1",
-            "video_storage_path": "/videos/v1.mp4",
-        }
+    mock_adapter = MagicMock()
+    mock_adapter.authenticate = AsyncMock(
+        return_value=AuthResult(success=False, error="No YouTube credentials available")
     )
-    assert result.success is False
-    assert "failed" in result.error.lower()
+    with patch("app.agents.publishing.get_platform_adapter", return_value=mock_adapter):
+        result = await agent.run(
+            {
+                "platform": "youtube",
+                "video_id": "v1",
+                "video_storage_path": "/videos/v1.mp4",
+            }
+        )
+        assert result.success is False
+        assert "failed" in result.error.lower()
 
 
 def test_publishing_result_dataclass_shape():

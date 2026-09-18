@@ -48,3 +48,8 @@ server.log
 
 # OAuth helper
 get_refresh_token.py
+
+# Scratch & Local storage data
+scratch/
+data/
+data/storage/

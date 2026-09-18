@@ -9,10 +9,11 @@ core shape.
 from contextlib import asynccontextmanager
 
 import redis.asyncio as redis
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
+from app.core.security import verify_api_key
 from app.api.routers import agents, approvals, feature_flags, health, lineage, workflow_runs, workflows
 from app.workers.scheduler import start_scheduler, stop_scheduler
 
@@ -29,6 +30,8 @@ async def lifespan(app: FastAPI):
     yield
     stop_scheduler()
     await app.state.redis.aclose()
+    from app.database.session import engine
+    await engine.dispose()
     logger.info("shutdown")
 
 
@@ -40,14 +43,16 @@ app = FastAPI(
 )
 
 # One FastAPI app, multiple routers — NOT separate microservices.
-# Add future routers (agents, artifacts, quality-scores, ...) the same way.
-app.include_router(approvals.router)
+# Sensitive routers protected by Bearer token authentication:
+app.include_router(approvals.router, dependencies=[Depends(verify_api_key)])
+app.include_router(feature_flags.router, dependencies=[Depends(verify_api_key)])
+app.include_router(lineage.router, dependencies=[Depends(verify_api_key)])
+app.include_router(workflow_runs.router, dependencies=[Depends(verify_api_key)])
+app.include_router(agents.router, dependencies=[Depends(verify_api_key)])
+app.include_router(workflows.router, dependencies=[Depends(verify_api_key)])
+
+# Health router includes public probes (/health, /ready) and protected diagnostics (/providers, /database, /storage, /validators)
 app.include_router(health.router)
-app.include_router(feature_flags.router)
-app.include_router(lineage.router)
-app.include_router(workflow_runs.router)
-app.include_router(agents.router)
-app.include_router(workflows.router)
 
 
 @app.get("/")

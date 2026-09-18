@@ -53,9 +53,8 @@ async def test_run_success_produces_video_result():
 
 @pytest.mark.asyncio
 async def test_run_reflects_current_no_video_adapter_reality():
-    agent = VideoAgent(db=AsyncMock())
-    with patch("app.services.execution_engine.asyncio.sleep", new=AsyncMock()):
-        result = await agent.run({"source_image_path": "/images/shot1.png"})
+    agent = _agent_with_mocked_engine(ExecutionResult(success=False, error="All providers failed"))
+    result = await agent.run({"source_image_path": "/images/shot1.png"})
     assert result.success is False
 
 

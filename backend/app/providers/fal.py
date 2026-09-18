@@ -40,10 +40,11 @@ _POLL_INTERVAL_SECONDS = 1.0
 _MAX_POLL_SECONDS_IMAGE = 120
 _MAX_POLL_SECONDS_VIDEO = 300
 
-# Rough flat-fee estimates — used only as a cost-ceiling estimate for
-# ProviderRouter's cost check, not meant to be exact-to-the-cent.
-_EST_COST_PER_IMAGE_USD = 0.02
-_EST_COST_PER_VIDEO_USD = 0.35
+# Flat-fee estimates for fal.ai models:
+# FLUX Pro: $0.050/image; Dev: $0.025/image; Schnell: $0.003/image
+_EST_COST_PER_IMAGE_USD = 0.025
+_EST_COST_PER_PRO_IMAGE_USD = 0.050
+_EST_COST_PER_VIDEO_USD = 0.100
 
 
 def _headers(api_key: str) -> dict:
@@ -62,6 +63,9 @@ def _normalize_model_id(model: str) -> str:
         return model
 
     aliases = {
+        "flux-1.1-pro": "fal-ai/flux-pro/v1.1",
+        "flux-pro-1.1": "fal-ai/flux-pro/v1.1",
+        "flux-pro/v1.1": "fal-ai/flux-pro/v1.1",
         "flux-kontext": "fal-ai/flux-pro/kontext",
         "flux-kontext-pro": "fal-ai/flux-pro/kontext",
         "flux-kontext-max": "fal-ai/flux-pro/kontext/max",
@@ -73,15 +77,25 @@ def _normalize_model_id(model: str) -> str:
         "nano-banana-2-pro": "fal-ai/nano-banana-2-pro",
         "recraft-v3": "fal-ai/recraft/v3",
         "stable-diffusion-v35-large": "fal-ai/stable-diffusion-v35-large",
+        "kling": "fal-ai/kling-video/v1.6/standard/image-to-video",
+        "kling-standard": "fal-ai/kling-video/v1.6/standard/image-to-video",
+        "kling-1.6": "fal-ai/kling-video/v1.6/standard/image-to-video",
+        "kling-2.1": "fal-ai/kling-video/v2.1/standard/image-to-video",
         "kling-v3-pro": "fal-ai/kling/v3.0/pro",
         "kling-v3-standard": "fal-ai/kling/v3.0/standard",
+        "wan": "fal-ai/wan-i2v",
+        "wan-i2v": "fal-ai/wan-i2v",
+        "wan-2.1": "fal-ai/wan-i2v",
+        "wan-video": "fal-ai/wan/v2.1",
         "veo-3": "fal-ai/veo/v3.1",
         "ltx-video": "fal-ai/ltx-video",
-        "wan-video": "fal-ai/wan/v2.1",
     }
     if model in aliases:
         return aliases[model]
     return f"fal-ai/{model}"
+
+
+normalize_fal_model = _normalize_model_id
 
 
 async def _submit_and_poll(
@@ -113,17 +127,26 @@ async def _submit_and_poll(
     if response.status_code == 401:
         log.warning("provider_auth_failed")
         raise RuntimeError("fal.ai rejected the API key (401)")
+    if response.status_code == 402:
+        log.warning("provider_credit_exhausted")
+        raise RuntimeError("fal.ai credits exhausted (402 Payment Required)")
     if response.status_code == 429:
         log.warning("provider_rate_limited")
         raise RuntimeError("fal.ai rate limit exceeded (429)")
+    if response.status_code == 404:
+        log.warning("provider_model_not_found", model=model_id)
+        raise RuntimeError(f"fal.ai model unavailable (404 Not Found): {model_id}")
     if response.status_code >= 400:
+        err_body = response.text[:500]
         log.warning(
             "provider_error_response",
             status_code=response.status_code,
-            body=response.text[:500],
+            body=err_body,
         )
+        if any(w in err_body.lower() for w in ("credit", "payment required", "billing", "unpaid", "insufficient")):
+            raise RuntimeError(f"fal.ai credits exhausted ({response.status_code}): {err_body}")
         raise RuntimeError(
-            f"fal.ai submit returned {response.status_code}: {response.text[:500]}"
+            f"fal.ai submit returned {response.status_code}: {err_body}"
         )
 
     try:
@@ -258,15 +281,30 @@ async def _submit_and_poll(
     return result_data
 
 
-async def generate_image(prompt: str, api_key: str, model: str) -> tuple[dict, float]:
+async def generate_image(
+    prompt: str,
+    api_key: str,
+    model: str,
+    aspect_ratio: str | None = None,
+    num_outputs: int = 1,
+) -> tuple[dict, float]:
     """Raises RuntimeError on any failure (auth, rate limit, timeout,
     network, malformed response) — same taxonomy as the LLM adapters."""
     model_id = _normalize_model_id(model)
     payload = {"prompt": prompt}
+    if aspect_ratio:
+        payload["aspect_ratio"] = aspect_ratio
+        if aspect_ratio == "9:16":
+            payload["image_size"] = "portrait_16_9"
+        elif aspect_ratio == "16:9":
+            payload["image_size"] = "landscape_16_9"
+    if num_outputs > 1:
+        payload["num_images"] = int(num_outputs)
 
     log = logger.bind(provider="fal", model=model_id, capability="image_generation")
     log.info("provider_request_started")
 
+    start_time = time.perf_counter()
     data = await _submit_and_poll(
         model_id=model_id,
         payload=payload,
@@ -274,19 +312,47 @@ async def generate_image(prompt: str, api_key: str, model: str) -> tuple[dict, f
         max_poll_seconds=_MAX_POLL_SECONDS_IMAGE,
         log=log,
     )
+    duration = round(time.perf_counter() - start_time, 3)
 
     try:
-        storage_path = data["images"][0]["url"]
-    except (KeyError, IndexError, ValueError) as exc:
+        images = data.get("images", [])
+        candidate_urls = [img["url"] for img in images if "url" in img]
+        if not candidate_urls and "image" in data and "url" in data["image"]:
+            candidate_urls = [data["image"]["url"]]
+        storage_path = candidate_urls[0] if candidate_urls else None
+        if not storage_path:
+            raise ValueError("No valid image URLs in fal response")
+    except Exception as exc:
         log.warning("provider_response_malformed", error=str(exc))
         raise RuntimeError(f"fal.ai response missing expected fields: {exc}") from exc
 
-    log.info("provider_request_succeeded", cost_usd=_EST_COST_PER_IMAGE_USD)
-    return {"storage_path": storage_path, "raw": data}, _EST_COST_PER_IMAGE_USD
+    unit_cost = _EST_COST_PER_PRO_IMAGE_USD if "pro" in model_id.lower() else _EST_COST_PER_IMAGE_USD
+    total_cost = round(unit_cost * max(1, len(candidate_urls)), 4)
+    log.info("provider_request_succeeded", cost_usd=total_cost, duration=duration)
+    return {
+        "storage_path": storage_path,
+        "image_url": storage_path,
+        "candidate_urls": candidate_urls,
+        "candidates": candidate_urls,
+        "provider": "fal",
+        "model": model_id,
+        "raw": data,
+        "telemetry": {
+            "provider": "fal",
+            "model": model_id,
+            "duration_seconds": duration,
+            "num_candidates": len(candidate_urls),
+            "cost_usd": total_cost,
+        },
+    }, total_cost
 
 
 async def generate_video(
-    prompt: str, api_key: str, model: str, image_url: str | None = None
+    prompt: str,
+    api_key: str,
+    model: str,
+    image_url: str | None = None,
+    aspect_ratio: str | None = None,
 ) -> tuple[dict, float]:
     """Raises RuntimeError on any failure — same taxonomy as
     generate_image above. `image_url` is optional: some fal.ai video
@@ -296,10 +362,13 @@ async def generate_video(
     payload = {"prompt": prompt}
     if image_url:
         payload["image_url"] = image_url
+    if aspect_ratio:
+        payload["aspect_ratio"] = aspect_ratio
 
     log = logger.bind(provider="fal", model=model_id, capability="video_generation")
     log.info("provider_request_started")
 
+    start_time = time.perf_counter()
     data = await _submit_and_poll(
         model_id=model_id,
         payload=payload,
@@ -307,17 +376,30 @@ async def generate_video(
         max_poll_seconds=_MAX_POLL_SECONDS_VIDEO,
         log=log,
     )
+    duration = round(time.perf_counter() - start_time, 3)
 
     try:
-        video = data["video"]
-        storage_path = video["url"]
-    except (KeyError, ValueError) as exc:
+        video = data.get("video", {})
+        storage_path = video.get("url")
+        if not storage_path and "url" in data:
+            storage_path = data["url"]
+        if not storage_path:
+            raise ValueError("No video URL returned")
+    except Exception as exc:
         log.warning("provider_response_malformed", error=str(exc))
         raise RuntimeError(f"fal.ai response missing expected fields: {exc}") from exc
 
     duration_seconds = video.get("duration")
-    log.info("provider_request_succeeded", cost_usd=_EST_COST_PER_VIDEO_USD)
-    return (
-        {"storage_path": storage_path, "duration_seconds": duration_seconds, "raw": data},
-        _EST_COST_PER_VIDEO_USD,
-    )
+    est_cost = 0.25 if "wan" in model_id.lower() else _EST_COST_PER_VIDEO_USD
+    log.info("provider_request_succeeded", cost_usd=est_cost, duration=duration)
+    return {
+        "storage_path": storage_path,
+        "duration_seconds": duration_seconds,
+        "raw": data,
+        "telemetry": {
+            "provider": "fal",
+            "model": model_id,
+            "duration_seconds": duration,
+            "cost_usd": est_cost,
+        },
+    }, est_cost

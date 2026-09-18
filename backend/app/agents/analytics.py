@@ -49,6 +49,8 @@ class AnalyticsAgent(BaseAgent):
             published_content_id=published_content_id,
             credentials=auth_result.credentials,
         )
+        if isinstance(data, dict) and data.get("error"):
+            raise RuntimeError(data["error"])
         return data
 
     async def run(self, context: dict) -> AgentResult:
@@ -57,7 +59,7 @@ class AnalyticsAgent(BaseAgent):
         public_url (str, optional) — for reference/link tracking
         platform (str, required) — e.g. "youtube"
         topic (str, optional) — carried forward for LearningAgent
-        video_id (str, optional) — internal video reference
+        video_id (str, required) — internal video reference
         """
         platform = context.get("platform")
         published_video_id = context.get("published_video_id")
@@ -66,11 +68,17 @@ class AnalyticsAgent(BaseAgent):
         # Support both new key (published_video_id) and legacy key (published_content_id)
         published_content_id = published_video_id or context.get("published_content_id")
 
+        id_field = (
+            "published_video_id"
+            if "published_video_id" in context
+            else "published_content_id"
+        )
         missing = [
             name
             for name, value in (
                 ("platform", platform),
-                ("published_video_id", published_content_id),
+                ("video_id", video_id),
+                (id_field, published_content_id),
             )
             if not value
         ]
@@ -139,10 +147,27 @@ class AnalyticsAgent(BaseAgent):
     async def _store_snapshot(self, video_id: str, data: dict) -> Analytics:
         """Real persistence against the Analytics model."""
         import datetime
+        import uuid
+
+        vid = video_id
+        if isinstance(video_id, str):
+            try:
+                vid = uuid.UUID(video_id)
+            except (ValueError, AttributeError):
+                vid = video_id
+
+        raw_snapshot_at = data.get("snapshot_at")
+        if isinstance(raw_snapshot_at, datetime.datetime):
+            if raw_snapshot_at.tzinfo is not None:
+                now_utc_naive = raw_snapshot_at.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+            else:
+                now_utc_naive = raw_snapshot_at
+        else:
+            now_utc_naive = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
         snapshot = Analytics(
-            video_id=video_id,
-            snapshot_at=datetime.datetime.utcnow(),
+            video_id=vid,
+            snapshot_at=now_utc_naive,
             views=data.get("views", 0),
             likes=data.get("likes", 0),
             comments=data.get("comments", 0),

@@ -7,7 +7,7 @@ from app.storage.base import StorageProvider
 
 class LocalStorageProvider(StorageProvider):
     def __init__(self, base_path: str, public_base_url: str | None = None):
-        self.base_path = Path(base_path)
+        self.base_path = Path(base_path).resolve()
         self.base_path.mkdir(parents=True, exist_ok=True)
         self.public_base_url = public_base_url
 

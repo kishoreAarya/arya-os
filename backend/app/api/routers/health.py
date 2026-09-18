@@ -13,12 +13,13 @@ Health Monitoring endpoints.
 /storage   — active storage backend + a round-trip write/read/delete
              smoke test.
 """
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.secrets import get_secrets_manager
+from app.core.security import verify_api_key
 from app.database.session import get_db
 from app.models.core import WorkflowRun
 from app.models.provider import Provider
@@ -71,7 +72,7 @@ async def ready(request: Request, db: AsyncSession = Depends(get_db)):
     }
 
 
-@router.get("/providers")
+@router.get("/providers", dependencies=[Depends(verify_api_key)])
 async def providers_status(db: AsyncSession = Depends(get_db)):
     secrets = get_secrets_manager()
     db_providers = {p.name: p for p in (await db.execute(select(Provider))).scalars().all()}
@@ -98,7 +99,7 @@ async def providers_status(db: AsyncSession = Depends(get_db)):
     return {"providers": result}
 
 
-@router.get("/database")
+@router.get("/database", dependencies=[Depends(verify_api_key)])
 async def database_status(db: AsyncSession = Depends(get_db)):
     try:
         run_count = (await db.execute(select(func.count()).select_from(WorkflowRun))).scalar_one()
@@ -107,7 +108,7 @@ async def database_status(db: AsyncSession = Depends(get_db)):
         return {"status": f"error: {exc}"}
 
 
-@router.get("/storage")
+@router.get("/storage", dependencies=[Depends(verify_api_key)])
 async def storage_status():
     settings = get_settings()
     try:
@@ -121,6 +122,6 @@ async def storage_status():
         return {"backend": settings.storage_backend, "status": f"error: {exc}"}
 
 
-@router.get("/validators")
+@router.get("/validators", dependencies=[Depends(verify_api_key)])
 async def validators_status():
     return {"validators": list(VALIDATOR_REGISTRY.keys())}

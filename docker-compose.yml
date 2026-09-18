@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
       POSTGRES_DB: ${POSTGRES_DB:-arya_os}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - arya_postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -24,7 +24,7 @@ services:
     container_name: arya-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - arya_redis_data:/data
     healthcheck:
@@ -50,6 +50,7 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app/backend
+      - arya_storage_data:/app/data/storage
 
   n8n:
     image: n8nio/n8n:latest
@@ -76,4 +77,5 @@ services:
 volumes:
   arya_postgres_data:
   arya_redis_data:
+  arya_storage_data:
   arya_n8n_data:

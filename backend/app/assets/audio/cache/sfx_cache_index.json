@@ -1,0 +1,50 @@
+{
+  "ambient:room_tone": {
+    "key": "ambient:room_tone",
+    "sound_type": "ambient",
+    "normalized_description": "room_tone",
+    "asset_path": "/Users/venkatakishorenasina/Documents/arya-os/backend/app/assets/audio/cache/synthesized/ambient_room_tone_41s.wav",
+    "duration_seconds": 4.187,
+    "cost_usd": 0.0,
+    "provider": "local_engine",
+    "model": "procedural_horror",
+    "created_at": "2026-09-12T18:44:01.144741+00:00",
+    "hit_count": 35
+  },
+  "foley:door_creak": {
+    "key": "foley:door_creak",
+    "sound_type": "foley",
+    "normalized_description": "door_creak",
+    "asset_path": "/Users/venkatakishorenasina/Documents/arya-os/backend/app/assets/audio/cache/synthesized/foley_door_creak_12s.wav",
+    "duration_seconds": 1.2,
+    "cost_usd": 0.0,
+    "provider": "local_engine",
+    "model": "procedural_horror",
+    "created_at": "2026-09-12T18:44:01.269695+00:00",
+    "hit_count": 8
+  },
+  "ambient:wind": {
+    "key": "ambient:wind",
+    "sound_type": "ambient",
+    "normalized_description": "wind",
+    "asset_path": "/Users/venkatakishorenasina/Documents/arya-os/backend/app/assets/audio/cache/synthesized/ambient_wind_54s.wav",
+    "duration_seconds": 5.492,
+    "cost_usd": 0.0,
+    "provider": "local_engine",
+    "model": "procedural_horror",
+    "created_at": "2026-09-13T04:53:11.272488+00:00",
+    "hit_count": 1
+  },
+  "foley:breathing": {
+    "key": "foley:breathing",
+    "sound_type": "foley",
+    "normalized_description": "breathing",
+    "asset_path": "/Users/venkatakishorenasina/Documents/arya-os/backend/app/assets/audio/cache/synthesized/foley_breathing_12s.wav",
+    "duration_seconds": 1.2,
+    "cost_usd": 0.0,
+    "provider": "local_engine",
+    "model": "procedural_horror",
+    "created_at": "2026-09-13T04:53:11.299042+00:00",
+    "hit_count": 0
+  }
+}

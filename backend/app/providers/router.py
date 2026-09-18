@@ -15,7 +15,7 @@ provider for a single step; n8n still sequences the pipeline.
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.core.config import get_settings
 from app.events.log import EventType, log_event
@@ -42,6 +42,7 @@ class RouterResult:
     attempts: list[str]
     cost_usd: float
     duration_seconds: float
+    attempt_errors: dict[str, str] = field(default_factory=dict)
 
 
 ProviderCall = Callable[[ProviderCapability], Awaitable[tuple[object, float]]]
@@ -98,6 +99,7 @@ async def call_with_fallback(
         )
 
     attempts: list[str] = []
+    attempt_errors: dict[str, str] = {}
     for provider in candidates:
         attempts.append(provider.name)
         started = time.monotonic()
@@ -116,9 +118,11 @@ async def call_with_fallback(
                 attempts=attempts,
                 cost_usd=cost_usd,
                 duration_seconds=duration,
+                attempt_errors=attempt_errors,
             )
         except Exception as exc:  # noqa: BLE001 — any failure triggers fallback, by design
             duration = time.monotonic() - started
+            attempt_errors[provider.name] = str(exc)
             await log_event(
                 EventType.RETRY_TRIGGERED,
                 message=f"{provider.name} failed for {capability.value}: {exc}",

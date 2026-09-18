@@ -1,19 +1,53 @@
+# ==============================================================================
+# Project Arya OS — Hardened Production Backend Dockerfile
+# ==============================================================================
 FROM python:3.12-slim
 
-# uv gives fast, reproducible installs — matches the dependency manager
-# choice in the architecture doc.
+# 1. Install runtime system dependencies (FFmpeg/ffprobe strictly required for video assembly, curl for healthcheck)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Copy uv package manager for reproducible, high-performance installs
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+# 3. Create non-root system user and group (UID/GID 1001)
+RUN groupadd -g 1001 appgroup && \
+    useradd -u 1001 -g appgroup -s /bin/bash -m appuser
 
 WORKDIR /app
 
+# 4. Copy dependency specification and install dependencies first (layer cache optimization)
 COPY pyproject.toml ./
+RUN uv pip install --system --no-cache -e .
+
+# 5. Copy application source code, database migrations, and entrypoint
 COPY backend/ ./backend/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./
+COPY docker/entrypoint.sh ./docker/entrypoint.sh
 
-RUN uv sync --no-dev || uv pip install --system -e .
+# 6. Create writable storage and temporary directories, set proper permissions
+RUN mkdir -p /app/data/storage /app/data/temp && \
+    chown -R appuser:appgroup /app && \
+    chmod +x /app/docker/entrypoint.sh
 
-ENV PYTHONUNBUFFERED=1
+# 7. Environment configuration
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/backend \
+    STORAGE_LOCAL_PATH=/app/data/storage \
+    APP_ENV=production
+
+# 8. Run as non-root user
+USER appuser
+
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 9. Healthcheck probe (liveness)
+HEALTHCHECK --interval=20s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# 10. Production entrypoint
+ENTRYPOINT ["/app/docker/entrypoint.sh"]

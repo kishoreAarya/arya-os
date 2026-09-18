@@ -51,6 +51,17 @@ class Shot:
    transition: str | None = None
    image_prompt_hint: str | None = None
    negative_prompt_hint: str | None = None
+   generation_class: str | None = None
+   generation_mode: str | None = None
+   estimated_cost: float | None = None
+   cost_reason: str | None = None
+   quality_reason: str | None = None
+   purpose: str | None = None
+   sound_design: dict | None = None
+   narrative_beat: str | None = None
+   visual_purpose: str | None = None
+   num_candidates: int | None = None
+   budget_overrun_reason: str | None = None
 
 
 @dataclass
@@ -76,12 +87,27 @@ def _build_storyboard_prompt(
    continuity_notes: str | None = None,
    aspect_ratio: str | None = None,
    target_model: str | None = None,
+   target_duration: int | None = None,
 ) -> str:
    lines = [
        "You are an elite cinematic storyboard artist, film director, and visual storyteller.",
        "",
        "Your task: analyze the provided script and generate a professional shot-by-shot storyboard.",
        "",
+   ]
+   if target_duration:
+       target_shots = max(2, round(target_duration / 3.75))
+       shot_duration = round(target_duration / target_shots, 1)
+       words_per_shot = round(shot_duration * 2.2)
+       min_words_shot = max(4, round(shot_duration * 1.8))
+       max_words_shot = round(shot_duration * 2.3)
+       lines.extend([
+           f"TARGET DURATION: {target_duration} seconds total.",
+           f"SHOT COUNT: Generate exactly {target_shots} cinematic shots (each approximately {shot_duration} seconds) to cover the full duration evenly.",
+           f"VOICEOVER ALLOCATION: Distribute the script narration evenly across the {target_shots} shots. Each shot's 'voiceover' must contain strictly {min_words_shot}-{max_words_shot} words (about {shot_duration} seconds of speech, target {words_per_shot} words). DO NOT cram all narration into the first shot or leave later shots silent.",
+           "",
+       ])
+   lines.extend([
        "OUTPUT RULES:",
        '- Return ONLY valid JSON. No markdown, no code fences, no explanations, no preamble, no postscript.',
        '- The JSON root object must have exactly one key: "shots".',
@@ -119,7 +145,7 @@ def _build_storyboard_prompt(
        "INPUT CONTEXT:",
        f"Script:\n{script_content}",
        "",
-   ]
+    ])
 
    if character_bible:
        lines.append(f"Character Bible: {character_bible}")
@@ -147,6 +173,10 @@ def _build_storyboard_prompt(
 
    if aspect_ratio:
        lines.append(f"Target Aspect Ratio: {aspect_ratio}")
+       if aspect_ratio == "9:16":
+           lines.append("Framing & Composition: Compose for vertical 9:16 Shorts/mobile display (center subjects, use vertical headroom, ensure safe margins for UI overlays).")
+       elif aspect_ratio == "16:9":
+           lines.append("Framing & Composition: Compose for horizontal 16:9 widescreen display (panoramic breadth, rule of thirds, cinematic landscape).")
        lines.append("")
 
    if target_model:
@@ -254,6 +284,7 @@ def _parse_shots(raw_text: str) -> list[Shot]:
 
 class StoryboardAgent(BaseAgent):
    name = "storyboard_agent"
+   MAX_SHOTS = 20
 
    def __init__(self, db: AsyncSession):
        self._db = db
@@ -270,6 +301,14 @@ class StoryboardAgent(BaseAgent):
                success=False, error="context.script_content is required and was empty"
            )
 
+       target_duration = None
+       raw_duration = context.get("duration") or context.get("target_duration")
+       if raw_duration:
+           try:
+               target_duration = int(raw_duration)
+           except (ValueError, TypeError):
+               pass
+
        prompt = _build_storyboard_prompt(
            script_content=script_content,
            character_bible=context.get("character_bible"),
@@ -280,6 +319,7 @@ class StoryboardAgent(BaseAgent):
            continuity_notes=context.get("continuity_notes"),
            aspect_ratio=context.get("aspect_ratio"),
            target_model=context.get("target_model"),
+           target_duration=target_duration,
        )
 
        exec_result = await self._execution_engine.execute(
@@ -294,9 +334,8 @@ class StoryboardAgent(BaseAgent):
 
        shots = _parse_shots(exec_result.output)
 
-       # TEMP: limit storyboard size during development
-       MAX_SHOTS = 12
-       shots = shots[:MAX_SHOTS]
+       # Allow full short-form narrative shot lists up to MAX_SHOTS (20 shots)
+       shots = shots[:self.MAX_SHOTS]
 
        logger.info(
                 "storyboard_parsed",
@@ -311,6 +350,7 @@ class StoryboardAgent(BaseAgent):
        output: dict = {
             "shots": shots,
             "storyboard_result": storyboard_result,
+            "aspect_ratio": context.get("aspect_ratio", "16:9"),
         }
 
        # Carry script_id forward for downstream traceability if present

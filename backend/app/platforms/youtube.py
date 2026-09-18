@@ -321,8 +321,10 @@ class YouTubeAdapter(PlatformAdapter):
         *,
         content_id: str,
         credentials: Any | None = None,
+        privacy_status: str = "private",
+        **kwargs: Any,
     ) -> PublishResult:
-        """Publish a YouTube video by changing privacyStatus to 'public'."""
+        """Publish a YouTube video with configurable privacyStatus (default: 'private')."""
         if self._youtube_client is None:
             auth_result = await self.authenticate()
             if not auth_result.success:
@@ -334,7 +336,7 @@ class YouTubeAdapter(PlatformAdapter):
                 body={
                     "id": content_id,
                     "status": {
-                        "privacyStatus": "public",
+                        "privacyStatus": privacy_status,
                         "embeddable": True,
                     },
                 },

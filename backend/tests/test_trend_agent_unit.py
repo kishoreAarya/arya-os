@@ -106,3 +106,55 @@ async def test_run_calls_execution_engine_with_research_stage():
     call_kwargs = agent._execution_engine.execute.call_args.kwargs
     assert call_kwargs["stage"] == "research"
     assert call_kwargs["workflow_run_id"] == "abc-123"
+
+
+@pytest.mark.asyncio
+async def test_run_with_trend_service_integrates_signals_into_prompt_and_output():
+    from app.services.trend_sources.base import TrendSignal
+    from app.services.trend_sources.service import TrendDiscoveryService
+
+    mock_service = MagicMock(spec=TrendDiscoveryService)
+    signals = [
+        TrendSignal(
+            topic="Next-Gen Solid State Batteries",
+            search_volume_or_signal="350K views",
+            relevance=0.92,
+            freshness="2026-09-10T12:00:00Z",
+            competition="low",
+            source="youtube_data_api",
+            confidence=0.88,
+        )
+    ]
+    mock_service.discover_trends = AsyncMock(return_value=signals)
+
+    db = _mock_db_with_feedback([])
+    agent = _agent_with_mocked_engine(
+        db, ExecutionResult(success=True, output="Generated brief content", provider="openrouter")
+    )
+    agent._trend_service = mock_service
+
+    result = await agent.run({"topic": "battery technology"})
+
+    assert result.success is True
+    assert "trend_signals" in result.output
+    assert "research_data" in result.output
+    assert len(result.output["trend_signals"]) == 1
+
+    sig_dict = result.output["trend_signals"][0]
+    assert sig_dict["topic"] == "Next-Gen Solid State Batteries"
+    assert sig_dict["competition"] == "low"
+    assert sig_dict["confidence"] == 0.88
+
+    # Verify execution engine received the structured prompt
+    call_kwargs = agent._execution_engine.execute.call_args.kwargs
+    call_fn = call_kwargs["call"]
+    # Retrieve bound prompt from closure
+    prompt_text = next(
+        cell.cell_contents
+        for cell in call_fn.__closure__
+        if isinstance(cell.cell_contents, str)
+    )
+    assert "Next-Gen Solid State Batteries" in prompt_text
+    assert "competition: low" in prompt_text
+    assert "confidence: 0.88" in prompt_text
+

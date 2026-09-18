@@ -1,0 +1,43 @@
+# Git & CI/CD
+.git
+.gitignore
+.github
+
+# Environment & Secrets (NEVER bake secrets into Docker images!)
+.env
+.env.*
+*.pem
+*.key
+*.token
+credentials.json
+client_secrets.json
+
+# Python Virtual Environments & Caches
+.venv
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Local Storage, Media & Database Dumps
+data/
+data/storage/
+*.mp4
+*.mp3
+*.wav
+*.png
+*.jpg
+*.jpeg
+*.webp
+scratch/
+
+# OS Specific
+.DS_Store
+Thumbs.db

@@ -39,22 +39,40 @@ async def test_run_requires_published_content_id():
 @pytest.mark.asyncio
 async def test_run_never_succeeds_today_even_with_valid_request():
     """Core claim to verify: a well-formed request still cannot
-    collect analytics, because no PlatformAdapter exists to fetch
-    from — must never fabricate numbers."""
+    collect analytics when platform adapter authentication fails —
+    must never fabricate numbers."""
+    from unittest.mock import MagicMock, patch
+
+    from app.platforms.base import AuthResult
+
     agent = AnalyticsAgent(db=AsyncMock())
-    result = await agent.run(
-        {"platform": "youtube", "video_id": "v1", "published_content_id": "yt123"}
+    mock_adapter = MagicMock()
+    mock_adapter.authenticate = AsyncMock(
+        return_value=AuthResult(success=False, error="No YouTube credentials available")
     )
-    assert result.success is False
-    assert "failed" in result.error.lower()
+    with patch("app.agents.analytics.get_platform_adapter", return_value=mock_adapter):
+        result = await agent.run(
+            {"platform": "youtube", "video_id": "v1", "published_content_id": "yt123"}
+        )
+        assert result.success is False
+        assert "failed" in result.error.lower()
 
 
 @pytest.mark.asyncio
 async def test_fetch_platform_analytics_raises_not_implemented():
+    from unittest.mock import MagicMock, patch
+
+    from app.platforms.base import AuthResult
+
     agent = AnalyticsAgent(db=AsyncMock())
-    with pytest.raises(RuntimeError) as exc:
-         await agent._fetch_platform_analytics("youtube", "yt123")
-    assert "Authentication failed" in str(exc.value)
+    mock_adapter = MagicMock()
+    mock_adapter.authenticate = AsyncMock(
+        return_value=AuthResult(success=False, error="No YouTube credentials available")
+    )
+    with patch("app.agents.analytics.get_platform_adapter", return_value=mock_adapter):
+        with pytest.raises(RuntimeError) as exc:
+            await agent._fetch_platform_analytics("youtube", "yt123")
+        assert "Authentication failed" in str(exc.value)
 
 
 @pytest.mark.asyncio

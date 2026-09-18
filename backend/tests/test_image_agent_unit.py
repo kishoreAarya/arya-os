@@ -53,9 +53,8 @@ async def test_run_success_produces_image_result():
 
 @pytest.mark.asyncio
 async def test_run_reflects_current_no_image_adapter_reality():
-    agent = ImageAgent(db=AsyncMock())
-    with patch("app.services.execution_engine.asyncio.sleep", new=AsyncMock()):
-        result = await agent.run({"shot_description": "a shot"})
+    agent = _agent_with_mocked_engine(ExecutionResult(success=False, error="All providers failed"))
+    result = await agent.run({"shot_description": "a shot"})
     assert result.success is False
 
 

@@ -1,0 +1,32 @@
+[
+  {
+    "attempt_id": "probe-together-001",
+    "provider": "together",
+    "timestamp": 1789408336.254824,
+    "target": "black-forest-labs/FLUX.1.1-pro",
+    "status": "CREDENTIAL_ERROR",
+    "diagnostic": "UNAVAILABLE \u2014 CREDENTIAL_NOT_CONFIGURED",
+    "http_status": null,
+    "error_detail": "Environment variable for together is not configured."
+  },
+  {
+    "attempt_id": "probe-fal-001",
+    "provider": "fal",
+    "timestamp": 1789408336.254827,
+    "target": "fal-ai/flux-pro/v1.1",
+    "status": "CREDENTIAL_ERROR",
+    "diagnostic": "UNAVAILABLE \u2014 CREDENTIAL_ERROR",
+    "http_status": 401,
+    "error_detail": "fal.ai returned HTTP 401: Invalid or unauthorized key credentials."
+  },
+  {
+    "attempt_id": "probe-replicate-001",
+    "provider": "replicate",
+    "timestamp": 1789408336.2548292,
+    "target": "kwaivgi/kling-v1.6-standard",
+    "status": "CREDIT_EXHAUSTED",
+    "diagnostic": "UNAVAILABLE \u2014 PAYMENT_REQUIRED / CREDIT_EXHAUSTED",
+    "http_status": 402,
+    "error_detail": "Replicate credits exhausted (HTTP 402 Payment Required). Legacy fallback preserved."
+  }
+]

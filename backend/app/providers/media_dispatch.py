@@ -1,3 +1,4 @@
+from typing import Any
 """
 Shared media-provider dispatch (IMAGE_GENERATION, VIDEO_GENERATION,
 TTS, GPU_EXECUTION).
@@ -32,7 +33,7 @@ independently of `text_dispatch.py`, for the media capabilities only.
 from inspect import signature
 
 from app.core.secrets import SecretNotConfigured, get_secrets_manager
-from app.providers import comfyui, fal, replicate, runpod
+from app.providers import comfyui, elevenlabs, fal, replicate, runpod, together
 from app.providers.capabilities import Capability, ProviderCapability
 from app.providers.router import ProviderCall
 
@@ -43,10 +44,18 @@ from app.providers.router import ProviderCall
 # provider that's registered but genuinely not wired in yet.
 _MEDIA_ADAPTERS = {
     "fal": fal,
+    "together": together,
     "comfyui": comfyui,
     "replicate": replicate,
     "runpod": runpod,
+    "elevenlabs": elevenlabs,
+    "kling": replicate,
 }
+
+
+def get_media_adapter(provider_name: str):
+    """Retrieve the adapter module for a registered media provider."""
+    return _MEDIA_ADAPTERS.get(provider_name)
 
 # Which adapter method a given capability dispatches to. One adapter
 # module can implement more than one of these (fal.py and comfyui.py
@@ -56,6 +65,7 @@ _CAPABILITY_METHODS: dict[Capability, str] = {
     Capability.IMAGE_GENERATION: "generate_image",
     Capability.VIDEO_GENERATION: "generate_video",
     Capability.TTS: "generate_speech",
+    Capability.MUSIC_GENERATION: "generate_music",
     Capability.GPU_EXECUTION: "run_gpu_job",
 }
 
@@ -70,6 +80,9 @@ def build_media_generation_call(
     prompt: str | None = None,
     image_url: str | None = None,
     payload: dict | None = None,
+    aspect_ratio: str | None = None,
+    duration_seconds: int | float | None = None,
+    **kwargs: Any,
 ) -> ProviderCall:
     """Returns a `call_provider` closure suitable for
     `ExecutionEngine.execute(capability=..., call=..., ...)`.
@@ -133,18 +146,74 @@ def build_media_generation_call(
         if method_name == "run_gpu_job":
             return await method(payload=payload or {}, api_key=api_key, model=model)
         if method_name == "generate_speech":
-            return await method(text=prompt, api_key=api_key, model=model)
+            call_kwargs = {}
+            if provider.name == "elevenlabs":
+                effective_model = kwargs.get("model") or kwargs.get("voice_model") or model
+                voice_id = kwargs.get("voice_id")
+                if not voice_id:
+                    from app.core.config import get_settings
+                    settings = get_settings()
+                    voice_id = getattr(settings, "elevenlabs_voice_id", None)
+                if voice_id:
+                    call_kwargs["voice_id"] = voice_id
+            elif provider.name == "replicate":
+                # Ensure model is valid for Replicate (do not forward elevenlabs model strings)
+                candidate_model = kwargs.get("model") or kwargs.get("voice_model")
+                if candidate_model and not str(candidate_model).startswith("eleven_") and "kokoro" in str(candidate_model):
+                    effective_model = candidate_model
+                else:
+                    effective_model = model
+                # Check voice parameter for Replicate / Kokoro
+                raw_voice = kwargs.get("voice") or kwargs.get("voice_id")
+                if raw_voice:
+                    # Kokoro voices typically have underscores like af_bella, am_fenrir, bm_george
+                    if "_" in str(raw_voice) or str(raw_voice) in ("af", "am", "bf", "bm"):
+                        call_kwargs["voice_id"] = raw_voice
+                    else:
+                        # Fallback Kokoro voice for cinematic narrative
+                        call_kwargs["voice_id"] = "bm_george"
+                if "speed" in kwargs and kwargs["speed"] is not None:
+                    call_kwargs["speed"] = kwargs["speed"]
+            else:
+                effective_model = kwargs.get("model") or kwargs.get("voice_model") or model
+                if "voice_id" in signature(method).parameters and kwargs.get("voice_id"):
+                    call_kwargs["voice_id"] = kwargs.get("voice_id")
+
+            return await method(text=prompt, api_key=api_key, model=effective_model, **call_kwargs)
+        if method_name == "generate_music":
+            call_kwargs = {}
+            if "duration_seconds" in signature(method).parameters and duration_seconds is not None:
+                call_kwargs["duration_seconds"] = duration_seconds
+            return await method(
+                prompt=prompt, api_key=api_key, model=model, **call_kwargs
+            )
         if method_name == "generate_video":
+            call_kwargs = {}
             if _accepts_image_url(method):
-                return await method(
-                    prompt=prompt, api_key=api_key, model=model, image_url=image_url
-                )
-            # comfyui.generate_video doesn't take image_url (no
-            # image-to-video graph implemented yet) — call without it
-            # rather than forcing every adapter to accept a parameter
-            # it can't use.
-            return await method(prompt=prompt, api_key=api_key, model=model)
+                call_kwargs["image_url"] = image_url
+            if "aspect_ratio" in signature(method).parameters and aspect_ratio:
+                call_kwargs["aspect_ratio"] = aspect_ratio
+            effective_model = kwargs.get("model") or kwargs.get("video_model") or model
+            return await method(
+                prompt=prompt, api_key=api_key, model=effective_model, **call_kwargs
+            )
         # generate_image
-        return await method(prompt=prompt, api_key=api_key, model=model)
+        effective_model = kwargs.get("model") or kwargs.get("image_model") or model
+        call_kwargs = {}
+        if "num_outputs" in signature(method).parameters:
+            if "num_outputs" in kwargs and kwargs["num_outputs"] is not None:
+                call_kwargs["num_outputs"] = kwargs["num_outputs"]
+
+        if "aspect_ratio" in signature(method).parameters and aspect_ratio:
+            res, cost = await method(
+                prompt=prompt, api_key=api_key, model=effective_model, aspect_ratio=aspect_ratio, **call_kwargs
+            )
+            if isinstance(res, dict) and "aspect_ratio" not in res:
+                res["aspect_ratio"] = aspect_ratio
+            return res, cost
+        res, cost = await method(prompt=prompt, api_key=api_key, model=effective_model, **call_kwargs)
+        if isinstance(res, dict) and aspect_ratio and "aspect_ratio" not in res:
+            res["aspect_ratio"] = aspect_ratio
+        return res, cost
 
     return call_provider

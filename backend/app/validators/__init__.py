@@ -13,6 +13,9 @@ from app.validators.consistency_validator import ConsistencyValidator  # noqa: F
 from app.validators.video_validator import VideoValidator  # noqa: F401
 from app.validators.thumbnail_validator import ThumbnailValidator  # noqa: F401
 from app.validators.brand_validator import BrandValidator  # noqa: F401
+from app.validators.audio_validator import AudioValidator  # noqa: F401
+from app.validators.metadata_validator import MetadataValidator  # noqa: F401
+from app.validators.caption_validator import CaptionValidator  # noqa: F401
 
 VALIDATOR_REGISTRY: dict[str, BaseValidator] = {
     "story": StoryValidator(),
@@ -22,4 +25,10 @@ VALIDATOR_REGISTRY: dict[str, BaseValidator] = {
     "video": VideoValidator(),
     "thumbnail": ThumbnailValidator(),
     "brand": BrandValidator(),
+    "audio": AudioValidator(),
+    "voice": AudioValidator(),
+    "music": AudioValidator(),
+    "metadata": MetadataValidator(),
+    "caption": CaptionValidator(),
 }
+

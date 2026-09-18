@@ -18,13 +18,24 @@ class Settings(BaseSettings):
     )
 
     # ------------------------------------------------------------------
-    # App
+    # App & Server Configuration
     # ------------------------------------------------------------------
     app_name: str = "arya-os"
     app_env: str = "development"
     debug: bool = True
     log_level: str = "INFO"
+    backend_host: str = "0.0.0.0"
     backend_port: int = 8000
+    uvicorn_workers: int = 1
+    uvicorn_timeout_keep_alive: int = 65
+    uvicorn_timeout_graceful_shutdown: int = 60
+    auto_run_migrations: bool = True
+
+    # ------------------------------------------------------------------
+    # Security / API Authentication
+    # ------------------------------------------------------------------
+    arya_api_key: str | None = None
+    api_auth_enabled: bool = True
 
     # ------------------------------------------------------------------
     # Database
@@ -32,6 +43,10 @@ class Settings(BaseSettings):
     database_url: str = Field(
         default="postgresql+asyncpg://arya:change_me@localhost:5432/arya_os"
     )
+    db_pool_size: int = 20
+    db_max_overflow: int = 10
+    db_pool_timeout: int = 30
+    db_pool_recycle: int = 1800
 
     # ------------------------------------------------------------------
     # Redis
@@ -51,7 +66,10 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     runpod_api_key: str | None = None
     fal_api_key: str | None = None
+    fal_key: str | None = None
+    together_api_key: str | None = None
     replicate_api_key: str | None = None
+    elevenlabs_api_key: str | None = None
 
     # ------------------------------------------------------------------
     # Provider Configuration
@@ -63,7 +81,16 @@ class Settings(BaseSettings):
     runpod_timeout_seconds: int = 300
 
     fal_timeout_seconds: int = 300
+    together_timeout_seconds: int = 300
     replicate_timeout_seconds: int = 300
+
+    elevenlabs_voice_id: str = "JBFqnCBsd6RMkjVDRZzb"
+    elevenlabs_model_id: str = "eleven_turbo_v2_5"
+    elevenlabs_timeout_seconds: int = 60
+    elevenlabs_cost_per_1k_chars_usd: float = 0.30
+    default_voice_provider: str = "elevenlabs"
+    default_video_provider: str = "kling"
+    kling_timeout_seconds: int = 360
 
     # ------------------------------------------------------------------
     # Notifications
@@ -81,6 +108,18 @@ class Settings(BaseSettings):
     video_fps: int = 30
     max_cost_per_video_usd: float = 5.00
     default_llm_model: str = "deepseek/deepseek-chat"
+
+    # Task 22: Cost x Quality Frontier Tunables
+    visual_keyframe_candidates: int = 1
+    max_kling_shots: int = 1
+    visual_budget_usd: float = 0.80
+    quality_floor: float = 8.5
+    candidate_policy: str = "fixed"  # 'fixed' or 'smart'
+    allocation_strategy: str = "hybrid"  # 'hybrid' or 'smart'
+
+    # Task 24: Visual Standard V2 Integration Tunables
+    visual_profile: str = "current_legacy"  # 'current_legacy', 'visual_v2_lean', 'visual_v2_flagship'
+    visual_dry_run: bool = False
 
     # ------------------------------------------------------------------
     # Feature Flags

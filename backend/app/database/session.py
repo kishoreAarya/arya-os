@@ -13,10 +13,16 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
+is_prod = (settings.app_env or "").lower() == "production"
+
 engine = create_async_engine(
     settings.database_url,
-    echo=settings.debug,
+    echo=settings.debug and not is_prod,
     pool_pre_ping=True,
+    pool_size=settings.db_pool_size,
+    max_overflow=settings.db_max_overflow,
+    pool_timeout=settings.db_pool_timeout,
+    pool_recycle=settings.db_pool_recycle,
 )
 
 AsyncSessionLocal = async_sessionmaker(

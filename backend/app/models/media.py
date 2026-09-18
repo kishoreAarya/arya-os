@@ -110,9 +110,11 @@ class Video(Base, UUIDPrimaryKeyMixin, TimestampMixin, VersionedAssetMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[str | None] = mapped_column(Text, nullable=True)  # comma-separated
     duration_seconds: Mapped[float | None] = mapped_column(nullable=True)
+    aspect_ratio: Mapped[str | None] = mapped_column(String(20), nullable=True, default="16:9")
     youtube_video_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     publish_status: Mapped[PublishStatus] = mapped_column(
         Enum(PublishStatus, name="publish_status"), default=PublishStatus.DRAFT
     )
 
     workflow_run: Mapped["WorkflowRun"] = relationship(back_populates="video")
+

@@ -46,30 +46,50 @@ logger = get_logger("arya.workflows.orchestrator")
 # ---------------------------------------------------------------------------
 
 _PIPELINE: List[str] = [
-   "trend",
-   "script",
-   "storyboard",
-   "shot_executor",
-   "video_assembler",
-   "thumbnail",
-   "storage",
-   "publishing",
-   "analytics",
+    "trend",
+    "script",
+    "storyboard",
+    "shot_executor",
+    "music",
+    "video_assembler",
+    "thumbnail",
+    "storage",
+    "metadata",
+    "publishing",
+    "analytics",
+]
+
+_CINEMATIC_PIPELINE: List[str] = [
+    "trend",
+    "script",
+    "voice",
+    "storyboard",
+    "shot_executor",
+    "music",
+    "video_assembler",
+    "thumbnail",
+    "storage",
+    "metadata",
+    "publishing",
+    "analytics",
 ]
 
 # Mapping from AGENT_REGISTRY key to PipelineStage for the state machine.
-# The synthetic "storage" stage maps to APPROVED since storage is a
-# persistence checkpoint, not a generation stage.
+# The synthetic "storage" and "metadata" stages map to APPROVED since
+# they prepare approved assets immediately prior to publishing.
 _KEY_TO_PIPELINE_STAGE: Dict[str, PipelineStage] = {
-   "trend": PipelineStage.TREND_SELECTED,
-   "script": PipelineStage.SCRIPT_GENERATED,
-   "storyboard": PipelineStage.STORYBOARD_GENERATED,
-   "shot_executor": PipelineStage.VIDEO_GENERATED,
-   "video_assembler": PipelineStage.VIDEO_GENERATED,
-   "thumbnail": PipelineStage.APPROVED,
-   "storage": PipelineStage.APPROVED,
-   "publishing": PipelineStage.PUBLISHED,
-   "analytics": PipelineStage.ANALYTICS_COLLECTED,
+    "trend": PipelineStage.TREND_SELECTED,
+    "script": PipelineStage.SCRIPT_GENERATED,
+    "voice": PipelineStage.SCRIPT_GENERATED,
+    "storyboard": PipelineStage.STORYBOARD_GENERATED,
+    "shot_executor": PipelineStage.VIDEO_GENERATED,
+    "music": PipelineStage.VIDEO_GENERATED,
+    "video_assembler": PipelineStage.VIDEO_GENERATED,
+    "thumbnail": PipelineStage.APPROVED,
+    "storage": PipelineStage.APPROVED,
+    "metadata": PipelineStage.APPROVED,
+    "publishing": PipelineStage.PUBLISHED,
+    "analytics": PipelineStage.ANALYTICS_COLLECTED,
 }
 
 
@@ -90,6 +110,12 @@ class Orchestrator:
            stage_count=len(_PIPELINE),
            max_retries=self._max_retries,
        )
+
+   def _get_pipeline(self, context: Dict[str, Any]) -> List[str]:
+       """Determine pipeline stage order based on cinematic or standard workflow."""
+       if context.get("use_cinematic_director") or context.get("cinematic_mode"):
+           return _CINEMATIC_PIPELINE
+       return _PIPELINE
 
    async def run(
        self,
@@ -124,17 +150,44 @@ class Orchestrator:
        else:
            context = dict(workflow_input)
 
+       meta = context.get("metadata")
+       if isinstance(meta, dict):
+           for k, v in meta.items():
+               if k not in context:
+                   context[k] = v
+
        logger.info(
            "workflow_input_received",
            topic=context.get("topic"),
            platform=context.get("platform"),
            language=context.get("language"),
            style=context.get("style"),
+           aspect_ratio=context.get("aspect_ratio"),
        )
 
-       context["workflow_run_id"] = str(workflow_run_id)
+       from app.core.aspect_ratio import validate_aspect_ratio
+       raw_ar = context.get("aspect_ratio")
+       try:
+           context["aspect_ratio"] = validate_aspect_ratio(raw_ar)
+       except ValueError as exc:
+           return self._build_result(
+               workflow_run_id=workflow_run_id,
+               status=WorkflowStatus.FAILED.value,
+               success=False,
+               completed_stages=[],
+               failed_stage="validation",
+               stage_results=[],
+               error=str(exc),
+               started_at=started_at,
+               start_perf=start_perf,
+               total_cost_usd=0.0,
+               context=context,
+           )
 
-       for stage_key in _PIPELINE:
+       context["workflow_run_id"] = str(workflow_run_id)
+       pipeline = self._get_pipeline(context)
+
+       for stage_key in pipeline:
            result = await self._execute_stage(stage_key, context)
            stage_results.append(result)
 
@@ -190,6 +243,7 @@ class Orchestrator:
                        storage_path=video_storage_path,
                        duration_seconds=context.get("video_duration_seconds"),
                        publish_status=PublishStatus.DRAFT,
+                       aspect_ratio=context.get("aspect_ratio", "16:9"),
                    )
 
                    self._db.add(video_row)
@@ -207,7 +261,7 @@ class Orchestrator:
                "stage_completed",
                workflow_run_id=str(workflow_run_id),
                stage=stage_key,
-               progress=f"{len(completed_stages)}/{len(_PIPELINE)}",
+               progress=f"{len(completed_stages)}/{len(pipeline)}",
                cost_usd=result.cost_usd,
            )
 
@@ -235,6 +289,23 @@ class Orchestrator:
        else delegates to the shared execute_stage helper."""
        stage_start = time.perf_counter()
        started_at = datetime.now(timezone.utc)
+
+       if stage_key == "storyboard":
+           if context.get("use_cinematic_director") or context.get("cinematic_mode"):
+               if not context.get("narration_timing"):
+                   from app.core.audio_timing import build_narration_timing
+                   script_text = context.get("script_content") or context.get("script") or ""
+                   if script_text:
+                       dur = float(context.get("duration") or context.get("target_duration") or 20.0)
+                       context["narration_timing"] = build_narration_timing(
+                           text=str(script_text), duration_seconds=dur
+                       ).model_dump()
+               return await execute_stage(
+                   "cinematic_director",
+                   context,
+                   self._db,
+                   self._max_retries,
+               )
 
        if stage_key == "shot_executor":
         shot_executor = ShotExecutor(self._db)
@@ -293,6 +364,9 @@ class Orchestrator:
                 execution_time_ms=execution_time_ms,
             )
 
+       if stage_key == "music":
+           return await self._execute_music_stage(context)
+
        if stage_key == "video_assembler":
            try:
                summary = context.get("shot_execution_summary")
@@ -308,7 +382,29 @@ class Orchestrator:
 
                assembler = VideoAssembler(self._db)
                music_path = context.get("music_path")
-               assembly = await assembler.assemble(summary, music_path=music_path)
+               aspect_ratio = context.get("aspect_ratio", "16:9")
+               target_duration = context.get("duration")
+
+               narration_timing = context.get("narration_timing")
+               captions_enabled = context.get("captions_enabled", False)
+               captions_required = context.get("captions_required", False)
+               if context.get("use_cinematic_director") or context.get("cinematic_mode"):
+                   captions_enabled = True
+                   captions_required = True
+
+               assembly = await assembler.assemble(
+                   summary,
+                   music_path=music_path,
+                   aspect_ratio=aspect_ratio,
+                   target_duration=target_duration,
+                   music_volume=context.get("music_volume", 0.25),
+                   music_ducking_volume=context.get("music_ducking_volume", 0.08),
+                   master_voice_path=context.get("master_voice_path") or context.get("voice_path"),
+                   master_audio_plan=context.get("master_audio_plan"),
+                   narration_timing=narration_timing,
+                   captions_enabled=captions_enabled,
+                   captions_required=captions_required,
+               )
                execution_time_ms = round((time.perf_counter() - stage_start) * 1000, 3)
 
                if not assembly.success:
@@ -322,13 +418,44 @@ class Orchestrator:
                        execution_time_ms=execution_time_ms,
                    )
 
+               output_payload = {
+                   "video_storage_path": assembly.final_video_path,
+                   "video_duration_seconds": assembly.duration_seconds,
+                   "aspect_ratio": aspect_ratio,
+                   "captions": assembly.captions or [],
+                   "captions_burned_in": assembly.captions_burned_in,
+                   "captions_required": captions_required,
+               }
+               if assembly.caption_timeline:
+                   output_payload["caption_timeline"] = assembly.caption_timeline.model_dump()
+
+               # Mandatory technical and caption validation for cinematic productions
+               if captions_required:
+                   from app.validators.video_validator import VideoValidator
+                   val_artifact = {
+                       "video_storage_path": assembly.final_video_path,
+                       "duration_seconds": assembly.duration_seconds,
+                       "aspect_ratio": aspect_ratio,
+                       "captions": assembly.captions or [],
+                       "captions_required": True,
+                       "voice_duration_seconds": context.get("voice_duration_seconds"),
+                   }
+                   val_res = VideoValidator(captions_required=True).validate(val_artifact)
+                   if not val_res.passed:
+                       return StageResult(
+                           stage="video_assembler",
+                           success=False,
+                           output=output_payload,
+                           error=f"Video validation failed: {'; '.join(val_res.issues)}",
+                           started_at=started_at,
+                           completed_at=datetime.now(timezone.utc),
+                           execution_time_ms=execution_time_ms,
+                       )
+
                return StageResult(
                    stage="video_assembler",
                    success=True,
-                   output={
-                       "video_storage_path": assembly.final_video_path,
-                       "video_duration_seconds": assembly.duration_seconds,
-                   },
+                   output=output_payload,
                    started_at=started_at,
                    completed_at=datetime.now(timezone.utc),
                    execution_time_ms=execution_time_ms,
@@ -357,6 +484,102 @@ class Orchestrator:
             self._db,
             self._max_retries,
         )
+
+   async def _execute_music_stage(
+       self,
+       context: Dict[str, Any],
+   ) -> StageResult:
+       stage_start = time.perf_counter()
+       started_at = datetime.now(timezone.utc)
+
+       music_enabled = context.get("music_enabled", True)
+       if not music_enabled:
+           logger.info("music_stage_disabled_by_config")
+           return StageResult(
+               stage="music",
+               success=True,
+               output={
+                   "music_path": None,
+                   "music_skipped": True,
+               },
+               started_at=started_at,
+               completed_at=datetime.now(timezone.utc),
+               execution_time_ms=round((time.perf_counter() - stage_start) * 1000, 3),
+           )
+
+       summary = context.get("shot_execution_summary")
+       duration = None
+       if summary and hasattr(summary, "total_duration") and summary.total_duration:
+           duration = summary.total_duration
+       if not duration:
+           duration = context.get("duration", 30)
+
+       music_context = {
+           "topic": context.get("topic", ""),
+           "style": context.get("style", ""),
+           "mood": context.get("music_mood") or context.get("mood", "cinematic"),
+           "music_style": context.get("music_style"),
+           "target_duration_seconds": duration,
+           "aspect_ratio": context.get("aspect_ratio", "16:9"),
+           "provider": context.get("music_provider"),
+           "model": context.get("music_model"),
+           "workflow_run_id": context.get("workflow_run_id"),
+       }
+
+       from app.agents.music import MusicAgent
+       agent = MusicAgent(self._db)
+       try:
+           agent_result = await agent.run(music_context)
+           execution_time_ms = round((time.perf_counter() - stage_start) * 1000, 3)
+
+           if agent_result.success and agent_result.output:
+               music_path = agent_result.output.get("music_path")
+               return StageResult(
+                   stage="music",
+                   success=True,
+                   output={
+                       "music_path": music_path,
+                       "music_result": agent_result.output.get("music_result"),
+                   },
+                   started_at=started_at,
+                   completed_at=datetime.now(timezone.utc),
+                   execution_time_ms=execution_time_ms,
+                   cost_usd=agent_result.cost_usd,
+               )
+           else:
+               logger.warning(
+                   "music_stage_failed_fallback_to_silent",
+                   error=agent_result.error,
+               )
+               return StageResult(
+                   stage="music",
+                   success=True,
+                   output={
+                       "music_path": None,
+                       "music_error": agent_result.error,
+                       "fallback": True,
+                   },
+                   started_at=started_at,
+                   completed_at=datetime.now(timezone.utc),
+                   execution_time_ms=execution_time_ms,
+               )
+       except Exception as exc:
+           logger.warning(
+               "music_stage_exception_fallback_to_silent",
+               error=str(exc),
+           )
+           return StageResult(
+               stage="music",
+               success=True,
+               output={
+                   "music_path": None,
+                   "music_error": str(exc),
+                   "fallback": True,
+               },
+               started_at=started_at,
+               completed_at=datetime.now(timezone.utc),
+               execution_time_ms=round((time.perf_counter() - stage_start) * 1000, 3),
+           )
 
    async def _execute_storage_stage(
        self,

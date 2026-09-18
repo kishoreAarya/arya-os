@@ -37,11 +37,13 @@ from app.agents.thumbnail import ThumbnailAgent
 from app.agents.trend import TrendAgent
 from app.agents.video import VideoAgent
 from app.agents.voice import VoiceAgent
+from app.agents.metadata import MetadataAgent
 from app.agents.music import MusicAgent
+from app.agents.cinematic_director import CinematicDirectorAgent
 
 # Registry keys match orchestrator.py _PIPELINE stage names exactly:
 # ["trend", "script", "storyboard", "prompt", "image", "voice",
-#  "video", "thumbnail", "publishing", "analytics"]
+#  "video", "thumbnail", "metadata", "publishing", "analytics"]
 #
 # "learning" is intentionally omitted — no LearningAgent exists yet.
 # "music" is intentionally omitted — not in the finalized pipeline.
@@ -51,11 +53,14 @@ AGENT_REGISTRY: dict[str, type[BaseAgent]] = {
     "trend": TrendAgent,
     "script": ScriptAgent,
     "storyboard": StoryboardAgent,
+    "cinematic_director": CinematicDirectorAgent,
+    "director": CinematicDirectorAgent,
     "prompt": PromptAgent,
     "image": ImageAgent,
     "voice": VoiceAgent,
     "video": VideoAgent,
     "thumbnail": ThumbnailAgent,
+    "metadata": MetadataAgent,
     "publishing": PublishingAgent,
     "analytics": AnalyticsAgent,
     "music": MusicAgent,

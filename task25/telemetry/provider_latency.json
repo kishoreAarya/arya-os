@@ -1,0 +1,17 @@
+{
+  "together": {
+    "probe_latency_ms": 0.0,
+    "historical_mean_image_latency_ms": 3200.0,
+    "historical_mean_video_latency_ms": null
+  },
+  "fal": {
+    "probe_latency_ms": 1002.85,
+    "historical_mean_image_latency_ms": 2800.0,
+    "historical_mean_video_latency_ms": 42000.0
+  },
+  "replicate": {
+    "probe_latency_ms": 0.0,
+    "historical_mean_image_latency_ms": 3500.0,
+    "historical_mean_video_latency_ms": 55000.0
+  }
+}

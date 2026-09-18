@@ -35,6 +35,23 @@ def _patch_client(monkeypatch, module, response):
         async def post(self, *args, **kwargs):
             if isinstance(response, Exception):
                 raise response
+            if module == fal and response.status_code == 200:
+                if "images" in response._json_data or "video" in response._json_data:
+                    return FakeResponse(
+                        200,
+                        {
+                            "request_id": "req-1",
+                            "status_url": "https://queue.fal.run/status",
+                            "response_url": "https://queue.fal.run/response",
+                        },
+                    )
+            return response
+
+        async def get(self, url, *args, **kwargs):
+            if isinstance(response, Exception):
+                raise response
+            if "status" in url:
+                return FakeResponse(200, {"status": "COMPLETED"})
             return response
 
     monkeypatch.setattr(module.httpx, "AsyncClient", FakeAsyncClient)
@@ -113,6 +130,18 @@ class TestFalGenerateVideo:
 
             async def post(self, url, json, headers):
                 captured["json"] = json
+                return FakeResponse(
+                    200,
+                    {
+                        "request_id": "req-1",
+                        "status_url": "https://queue.fal.run/status",
+                        "response_url": "https://queue.fal.run/response",
+                    },
+                )
+
+            async def get(self, url, *args, **kwargs):
+                if "status" in url:
+                    return FakeResponse(200, {"status": "COMPLETED"})
                 return FakeResponse(200, {"video": {"url": "https://fal.example/clip.mp4"}})
 
         monkeypatch.setattr(fal.httpx, "AsyncClient", FakeAsyncClient)

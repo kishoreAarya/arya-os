@@ -125,7 +125,9 @@ def _merge_context(
 
 
 def _serialize_output(output: Any) -> dict[str, Any]:
-    """Recursively serialize dataclass instances to plain dicts."""
+    """Recursively serialize dataclass and Pydantic instances to plain dicts."""
+    if hasattr(output, "model_dump") and callable(output.model_dump):
+        return _serialize_output(output.model_dump())
     if dataclasses.is_dataclass(output) and not isinstance(output, type):
         return {
             k: _serialize_output(v)

@@ -26,12 +26,12 @@ class ThumbnailResult:
     storage_path: str | None = None
 
 
-def _build_thumbnail_prompt(topic: str, style_guide: str | None) -> str:
-    """TODO: real thumbnail prompt engineering (CTR-oriented framing,
-    bold text overlays, face/expression emphasis) is deliberately not
-    built here — same "simplest prompt that could work" approach as
-    ImageAgent."""
-    prompt = f"Eye-catching YouTube thumbnail for a video about: {topic}"
+def _build_thumbnail_prompt(topic: str, style_guide: str | None, aspect_ratio: str = "16:9") -> str:
+    """Build thumbnail prompt oriented toward CTR and target aspect ratio."""
+    if aspect_ratio == "9:16":
+        prompt = f"Eye-catching vertical 9:16 YouTube Shorts thumbnail for: {topic}"
+    else:
+        prompt = f"Eye-catching 16:9 widescreen YouTube thumbnail for: {topic}"
     if style_guide:
         prompt += f", style: {style_guide}"
     return prompt
@@ -48,6 +48,7 @@ class ThumbnailAgent(BaseAgent):
         """Expected context keys:
         topic (str, required)
         style_guide (str, optional)
+        aspect_ratio (str, optional) — "16:9" or "9:16"
         """
         topic = context.get("topic")
         if not topic or not str(topic).strip():
@@ -55,13 +56,15 @@ class ThumbnailAgent(BaseAgent):
                 success=False, error="context.topic is required and was empty"
             )
 
-        prompt = _build_thumbnail_prompt(topic, context.get("style_guide"))
+        aspect_ratio = context.get("aspect_ratio", "16:9")
+        prompt = _build_thumbnail_prompt(topic, context.get("style_guide"), aspect_ratio=aspect_ratio)
 
         exec_result = await self._execution_engine.execute(
             capability=Capability.IMAGE_GENERATION,
             call=build_media_generation_call(
                 capability=Capability.IMAGE_GENERATION,
                 prompt=prompt,
+                aspect_ratio=aspect_ratio,
             ),
             workflow_run_id=context.get("workflow_run_id"),
             stage="thumbnail_generation",
@@ -83,7 +86,9 @@ class ThumbnailAgent(BaseAgent):
             "thumbnail_result": thumbnail_result,
             "thumbnail_storage_path": storage_path,
             "topic": topic,
+            "aspect_ratio": aspect_ratio,
         }
+
 
         return AgentResult(
             success=True,

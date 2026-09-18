@@ -1,0 +1,319 @@
+{
+  "task": "Task 25 \u2014 Multi-Provider Visual Migration & Real Cost x Quality Benchmark",
+  "production_promotion": "NOT PERFORMED",
+  "current_production_image_provider": "replicate",
+  "current_production_video_provider": "kling",
+  "current_production_profile": "current_legacy",
+  "probe_summary": {
+    "together": {
+      "provider": "together",
+      "status": "CREDENTIAL_ERROR",
+      "diagnostic": "UNAVAILABLE \u2014 CREDENTIAL_NOT_CONFIGURED",
+      "http_code": null,
+      "latency_ms": 0.0,
+      "error_detail": "Environment variable for together is not configured.",
+      "is_available": false
+    },
+    "fal": {
+      "provider": "fal",
+      "status": "CREDENTIAL_ERROR",
+      "diagnostic": "UNAVAILABLE \u2014 CREDENTIAL_ERROR",
+      "http_code": 401,
+      "latency_ms": 1002.85,
+      "error_detail": "fal.ai returned HTTP 401: Invalid or unauthorized key credentials.",
+      "is_available": false
+    },
+    "replicate": {
+      "provider": "replicate",
+      "status": "CREDIT_EXHAUSTED",
+      "diagnostic": "UNAVAILABLE \u2014 PAYMENT_REQUIRED / CREDIT_EXHAUSTED",
+      "http_code": 402,
+      "latency_ms": 0.0,
+      "error_detail": "Replicate credits exhausted (HTTP 402 Payment Required). Legacy fallback preserved.",
+      "is_available": false
+    }
+  },
+  "capabilities": {
+    "together": {
+      "provider": "together",
+      "name": "Together AI",
+      "image_generation": {
+        "supported": true,
+        "flagship_model": "black-forest-labs/FLUX.1.1-pro",
+        "fast_model": "black-forest-labs/FLUX.1-schnell",
+        "cost_per_image_flux_1_1_pro": 0.04,
+        "cost_per_image_schnell": 0.003,
+        "api_type": "REST synchronous/asynchronous /v1/images/generations",
+        "aspect_ratio_handling": "Explicit width x height mapping (768x1344 for 9:16)"
+      },
+      "video_generation": {
+        "supported_serverless": false,
+        "notes": "Together AI provides text-to-image and language models serverlessly. Kling and Seedance are NOT part of Together's serverless catalog. Wan 2.1 is available via dedicated custom container deployment, requiring endpoint provisioning."
+      },
+      "status_probe": {
+        "provider": "together",
+        "status": "CREDENTIAL_ERROR",
+        "diagnostic": "UNAVAILABLE \u2014 CREDENTIAL_NOT_CONFIGURED",
+        "http_code": null,
+        "latency_ms": 0.0,
+        "error_detail": "Environment variable for together is not configured.",
+        "is_available": false
+      }
+    },
+    "fal": {
+      "provider": "fal",
+      "name": "fal.ai",
+      "image_generation": {
+        "supported": true,
+        "flagship_model": "fal-ai/flux-pro/v1.1",
+        "dev_model": "fal-ai/flux/dev",
+        "schnell_model": "fal-ai/flux/schnell",
+        "cost_per_image_flux_1_1_pro": 0.05,
+        "cost_per_image_dev": 0.025,
+        "cost_per_image_schnell": 0.003,
+        "api_type": "Async queue submission & polling (queue.fal.run)",
+        "aspect_ratio_handling": "Native aspect_ratio parameter ('9:16', '16:9', '1:1')"
+      },
+      "video_generation": {
+        "supported_serverless": true,
+        "models": [
+          "fal-ai/kling-video/v1.6/standard/image-to-video",
+          "fal-ai/kling-video/v1.6/pro/image-to-video",
+          "fal-ai/wan-i2v"
+        ],
+        "cost_per_video_kling_standard": 0.1,
+        "cost_per_video_wan": 0.08,
+        "notes": "Full serverless support for Kling 1.6 Standard and Wan 2.1 I2V via unified queue API."
+      },
+      "status_probe": {
+        "provider": "fal",
+        "status": "CREDENTIAL_ERROR",
+        "diagnostic": "UNAVAILABLE \u2014 CREDENTIAL_ERROR",
+        "http_code": 401,
+        "latency_ms": 1002.85,
+        "error_detail": "fal.ai returned HTTP 401: Invalid or unauthorized key credentials.",
+        "is_available": false
+      }
+    },
+    "replicate": {
+      "provider": "replicate",
+      "name": "Replicate",
+      "image_generation": {
+        "supported": true,
+        "flagship_model": "black-forest-labs/flux-1.1-pro",
+        "schnell_model": "black-forest-labs/flux-schnell",
+        "cost_per_image_flux_1_1_pro": 0.055,
+        "cost_per_image_schnell": 0.003,
+        "api_type": "Predictions API /v1/predictions",
+        "aspect_ratio_handling": "Native aspect_ratio parameter"
+      },
+      "video_generation": {
+        "supported_serverless": true,
+        "models": [
+          "kwaivgi/kling-v1.6-standard"
+        ],
+        "cost_per_video_kling_standard": 0.1,
+        "notes": "Preserved as legacy fallback. Currently exhausted credits (HTTP 402)."
+      },
+      "status_probe": {
+        "provider": "replicate",
+        "status": "CREDIT_EXHAUSTED",
+        "diagnostic": "UNAVAILABLE \u2014 PAYMENT_REQUIRED / CREDIT_EXHAUSTED",
+        "http_code": 402,
+        "latency_ms": 0.0,
+        "error_detail": "Replicate credits exhausted (HTTP 402 Payment Required). Legacy fallback preserved.",
+        "is_available": false
+      }
+    }
+  },
+  "standardized_story": {
+    "title": "The Whispering Crypt of Saint Jude",
+    "beats_count": 4,
+    "total_duration_seconds": 20.0,
+    "beats": [
+      {
+        "beat_number": 1,
+        "beat_name": "The Descent",
+        "duration_seconds": 5.0,
+        "is_key_visual_beat": true,
+        "generation_class": "A",
+        "keyframe_score": 0.85,
+        "raw_prompt": "masterpiece, 8k uhd, photorealistic image of Father Thomas descending ancient damp stone spiral staircase into subterranean crypt, clutching iron lantern with trembling hand, extreme low key lighting, warm 2200K lantern glow cutting through dense swirling fog, cold 6500K moonlight sliver from cracked ceiling, 35mm anamorphic prime lens, f/2.0 aperture, trending on artstation, hyperrealistic",
+        "camera_motion": "slow downward crane following descent, subtle atmospheric handheld drift"
+      },
+      {
+        "beat_number": 2,
+        "beat_name": "The Weeping Sarcophagus",
+        "duration_seconds": 5.0,
+        "is_key_visual_beat": false,
+        "generation_class": "B",
+        "keyframe_score": 0.6,
+        "raw_prompt": "best quality, epic, high detail close shot of ornate 12th-century stone sarcophagus relief carving of weeping saint, hairline fractures oozing viscous dark fluid, weathered limestone texture, flickering tallow candle sconce, cold teal shadows and aged copper patina, 50mm macro lens, shallow depth of field, unreal engine 5 render",
+        "camera_motion": "slow push-in towards the carved stone face, micro rack focus to weeping crack"
+      },
+      {
+        "beat_number": 3,
+        "beat_name": "The Extinguishing",
+        "duration_seconds": 5.0,
+        "is_key_visual_beat": false,
+        "generation_class": "B",
+        "keyframe_score": 0.55,
+        "raw_prompt": "dramatic portrait of Father Thomas as iron lantern flame suddenly snuffs out, thin spiral of pale blue smoke rising in cold air, pitch darkness closing in, delicate silver rim light outlining terror-stricken face and wide dilated pupils, breath fogging, 85mm portrait prime lens, f/1.8, octane render, highly detailed",
+        "camera_motion": "static high-tension shot with subtle vibration on flame snuff, slow tilt up smoke"
+      },
+      {
+        "beat_number": 4,
+        "beat_name": "The Rupture",
+        "duration_seconds": 5.0,
+        "is_key_visual_beat": false,
+        "generation_class": "C",
+        "keyframe_score": 0.4,
+        "raw_prompt": "wide angle shot of ancient crypt floor violently fracturing, skeletal gauntleted hand bursting upward through cracked marble tomb slabs, explosive debris and pulverized stone dust, backlit by dim moonlight spilling from portal stairs, 24mm wide angle lens, f/4.0 deep focus, breathtaking composition, masterpiece",
+        "camera_motion": "ground-level tilt up tracking the erupting skeletal hand, camera shake on impact"
+      }
+    ]
+  },
+  "profiles_matrix": [
+    {
+      "profile": "current_legacy",
+      "display_name": "Current Legacy (FLUX Schnell / Fixed)",
+      "image_model": "black-forest-labs/flux-schnell:c846a69991daf4c0e5d016514849d14ee5b2e6846ce6b9d6f21369e564cfe51e",
+      "image_provider": "replicate",
+      "total_candidates": 4,
+      "video_shots": 1,
+      "estimated_cost": 0.262,
+      "beats": [
+        {
+          "beat_number": 1,
+          "beat_name": "The Descent",
+          "is_key_beat": true,
+          "generation_class": "A",
+          "candidates_allocated": 1,
+          "sanitized_prompt": "image of Father Thomas descending ancient damp stone spiral staircase into subterranean crypt, clutching iron lantern with trembling hand, extreme low key lighting, warm 2200K lantern glow cutting through dense swirling fog, cold 6500K moonlight sliver from cracked ceiling, 35mm anamorphic prime lens, f/2.0 aperture",
+          "camera_motion": "slow downward crane following descent, subtle atmospheric handheld drift"
+        },
+        {
+          "beat_number": 2,
+          "beat_name": "The Weeping Sarcophagus",
+          "is_key_beat": false,
+          "generation_class": "B",
+          "candidates_allocated": 1,
+          "sanitized_prompt": "high detail close shot of ornate 12th-century stone sarcophagus relief carving of weeping saint, hairline fractures oozing viscous dark fluid, weathered limestone texture, flickering tallow candle sconce, cold teal shadows and aged copper patina, 50mm macro lens, shallow depth of field, render",
+          "camera_motion": "slow push-in towards the carved stone face, micro rack focus to weeping crack"
+        },
+        {
+          "beat_number": 3,
+          "beat_name": "The Extinguishing",
+          "is_key_beat": false,
+          "generation_class": "B",
+          "candidates_allocated": 1,
+          "sanitized_prompt": "dramatic portrait of Father Thomas as iron lantern flame suddenly snuffs out, thin spiral of pale blue smoke rising in cold air, pitch darkness closing in, delicate silver rim light outlining terror-stricken face and wide dilated pupils, breath fogging, 85mm portrait prime lens, f/1.8",
+          "camera_motion": "static high-tension shot with subtle vibration on flame snuff, slow tilt up smoke"
+        },
+        {
+          "beat_number": 4,
+          "beat_name": "The Rupture",
+          "is_key_beat": false,
+          "generation_class": "C",
+          "candidates_allocated": 1,
+          "sanitized_prompt": "wide angle shot of ancient crypt floor violently fracturing, skeletal gauntleted hand bursting upward through cracked marble tomb slabs, explosive debris and pulverized stone dust, backlit by dim moonlight spilling from portal stairs, 24mm wide angle lens, f/4.0 deep focus, composition",
+          "camera_motion": "ground-level tilt up tracking the erupting skeletal hand, camera shake on impact"
+        }
+      ]
+    },
+    {
+      "profile": "visual_v2_lean",
+      "display_name": "Visual Standard V2 Lean (FLUX Dev 28-step / Smart Lean)",
+      "image_model": "black-forest-labs/flux-dev",
+      "image_provider": "replicate",
+      "total_candidates": 6,
+      "video_shots": 1,
+      "estimated_cost": 0.4,
+      "beats": [
+        {
+          "beat_number": 1,
+          "beat_name": "The Descent",
+          "is_key_beat": true,
+          "generation_class": "A",
+          "candidates_allocated": 3,
+          "sanitized_prompt": "image of Father Thomas descending ancient damp stone spiral staircase into subterranean crypt, clutching iron lantern with trembling hand, extreme low key lighting, warm 2200K lantern glow cutting through dense swirling fog, cold 6500K moonlight sliver from cracked ceiling, 35mm anamorphic prime lens, f/2.0 aperture",
+          "camera_motion": "slow downward crane following descent, subtle atmospheric handheld drift"
+        },
+        {
+          "beat_number": 2,
+          "beat_name": "The Weeping Sarcophagus",
+          "is_key_beat": false,
+          "generation_class": "B",
+          "candidates_allocated": 1,
+          "sanitized_prompt": "high detail close shot of ornate 12th-century stone sarcophagus relief carving of weeping saint, hairline fractures oozing viscous dark fluid, weathered limestone texture, flickering tallow candle sconce, cold teal shadows and aged copper patina, 50mm macro lens, shallow depth of field, render",
+          "camera_motion": "slow push-in towards the carved stone face, micro rack focus to weeping crack"
+        },
+        {
+          "beat_number": 3,
+          "beat_name": "The Extinguishing",
+          "is_key_beat": false,
+          "generation_class": "B",
+          "candidates_allocated": 1,
+          "sanitized_prompt": "dramatic portrait of Father Thomas as iron lantern flame suddenly snuffs out, thin spiral of pale blue smoke rising in cold air, pitch darkness closing in, delicate silver rim light outlining terror-stricken face and wide dilated pupils, breath fogging, 85mm portrait prime lens, f/1.8",
+          "camera_motion": "static high-tension shot with subtle vibration on flame snuff, slow tilt up smoke"
+        },
+        {
+          "beat_number": 4,
+          "beat_name": "The Rupture",
+          "is_key_beat": false,
+          "generation_class": "C",
+          "candidates_allocated": 1,
+          "sanitized_prompt": "wide angle shot of ancient crypt floor violently fracturing, skeletal gauntleted hand bursting upward through cracked marble tomb slabs, explosive debris and pulverized stone dust, backlit by dim moonlight spilling from portal stairs, 24mm wide angle lens, f/4.0 deep focus, composition",
+          "camera_motion": "ground-level tilt up tracking the erupting skeletal hand, camera shake on impact"
+        }
+      ]
+    },
+    {
+      "profile": "visual_v2_flagship",
+      "display_name": "Visual Standard V2 Flagship (FLUX 1.1 Pro / Multi-Candidate / Continuity)",
+      "image_model": "black-forest-labs/flux-1.1-pro",
+      "image_provider": "replicate",
+      "total_candidates": 8,
+      "video_shots": 1,
+      "estimated_cost": 0.57,
+      "beats": [
+        {
+          "beat_number": 1,
+          "beat_name": "The Descent",
+          "is_key_beat": true,
+          "generation_class": "A",
+          "candidates_allocated": 3,
+          "sanitized_prompt": "image of Father Thomas descending ancient damp stone spiral staircase into subterranean crypt, clutching iron lantern with trembling hand, extreme low key lighting, warm 2200K lantern glow cutting through dense swirling fog, cold 6500K moonlight sliver from cracked ceiling, 35mm anamorphic prime lens, f/2.0 aperture",
+          "camera_motion": "slow downward crane following descent, subtle atmospheric handheld drift"
+        },
+        {
+          "beat_number": 2,
+          "beat_name": "The Weeping Sarcophagus",
+          "is_key_beat": false,
+          "generation_class": "B",
+          "candidates_allocated": 2,
+          "sanitized_prompt": "high detail close shot of ornate 12th-century stone sarcophagus relief carving of weeping saint, hairline fractures oozing viscous dark fluid, weathered limestone texture, flickering tallow candle sconce, cold teal shadows and aged copper patina, 50mm macro lens, shallow depth of field, render",
+          "camera_motion": "slow push-in towards the carved stone face, micro rack focus to weeping crack"
+        },
+        {
+          "beat_number": 3,
+          "beat_name": "The Extinguishing",
+          "is_key_beat": false,
+          "generation_class": "B",
+          "candidates_allocated": 2,
+          "sanitized_prompt": "dramatic portrait of Father Thomas as iron lantern flame suddenly snuffs out, thin spiral of pale blue smoke rising in cold air, pitch darkness closing in, delicate silver rim light outlining terror-stricken face and wide dilated pupils, breath fogging, 85mm portrait prime lens, f/1.8",
+          "camera_motion": "static high-tension shot with subtle vibration on flame snuff, slow tilt up smoke"
+        },
+        {
+          "beat_number": 4,
+          "beat_name": "The Rupture",
+          "is_key_beat": false,
+          "generation_class": "C",
+          "candidates_allocated": 1,
+          "sanitized_prompt": "wide angle shot of ancient crypt floor violently fracturing, skeletal gauntleted hand bursting upward through cracked marble tomb slabs, explosive debris and pulverized stone dust, backlit by dim moonlight spilling from portal stairs, 24mm wide angle lens, f/4.0 deep focus, composition",
+          "camera_motion": "ground-level tilt up tracking the erupting skeletal hand, camera shake on impact"
+        }
+      ]
+    }
+  ]
+}

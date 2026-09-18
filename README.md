@@ -349,3 +349,85 @@ in `workers/jobs.py`, and Azure/GCS storage backends. The *shape*
 (registry, router, scheduler, storage interface) is now in place so
 filling those in is additive work, not architecture work.
 
+## API Security & Authentication
+
+Arya OS uses a centralized, single-operator Bearer token authentication mechanism powered by `app.core.security.verify_api_key`.
+
+### Configuration
+
+Set the shared secret in `.env`:
+```bash
+# Set a strong, randomly generated token (e.g. openssl rand -hex 32)
+ARYA_API_KEY=your-secure-secret-token-here
+
+# Toggles authentication in development/testing (default: true)
+API_AUTH_ENABLED=true
+```
+
+- **Production Enforcement**: When `APP_ENV=production`, authentication is strictly mandatory. `API_AUTH_ENABLED=false` is ignored in production. If `ARYA_API_KEY` is unset or empty in production, requests fail securely with HTTP 500 (misconfiguration error) and access to sensitive endpoints is denied.
+- **Development Bypass**: In non-production environments (`development`, `test`), setting `API_AUTH_ENABLED=false` allows unauthenticated access for local debugging or test iteration.
+- **Timing Protection**: Tokens are evaluated via `hmac.compare_digest` to prevent timing attacks.
+- **RFC 6750 Compliance**: Unauthenticated or invalid requests return `401 Unauthorized` with the `WWW-Authenticate: Bearer` header. The configured secret is never printed, logged, or returned in error payloads.
+
+### Endpoint Protection Matrix
+
+| Endpoint | Access | Purpose |
+|---|---|---|
+| `GET /health` | **Public** | Liveness probe for Docker / Kubernetes / load balancers |
+| `GET /ready` | **Public** | Readiness probe (liveness + storage backend reachability) |
+| `GET /` | **Public** | App boot ping and status check |
+| `GET /docs`, `/openapi.json` | **Public** | Interactive Swagger UI (includes Bearer Authorize button) |
+| `POST /workflows/*` | **Protected** | Full pipeline runs (`/youtube`) |
+| `POST /workflow-runs/*`, `GET`, `PATCH` | **Protected** | Workflow run lifecycle state machine |
+| `GET /agents/*`, `POST /agents/*/run` | **Protected** | Agent execution and listing |
+| `POST /approvals/*`, `GET` | **Protected** | Human-in-the-loop checkpoints |
+| `GET /feature-flags/*`, `PUT` | **Protected** | Dynamic runtime configuration |
+| `GET /lineage/*` | **Protected** | Full artifact audit trail and lineage |
+| `GET /providers` | **Protected** | Administrative provider registry status |
+| `GET /database` | **Protected** | Administrative database diagnostic |
+| `GET /storage` | **Protected** | Administrative storage read/write/delete check |
+| `GET /validators` | **Protected** | Registered quality validators |
+
+### Passing the Bearer Token
+
+#### 1. cURL / Shell
+```bash
+curl -X GET "http://localhost:8000/agents/" \
+  -H "Authorization: Bearer your-secure-secret-token-here"
+```
+
+#### 2. n8n HTTP Request Nodes
+In n8n, configure the HTTP Request node:
+- **Authentication**: Generic Credential Type -> Header Auth
+- **Header Name**: `Authorization`
+- **Header Value**: `Bearer your-secure-secret-token-here`
+
+#### 3. Frontend / Dashboard
+Add the Authorization header to standard fetch or Axios requests:
+```javascript
+const response = await fetch("http://localhost:8000/feature-flags/", {
+  headers: {
+    "Authorization": `Bearer ${process.env.NEXT_PUBLIC_ARYA_API_KEY}`,
+    "Content-Type": "application/json"
+  }
+});
+```
+
+#### 4. Python Client (httpx)
+```python
+import httpx
+
+client = httpx.Client(
+    base_url="http://localhost:8000",
+    headers={"Authorization": f"Bearer {ARYA_API_KEY}"}
+)
+response = client.get("/agents/")
+```
+
+### Production Deployment Recommendations
+1. Generate high-entropy keys using `openssl rand -hex 32`.
+2. Always deploy Arya OS behind TLS (HTTPS) via a reverse proxy (e.g. Caddy, Traefik, Nginx, or Cloudflare) so Bearer headers are encrypted in transit.
+3. Keep `/health` and `/ready` mapped to orchestrator/Kubernetes liveness and readiness probes.
+4. Keep `APP_ENV=production` in all deployed environments.
+
+

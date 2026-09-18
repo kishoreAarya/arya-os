@@ -106,9 +106,25 @@ async def test_project(db_session: AsyncSession) -> AsyncGenerator[uuid.UUID, No
     await db_session.commit()
 
 
+from app.core.config import get_settings
+
+
 @pytest_asyncio.fixture(loop_scope="module")
 async def client() -> AsyncGenerator[httpx.AsyncClient, None]:
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as ac:
-            yield ac
+    settings = get_settings()
+    test_key = settings.arya_api_key or "test-arya-api-key"
+    original_key = settings.arya_api_key
+    if not settings.arya_api_key:
+        settings.arya_api_key = test_key
+
+    try:
+        async with app.router.lifespan_context(app):
+            transport = ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+                headers={"Authorization": f"Bearer {test_key}"},
+            ) as ac:
+                yield ac
+    finally:
+        settings.arya_api_key = original_key

@@ -757,3 +757,263 @@ async def test_provider_and_execution_history_preserved_across_retries():
     assert result.context.accumulated_cost == pytest.approx(0.103)
     assert result.provider is not None
     assert result.context.provider == result.provider
+
+
+# --- Task 2: GenerationAttempt Persistence & Quality Loop Tests -----------
+
+
+@pytest.mark.asyncio
+async def test_persist_success_records_generation_attempt():
+    """Verify that a successful execution persists a GenerationAttempt row
+    with provider used, attempt number, cost, duration, and succeeded=True."""
+    from unittest.mock import MagicMock
+    import uuid
+    from app.models.approval import GenerationAttempt
+
+    db = AsyncMock()
+    db.add = MagicMock()
+    engine = ExecutionEngine(db=db)
+    wf_id = uuid.uuid4()
+
+    async def fake_call(provider):
+        return {"result": "ok"}, 0.015
+
+    result = await engine.execute(
+        capability=Capability.IMAGE_GENERATION,
+        call=fake_call,
+        workflow_run_id=wf_id,
+        stage="image_generation",
+    )
+
+    assert result.success is True
+    assert db.add.called
+    assert db.commit.await_count >= 1
+
+    attempts = [
+        call.args[0]
+        for call in db.add.call_args_list
+        if isinstance(call.args[0], GenerationAttempt)
+    ]
+    assert len(attempts) == 1
+    attempt = attempts[0]
+    assert attempt.workflow_run_id == wf_id
+    assert attempt.reference_table == "images"
+    assert attempt.attempt_number == 1
+    assert attempt.succeeded is True
+    assert attempt.cost_usd == 0.015
+    assert attempt.duration_seconds is not None
+    assert attempt.duration_seconds >= 0
+    assert attempt.failure_reason is None
+    assert attempt.validation_failure is None
+
+
+@pytest.mark.asyncio
+async def test_persist_custom_reference_table_and_reference_id():
+    """Verify that explicit reference_table and reference_id are honored
+    and correctly associated on GenerationAttempt."""
+    from unittest.mock import MagicMock
+    import uuid
+    from app.models.approval import GenerationAttempt
+
+    db = AsyncMock()
+    db.add = MagicMock()
+    engine = ExecutionEngine(db=db)
+    wf_id = uuid.uuid4()
+    asset_id = uuid.uuid4()
+
+    async def fake_call(provider):
+        return "draft script", 0.005
+
+    result = await engine.execute(
+        capability=Capability.TEXT_GENERATION,
+        call=fake_call,
+        workflow_run_id=wf_id,
+        stage="script_generation",
+        reference_table="custom_scripts",
+        reference_id=asset_id,
+    )
+
+    assert result.success is True
+    attempts = [
+        call.args[0]
+        for call in db.add.call_args_list
+        if isinstance(call.args[0], GenerationAttempt)
+    ]
+    assert len(attempts) == 1
+    attempt = attempts[0]
+    assert attempt.workflow_run_id == wf_id
+    assert attempt.reference_table == "custom_scripts"
+    assert attempt.reference_id == asset_id
+    assert attempt.succeeded is True
+
+
+@pytest.mark.asyncio
+async def test_persist_records_failed_attempt_on_provider_error():
+    """Verify that a provider failure persists a GenerationAttempt with
+    succeeded=False and failure_reason recorded."""
+    from unittest.mock import MagicMock
+    import uuid
+    from app.models.approval import GenerationAttempt
+
+    db = AsyncMock()
+    db.add = MagicMock()
+    engine = ExecutionEngine(db=db)
+    wf_id = uuid.uuid4()
+
+    async def always_fails(provider):
+        raise RuntimeError("simulated model timeout")
+
+    with patch.object(engine._decision_engine, "decide_retry") as mock_decide:
+        from app.services.decision_engine import Decision, DecisionAction
+        mock_decide.return_value = Decision(
+            action=DecisionAction.STOP,
+            reason="stop on test error",
+        )
+        result = await engine.execute(
+            capability=Capability.TEXT_GENERATION,
+            call=always_fails,
+            workflow_run_id=wf_id,
+            stage="script_generation",
+        )
+
+    assert result.success is False
+    attempts = [
+        call.args[0]
+        for call in db.add.call_args_list
+        if isinstance(call.args[0], GenerationAttempt)
+    ]
+    assert len(attempts) >= 1
+    failed_attempt = attempts[0]
+    assert failed_attempt.workflow_run_id == wf_id
+    assert failed_attempt.succeeded is False
+    assert "failed or were skipped" in failed_attempt.failure_reason
+    assert failed_attempt.attempt_number == 1
+
+
+@pytest.mark.asyncio
+async def test_persist_records_failed_attempt_on_validation_failure():
+    """Verify that when a provider succeeds but validation rejects the artifact,
+    GenerationAttempt is persisted with succeeded=False and validation_failure populated."""
+    from unittest.mock import MagicMock
+    import uuid
+    from app.models.approval import GenerationAttempt
+
+    db = AsyncMock()
+    db.add = MagicMock()
+    engine = ExecutionEngine(db=db)
+    wf_id = uuid.uuid4()
+
+    async def returns_invalid_output(provider):
+        # Empty content fails "story" validator (checks for non-empty text)
+        return {"content": ""}, 0.002
+
+    result = await engine.execute(
+        capability=Capability.TEXT_GENERATION,
+        call=returns_invalid_output,
+        workflow_run_id=wf_id,
+        stage="script_generation",
+        validator_name="story",
+    )
+
+    assert result.success is False
+    attempts = [
+        call.args[0]
+        for call in db.add.call_args_list
+        if isinstance(call.args[0], GenerationAttempt)
+    ]
+    assert len(attempts) == 1
+    failed_attempt = attempts[0]
+    assert failed_attempt.workflow_run_id == wf_id
+    assert failed_attempt.succeeded is False
+    assert failed_attempt.validation_failure is not None
+    assert "Validation 'story' failed" in failed_attempt.validation_failure
+    assert failed_attempt.cost_usd == 0.002
+
+
+@pytest.mark.asyncio
+async def test_persist_records_quality_score_detail_on_validation():
+    """Verify that when a validator evaluates an artifact, QualityScoreDetail
+    is persisted with the validator's quality score."""
+    from unittest.mock import MagicMock
+    import uuid
+    from app.models.quality import QualityScoreDetail
+
+    db = AsyncMock()
+    db.add = MagicMock()
+    engine = ExecutionEngine(db=db)
+    wf_id = uuid.uuid4()
+
+    async def fake_call(provider):
+        return "valid detailed prompt with character descriptions", 0.004
+
+    result = await engine.execute(
+        capability=Capability.TEXT_GENERATION,
+        call=fake_call,
+        workflow_run_id=wf_id,
+        stage="prompt_generation",
+        validator_name="prompt",
+    )
+
+    assert result.success is True
+    details = [
+        call.args[0]
+        for call in db.add.call_args_list
+        if isinstance(call.args[0], QualityScoreDetail)
+    ]
+    assert len(details) == 1
+    detail = details[0]
+    assert detail.workflow_run_id == wf_id
+    assert detail.reference_table == "prompts"
+    assert detail.dimension == "prompt"
+    assert detail.score == 80.0
+    assert detail.scored_by == "prompt"
+
+
+@pytest.mark.asyncio
+async def test_persist_records_every_attempt_during_retries():
+    """Verify that every retry attempt is persisted independently:
+    attempt 1 failure, attempt 2 success."""
+    from unittest.mock import MagicMock
+    import uuid
+    from app.models.approval import GenerationAttempt
+
+    db = AsyncMock()
+    db.add = MagicMock()
+    engine = ExecutionEngine(db=db)
+    wf_id = uuid.uuid4()
+
+    providers_per_attempt = len(providers_for(Capability.TEXT_GENERATION))
+    call_count = 0
+
+    async def flaky_call(provider):
+        nonlocal call_count
+        call_count += 1
+        if call_count <= providers_per_attempt:
+            raise RuntimeError("transient network hiccup")
+        return "recovered script", 0.008
+
+    with patch("app.services.execution_engine.asyncio.sleep", new=AsyncMock()):
+        result = await engine.execute(
+            capability=Capability.TEXT_GENERATION,
+            call=flaky_call,
+            workflow_run_id=wf_id,
+            stage="script_generation",
+        )
+
+    assert result.success is True
+    assert result.attempts == 2
+
+    attempts = [
+        call.args[0]
+        for call in db.add.call_args_list
+        if isinstance(call.args[0], GenerationAttempt)
+    ]
+    assert len(attempts) == 2
+    assert attempts[0].attempt_number == 1
+    assert attempts[0].succeeded is False
+    assert "failed or were skipped" in attempts[0].failure_reason
+
+    assert attempts[1].attempt_number == 2
+    assert attempts[1].succeeded is True
+    assert attempts[1].cost_usd == 0.008
+

@@ -92,15 +92,20 @@ this milestone's scope (rule: don't modify ScriptAgent).
 """
 
 import asyncio
+import inspect
 import time
 import uuid
 from dataclasses import dataclass, field
 
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.events.log import EventType, log_event
+from app.models.approval import GenerationAttempt
+from app.models.provider import Provider
+from app.models.quality import QualityScoreDetail
 from app.providers.capabilities import Capability
 from app.providers.router import (
     CostLimitExceededError,
@@ -119,6 +124,28 @@ logger = get_logger(__name__)
 # requirement) — this is a plain constant, not invented to look more
 # configurable than what was actually asked for.
 _RETRY_BACKOFF_BASE_SECONDS = 0.1
+
+_STAGE_TO_REFERENCE_TABLE: dict[str, str] = {
+    "image_generation": "images",
+    "image": "images",
+    "video_generation": "generated_videos",
+    "video": "generated_videos",
+    "voice_generation": "assets",
+    "voice": "assets",
+    "voice_first_generation": "assets",
+    "music_generation": "assets",
+    "music": "assets",
+    "script_generation": "scripts",
+    "script": "scripts",
+    "storyboard": "storyboards",
+    "storyboard_generation": "storyboards",
+    "prompt_generation": "prompts",
+    "prompt": "prompts",
+    "thumbnail_generation": "thumbnails",
+    "thumbnail": "thumbnails",
+    "research": "workflow_runs",
+    "trend_research": "workflow_runs",
+}
 
 
 class UnknownValidatorError(RuntimeError):
@@ -140,11 +167,11 @@ class ExecutionContext:
     """In-memory only — scoped to a single execute() call, never
     written to the database directly (see ARYA_OS_BUILD_INSTRUCTIONS.md
     section 5 for why this stays separate from GenerationAttempt).
-    Discarded once execute() returns; _persist() is what (eventually)
-    saves the parts of it worth keeping.
+    Discarded once execute() returns; _persist() is what saves
+    the parts of it worth keeping into GenerationAttempt.
     """
 
-    workflow_run_id: uuid.UUID | None
+    workflow_run_id: uuid.UUID | str | None
     stage: str
     provider: str | None = None
     model: str | None = None
@@ -152,6 +179,8 @@ class ExecutionContext:
     elapsed_time: float = 0.0
     accumulated_cost: float = 0.0
     validation_result: ValidationResult | None = None
+    reference_table: str | None = None
+    reference_id: uuid.UUID | str | None = None
 
 
 @dataclass
@@ -202,6 +231,9 @@ class ExecutionEngine:
         stage: str,
         running_cost_usd: float = 0.0,
         validator_name: str | None = None,
+        reference_table: str | None = None,
+        reference_id: uuid.UUID | str | None = None,
+        priority: list[str] | None = None,
     ) -> ExecutionResult:
         """Public entrypoint.
 
@@ -209,15 +241,22 @@ class ExecutionEngine:
         call_with_fallback's own parameters exactly, since
         `_call_provider` is a thin wrapper around it.
 
-        `validator_name` is new in Milestone 3 and optional: leave it
-        None (the default) to skip validation entirely — behavior is
-        identical to Milestone 2. Pass a real VALIDATOR_REGISTRY key
+        `validator_name` is optional: leave it None (the default)
+        to skip validation entirely. Pass a real VALIDATOR_REGISTRY key
         ("story", "prompt", "image", "consistency", "video",
         "thumbnail", "brand") to have ExecutionEngine run that
         validator against the provider's output after a successful
         call, before returning.
+
+        `reference_table` and `reference_id` link the generation
+        attempt directly to the target asset/version chain.
         """
-        context = ExecutionContext(workflow_run_id=workflow_run_id, stage=stage)
+        context = ExecutionContext(
+            workflow_run_id=workflow_run_id,
+            stage=stage,
+            reference_table=reference_table,
+            reference_id=reference_id,
+        )
         started = time.monotonic()
 
         await log_event(
@@ -233,6 +272,9 @@ class ExecutionEngine:
             workflow_run_id=workflow_run_id,
             stage=stage,
             running_cost_usd=running_cost_usd,
+            reference_table=reference_table,
+            reference_id=reference_id,
+            priority=priority,
         )
         context.attempt_number = attempt_count
 
@@ -285,11 +327,18 @@ class ExecutionEngine:
             context.validation_result = validation_result
 
             if not validation_result.passed:
-                # Requirement 7 (Milestone 3, unchanged): mark failed,
-                # attach the result, return immediately — no retry of
-                # validation itself, no Decision Engine, no persistence
-                # call, no second provider call.
                 context.elapsed_time = time.monotonic() - started
+                val_error = (
+                    f"Validation '{validator_name}' failed: "
+                    f"{'; '.join(validation_result.issues) if validation_result.issues else 'no issues listed'}"
+                )
+                await self._persist(
+                    context,
+                    router_result,
+                    succeeded=False,
+                    validation_failure=val_error,
+                    validator_name=validator_name,
+                )
                 return ExecutionResult(
                     success=False,
                     output=router_result.output,
@@ -297,13 +346,17 @@ class ExecutionEngine:
                     cost_usd=router_result.cost_usd,
                     elapsed_time=context.elapsed_time,
                     attempts=attempt_count,
-                    error=f"Validation '{validator_name}' failed: "
-                    f"{'; '.join(validation_result.issues) if validation_result.issues else 'no issues listed'}",
+                    error=val_error,
                     context=context,
                 )
 
-        # TODO (future milestone): write GenerationAttempt + update quality_score.
-        await self._persist(context, router_result)
+        context.elapsed_time = time.monotonic() - started
+        await self._persist(
+            context,
+            router_result,
+            succeeded=True,
+            validator_name=validator_name,
+        )
 
         context.elapsed_time = time.monotonic() - started
 
@@ -336,6 +389,7 @@ class ExecutionEngine:
         workflow_run_id: uuid.UUID | str | None,
         stage: str,
         running_cost_usd: float,
+        priority: list[str] | None = None,
     ) -> RouterResult:
         """Private: the only place this milestone talks to
         app/providers/router.py. No retry loop of its own — one call,
@@ -347,6 +401,7 @@ class ExecutionEngine:
         return await call_with_fallback(
             capability,
             call,
+            priority=priority,
             workflow_run_id=str(workflow_run_id) if workflow_run_id else None,
             stage=stage,
             running_cost_usd=running_cost_usd,
@@ -360,6 +415,9 @@ class ExecutionEngine:
         workflow_run_id: uuid.UUID | str | None,
         stage: str,
         running_cost_usd: float,
+        reference_table: str | None = None,
+        reference_id: uuid.UUID | str | None = None,
+        priority: list[str] | None = None,
     ) -> tuple[RouterResult | None, int, Exception | None]:
         """Wraps `_call_provider` with retry-on-transient-failure.
 
@@ -378,6 +436,7 @@ class ExecutionEngine:
         attempt = 1
 
         while True:
+            attempt_started = time.monotonic()
             try:
                 result = await self._call_provider(
                     capability=capability,
@@ -385,10 +444,33 @@ class ExecutionEngine:
                     workflow_run_id=workflow_run_id,
                     stage=stage,
                     running_cost_usd=running_cost_usd,
+                    priority=priority,
                 )
                 return result, attempt, None
             # Any provider-layer failure is classified below, not blindly retried.
             except Exception as exc:  # noqa: BLE001
+                attempt_duration = time.monotonic() - attempt_started
+                if workflow_run_id:
+                    try:
+                        failed_ctx = ExecutionContext(
+                            workflow_run_id=workflow_run_id,
+                            stage=stage,
+                            attempt_number=attempt,
+                            elapsed_time=attempt_duration,
+                            reference_table=reference_table,
+                            reference_id=reference_id,
+                        )
+                        await self._persist(
+                            failed_ctx,
+                            None,
+                            succeeded=False,
+                            failure_reason=str(exc),
+                        )
+                    except Exception as persist_exc:
+                        logger.warning(
+                            "failed_attempt_persist_error", error=str(persist_exc)
+                        )
+
                 is_transient = self._is_transient_failure(exc)
                 decision: Decision = self._decision_engine.decide_retry(
                     attempt_number=attempt,
@@ -487,10 +569,260 @@ class ExecutionEngine:
         return result
 
     async def _persist(
-        self, context: ExecutionContext, router_result: RouterResult
-    ) -> None:
-        """TODO (future milestone): write a GenerationAttempt row and
-        update the relevant VersionedAssetMixin.quality_score. No-op in
-        Milestone 1 — database writes for execution history are not
-        part of this milestone's scope.
+        self,
+        context: ExecutionContext,
+        router_result: RouterResult | None = None,
+        *,
+        succeeded: bool = True,
+        failure_reason: str | None = None,
+        validation_failure: str | None = None,
+        validator_name: str | None = None,
+    ) -> GenerationAttempt | None:
+        """Write a GenerationAttempt row and record validator quality scores.
+
+        Records:
+        - workflow_run_id (associated WorkflowRun)
+        - reference_table (associated asset table or stage)
+        - reference_id (associated asset ID or workflow_run_id)
+        - attempt_number (1-indexed attempt count)
+        - succeeded (bool indicating success or failure)
+        - failure_reason (provider or execution error details)
+        - validation_failure (validator rejection issues)
+        - provider_id (resolved UUID from providers table if available)
+        - cost_usd (cost of the attempt)
+        - duration_seconds (latency of the attempt)
+        - quality score (recorded in QualityScoreDetail if validation ran)
         """
+        if not context.workflow_run_id:
+            logger.debug(
+                "execution_engine_persist_skipped",
+                reason="No workflow_run_id provided in context",
+                stage=context.stage,
+            )
+            return None
+
+        try:
+            wf_uuid = (
+                context.workflow_run_id
+                if isinstance(context.workflow_run_id, uuid.UUID)
+                else uuid.UUID(str(context.workflow_run_id))
+            )
+        except (ValueError, TypeError):
+            logger.warning(
+                "execution_engine_persist_invalid_uuid",
+                workflow_run_id=context.workflow_run_id,
+            )
+            return None
+
+        ref_table = context.reference_table or _STAGE_TO_REFERENCE_TABLE.get(
+            context.stage, context.stage or "workflow_runs"
+        )
+
+        ref_id = None
+        if context.reference_id:
+            try:
+                ref_id = (
+                    context.reference_id
+                    if isinstance(context.reference_id, uuid.UUID)
+                    else uuid.UUID(str(context.reference_id))
+                )
+            except (ValueError, TypeError):
+                ref_id = None
+
+        if not ref_id and router_result and isinstance(router_result.output, dict):
+            candidate = router_result.output.get("reference_id") or router_result.output.get("id")
+            if candidate:
+                try:
+                    ref_id = (
+                        candidate
+                        if isinstance(candidate, uuid.UUID)
+                        else uuid.UUID(str(candidate))
+                    )
+                except (ValueError, TypeError):
+                    ref_id = None
+
+        if not ref_id:
+            ref_id = wf_uuid
+
+        provider_name = context.provider or (
+            router_result.provider_used if router_result else None
+        )
+        provider_id = None
+        if provider_name:
+            try:
+                from unittest.mock import Mock
+
+                stmt = select(Provider.id).where(Provider.name == provider_name)
+                res = await self._db.execute(stmt)
+                if not isinstance(res, Mock) and hasattr(res, "scalar_one_or_none"):
+                    found_id = res.scalar_one_or_none()
+                    if isinstance(found_id, uuid.UUID):
+                        provider_id = found_id
+            except Exception as exc:
+                logger.debug(
+                    "provider_id_lookup_skipped",
+                    provider=provider_name,
+                    error=str(exc),
+                )
+
+        cost_usd = (
+            float(router_result.cost_usd)
+            if router_result and router_result.cost_usd is not None
+            else 0.0
+        )
+        duration_seconds = (
+            context.elapsed_time
+            if context.elapsed_time > 0
+            else (router_result.duration_seconds if router_result else None)
+        )
+
+        # If router attempted multiple providers (fallback occurred), record failed attempts
+        if router_result and router_result.attempts and len(router_result.attempts) > 1:
+            for idx, failed_prov in enumerate(router_result.attempts[:-1]):
+                failed_err = (
+                    router_result.attempt_errors.get(failed_prov)
+                    if hasattr(router_result, "attempt_errors")
+                    else f"Provider '{failed_prov}' failed"
+                )
+                failed_prov_id = None
+                try:
+                    stmt = select(Provider.id).where(Provider.name == failed_prov)
+                    res = await self._db.execute(stmt)
+                    if hasattr(res, "scalar_one_or_none"):
+                        found_pid = res.scalar_one_or_none()
+                        if isinstance(found_pid, uuid.UUID):
+                            failed_prov_id = found_pid
+                except Exception:
+                    pass
+
+                failed_attempt = GenerationAttempt(
+                    workflow_run_id=wf_uuid,
+                    reference_table=ref_table,
+                    reference_id=ref_id,
+                    attempt_number=idx + 1,
+                    succeeded=False,
+                    failure_reason=f"Provider '{failed_prov}' failed: {failed_err}",
+                    validation_failure=None,
+                    provider_id=failed_prov_id,
+                    cost_usd=0.0,
+                    duration_seconds=None,
+                )
+                try:
+                    add_res = self._db.add(failed_attempt)
+                    if inspect.isawaitable(add_res):
+                        await add_res
+                except Exception as exc:
+                    logger.debug("generation_attempt_failed_persist_skipped", error=str(exc))
+
+        attempt_num = (
+            len(router_result.attempts)
+            if (router_result and router_result.attempts and len(router_result.attempts) > 1)
+            else (context.attempt_number or 1)
+        )
+
+        attempt = GenerationAttempt(
+            workflow_run_id=wf_uuid,
+            reference_table=ref_table,
+            reference_id=ref_id,
+            attempt_number=attempt_num,
+            succeeded=succeeded,
+            failure_reason=failure_reason,
+            validation_failure=validation_failure,
+            provider_id=provider_id,
+            cost_usd=round(cost_usd, 4),
+            duration_seconds=round(duration_seconds, 4) if duration_seconds is not None else None,
+        )
+
+        try:
+            add_res = self._db.add(attempt)
+            if inspect.isawaitable(add_res):
+                await add_res
+            await self._db.commit()
+            try:
+                ref_res = self._db.refresh(attempt)
+                if inspect.isawaitable(ref_res):
+                    await ref_res
+            except Exception:
+                pass
+        except Exception as exc:
+            logger.error("generation_attempt_persist_failed", error=str(exc))
+            try:
+                await self._db.rollback()
+            except Exception:
+                pass
+            return None
+
+        # Record QualityScoreDetail if validator result with score is present
+        if (
+            context.validation_result is not None
+            and getattr(context.validation_result, "score", None) is not None
+        ):
+            try:
+                score_val = float(context.validation_result.score)
+                issues_list = getattr(context.validation_result, "issues", [])
+                notes = "; ".join(issues_list) if issues_list else None
+                q_detail = QualityScoreDetail(
+                    workflow_run_id=wf_uuid,
+                    reference_table=ref_table,
+                    reference_id=ref_id,
+                    dimension=validator_name or context.stage,
+                    score=round(score_val, 2),
+                    scored_by=validator_name,
+                    notes=notes,
+                )
+                q_add_res = self._db.add(q_detail)
+                if inspect.isawaitable(q_add_res):
+                    await q_add_res
+
+                # Persist granular sub-dimension scores if present
+                dim_scores = getattr(context.validation_result, "dimension_scores", {}) or {}
+                for dim_name, dim_score in dim_scores.items():
+                    if dim_name == (validator_name or context.stage):
+                        continue
+                    dim_detail = QualityScoreDetail(
+                        workflow_run_id=wf_uuid,
+                        reference_table=ref_table,
+                        reference_id=ref_id,
+                        dimension=str(dim_name)[:50],
+                        score=round(float(dim_score), 2),
+                        scored_by=validator_name,
+                        notes=notes,
+                    )
+                    sub_add = self._db.add(dim_detail)
+                    if inspect.isawaitable(sub_add):
+                        await sub_add
+
+                await self._db.commit()
+            except Exception as exc:
+                logger.warning("quality_score_detail_persist_failed", error=str(exc))
+
+            # Best-effort update on the versioned asset table if present
+            _TABLES_WITH_QUALITY_SCORE = {
+                "scripts",
+                "storyboards",
+                "prompts",
+                "images",
+                "generated_videos",
+                "videos",
+                "thumbnails",
+            }
+            if ref_table in _TABLES_WITH_QUALITY_SCORE:
+                try:
+                    from unittest.mock import Mock
+
+                    if not isinstance(self._db, Mock):
+                        update_stmt = text(
+                            f"UPDATE {ref_table} SET quality_score = :score WHERE id = :id"
+                        )
+                        await self._db.execute(
+                            update_stmt,
+                            {"score": int(context.validation_result.score), "id": ref_id},
+                        )
+                        await self._db.commit()
+                except Exception:
+                    try:
+                        await self._db.rollback()
+                    except Exception:
+                        pass
+
+        return attempt

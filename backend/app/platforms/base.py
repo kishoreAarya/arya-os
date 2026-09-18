@@ -20,6 +20,7 @@ Design decisions:
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -121,6 +122,7 @@ class PlatformAdapter(ABC):
         *,
         content_id: str,
         credentials: object | None = None,
+        **kwargs: Any,
     ) -> PublishResult:
         """Make an uploaded video public.
 

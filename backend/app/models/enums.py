@@ -123,3 +123,10 @@ class PublishStatus(str, enum.Enum):
     SCHEDULED = "scheduled"
     PUBLISHED = "published"
     FAILED = "failed"
+
+
+class AspectRatio(str, enum.Enum):
+    """Supported video aspect ratios."""
+    PORTRAIT_9_16 = "9:16"
+    LANDSCAPE_16_9 = "16:9"
+

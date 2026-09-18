@@ -21,6 +21,7 @@ class Capability(str, Enum):
     IMAGE_GENERATION = "image_generation"
     VIDEO_GENERATION = "video_generation"
     TTS = "tts"
+    MUSIC_GENERATION = "music_generation"
     VISION = "vision"
     EMBEDDINGS = "embeddings"
     GPU_EXECUTION = "gpu_execution"
@@ -86,17 +87,60 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
         max_context_tokens=128_000,
         secret_name="openai_api_key",
     ),
-   "fal": ProviderCapability(
+    "elevenlabs": ProviderCapability(
+        name="elevenlabs",
+        capabilities=(Capability.TTS,),
+        cost_tier=2,
+        avg_latency_seconds=4,
+        supported_models=("eleven_turbo_v2_5", "eleven_multilingual_v2"),
+        capability_models={
+            Capability.TTS: ("eleven_turbo_v2_5", "eleven_multilingual_v2"),
+        },
+        secret_name="elevenlabs_api_key",
+    ),
+    "fal": ProviderCapability(
         name="fal",
         capabilities=(Capability.IMAGE_GENERATION, Capability.VIDEO_GENERATION),
         cost_tier=2,
-        avg_latency_seconds=45,
-        supported_models=("flux-dev", "ltx-video"),
+        avg_latency_seconds=35,
+        supported_models=(
+            "fal-ai/flux-pro/v1.1",
+            "flux-dev",
+            "fal-ai/kling-video/v1.6/standard/image-to-video",
+            "fal-ai/wan-i2v",
+            "ltx-video",
+        ),
         capability_models={
-            Capability.IMAGE_GENERATION: ("flux-dev",),
-            Capability.VIDEO_GENERATION: ("ltx-video",),
+            Capability.IMAGE_GENERATION: ("fal-ai/flux-pro/v1.1", "flux-dev"),
+            Capability.VIDEO_GENERATION: (
+                "fal-ai/kling-video/v1.6/standard/image-to-video",
+                "fal-ai/wan-i2v",
+                "ltx-video",
+            ),
         },
         secret_name="fal_api_key",
+    ),
+    "together": ProviderCapability(
+        name="together",
+        capabilities=(Capability.IMAGE_GENERATION, Capability.VIDEO_GENERATION, Capability.TEXT_GENERATION),
+        cost_tier=2,
+        avg_latency_seconds=30,
+        supported_models=(
+            "black-forest-labs/FLUX.1.1-pro",
+            "black-forest-labs/FLUX.1-dev",
+            "black-forest-labs/FLUX.1-schnell",
+        ),
+        capability_models={
+            Capability.IMAGE_GENERATION: (
+                "black-forest-labs/FLUX.1.1-pro",
+                "black-forest-labs/FLUX.1-dev",
+                "black-forest-labs/FLUX.1-schnell",
+            ),
+            Capability.VIDEO_GENERATION: (
+                "togethercomputer/wan-2.1-t2v",
+            ),
+        },
+        secret_name="together_api_key",
     ),
     "comfyui": ProviderCapability(
         name="comfyui",
@@ -112,16 +156,56 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
         avg_latency_seconds=0,  # not a generation call itself; GPU rental
         secret_name="runpod_api_key",
     ),
+    "kling": ProviderCapability(
+        name="kling",
+        capabilities=(Capability.VIDEO_GENERATION,),
+        cost_tier=2,
+        avg_latency_seconds=220,
+        supported_models=(
+            "kwaivgi/kling-v1.6-standard:e6f571e8d6990da3c96abf8d3082894024d652822f0ca3cd244acece84a1cc3e",
+            "kwaivgi/kling-v1.6-standard",
+        ),
+        capability_models={
+            Capability.VIDEO_GENERATION: (
+                "kwaivgi/kling-v1.6-standard:e6f571e8d6990da3c96abf8d3082894024d652822f0ca3cd244acece84a1cc3e",
+            ),
+        },
+        secret_name="replicate_api_key",
+    ),
     "replicate": ProviderCapability(
         name="replicate",
         capabilities=(
+            Capability.IMAGE_GENERATION,
+            Capability.VIDEO_GENERATION,
             Capability.TTS,
+            Capability.MUSIC_GENERATION,
         ),
         cost_tier=3,
         avg_latency_seconds=40,
         supported_models=(
+            "black-forest-labs/flux-schnell:c846a69991daf4c0e5d016514849d14ee5b2e6846ce6b9d6f21369e564cfe51e",
+            "kwaivgi/kling-v1.6-standard:e6f571e8d6990da3c96abf8d3082894024d652822f0ca3cd244acece84a1cc3e",
+            "lightricks/ltx-video:8c47da666861d081eeb4d1261853087de23923a268a69b63febdf5dc1dee08e4",
             "jaaari/kokoro-82m:f559560eb822dc509045f3921a1921234918b91739db4bf3daab2169b71c7a13",
+            "meta/musicgen:b05b1dff1d8c6dc63d14b0cdb42135378dcb87f6373b0d3d341ede46e59e2b38",
+            "meta/musicgen",
         ),
+        capability_models={
+            Capability.IMAGE_GENERATION: (
+                "black-forest-labs/flux-schnell:c846a69991daf4c0e5d016514849d14ee5b2e6846ce6b9d6f21369e564cfe51e",
+            ),
+            Capability.VIDEO_GENERATION: (
+                "lightricks/ltx-video:8c47da666861d081eeb4d1261853087de23923a268a69b63febdf5dc1dee08e4",
+                "kwaivgi/kling-v1.6-standard:e6f571e8d6990da3c96abf8d3082894024d652822f0ca3cd244acece84a1cc3e",
+            ),
+            Capability.TTS: (
+                "jaaari/kokoro-82m:f559560eb822dc509045f3921a1921234918b91739db4bf3daab2169b71c7a13",
+            ),
+            Capability.MUSIC_GENERATION: (
+                "meta/musicgen:b05b1dff1d8c6dc63d14b0cdb42135378dcb87f6373b0d3d341ede46e59e2b38",
+                "meta/musicgen",
+            ),
+        },
         secret_name="replicate_api_key",
     ),
 }

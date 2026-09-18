@@ -31,7 +31,7 @@ from app.services.workflow_service import get_workflow_run
 STAGE_TRANSITIONS: dict[PipelineStage, set[PipelineStage]] = {
     PipelineStage.CREATED: {PipelineStage.TREND_SELECTED},
     PipelineStage.TREND_SELECTED: {PipelineStage.SCRIPT_GENERATED},
-    PipelineStage.SCRIPT_GENERATED: {PipelineStage.STORYBOARD_GENERATED},
+    PipelineStage.SCRIPT_GENERATED: {PipelineStage.SCRIPT_GENERATED, PipelineStage.STORYBOARD_GENERATED},
     PipelineStage.STORYBOARD_GENERATED: {PipelineStage.PROMPT_GENERATED},
     PipelineStage.PROMPT_GENERATED: {PipelineStage.IMAGE_GENERATED},
     PipelineStage.IMAGE_GENERATED: {PipelineStage.VIDEO_GENERATED},

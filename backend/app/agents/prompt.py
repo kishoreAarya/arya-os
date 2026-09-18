@@ -51,23 +51,16 @@ def _build_prompt_prompt(
        '- Do not include line breaks inside the JSON string values.',
        "",
        "CINEMATIC POSITIVE PROMPT REQUIREMENTS (incorporate all that apply):",
-       "• Character consistency — same face, age, build, ethnicity, and distinguishing features across every frame.",
-       "• Face consistency — identical facial structure, eye color, expression baseline, and skin texture.",
-       "• Costume consistency — same clothing, colors, textures, accessories, and wear patterns.",
-       "• Environment consistency — coherent geography, architecture, vegetation, weather, and time of day.",
-       "• Camera angle — explicit viewpoint (e.g., low-angle, high-angle, Dutch tilt, bird's-eye, worm's-eye).",
-       "• Camera movement — implied motion (e.g., slow dolly in, handheld shake, static tripod, aerial drift).",
-       "• Lens — focal length character (e.g., 24mm wide, 85mm portrait, 135mm telephoto compression).",
-       "• Lighting — key light direction, fill ratio, bounce sources, practicals, time-of-day quality, volumetrics.",
-       "• Mood — emotional tone conveyed through expression, posture, color temperature, and shadow weight.",
-       "• Composition — rule of thirds, leading lines, symmetry, negative space, depth layers, framing devices.",
-       "• Atmosphere — haze, fog, dust motes, precipitation, wind interaction, temperature impression.",
-       "• Color grading — dominant palette, complementary accents, saturation level, film-stock emulation.",
-       "• Art style — photorealistic, cinematic, hyper-real, painterly, stylized 3D, analog film, etc.",
-       "• Shot continuity — logical progression from previous shots, matching eyelines, consistent screen direction.",
-       "• Subject placement — clear foreground, midground, background hierarchy; intentional focal placement.",
-       "• Image quality — 8K UHD, highly detailed, sharp focus, HDR, subsurface scattering, ray-traced reflections.",
-       "• Realism — anatomically correct proportions, physically accurate materials, believable physics.",
+       "• Specific Shot Framing — explicit scale: extreme close-up, choker, medium close-up, medium shot, wide establishing.",
+       "• Character Anchors — persistent facial structure, skin pores, gaze direction, precise wardrobe materials, and wear patterns.",
+       "• Environment Anchors — tangible architectural materials, peeling plaster, damp floorboards, weather, and specific era details.",
+       "• Lens & Optics — specific focal lengths and optical physics (e.g., 35mm anamorphic prime, f/1.8 shallow depth of field, subtle peripheral falloff).",
+       "• Motivated Lighting — explicit source, angle, and temperature (e.g., single low-hanging tungsten filament bulb casting hard downward shadows, cold moonlight spill on floor).",
+       "• Three-Plane Depth Staging — intentional foreground (e.g., blurred doorway frame), midground (primary subject), and background (textured room depth).",
+       "• Tactile Materials & Texture — coarse woven fabric, flaking rust, beads of perspiration, organic 35mm film grain, physical weight.",
+       "• Emotion & Micro-Behavior — caught mid-breath, tension in shoulders, wide pupillary response, subtle hesitation.",
+       "• Color Palette & Shadow Roll-off — desaturated shadows, cool greenish-black undertones, warm amber practical accents.",
+       "• STRICT BUZZWORD BAN — DO NOT use generic filler words like 'cinematic', 'photorealistic', 'hyper-realistic', 'masterpiece', or '8K UHD'. Describe physical optics, tangible materials, and motivated light instead.",
        "",
        "NEGATIVE PROMPT REQUIREMENTS:",
        "Include a thorough negative_prompt that excludes: deformed anatomy, extra limbs, missing fingers,",
@@ -110,6 +103,10 @@ def _build_prompt_prompt(
 
    if aspect_ratio:
        lines.append(f"Target Aspect Ratio: {aspect_ratio}")
+       if aspect_ratio == "9:16":
+           lines.append("Framing & Composition instructions: Target is vertical 9:16 Shorts format. Emphasize vertical composition, centered subject, safe margins for mobile UI overlays, vertical headroom, and portrait perspective.")
+       elif aspect_ratio == "16:9":
+           lines.append("Framing & Composition instructions: Target is horizontal 16:9 widescreen format. Emphasize cinematic horizontal breadth, panoramic landscape, and wide aspect composition.")
        lines.append("")
 
    if target_model:
@@ -187,6 +184,14 @@ class PromptAgent(BaseAgent):
        except (json.JSONDecodeError, ValueError, TypeError):
            pass
 
+       from app.services.visual_profiles import resolve_visual_profile, sanitize_prompt_v2
+       from app.core.shot_classifier import get_enforced_negative_prompt
+
+       prof = resolve_visual_profile(context.get("visual_profile"))
+       if prof.prompt_policy in ("v2_lean", "v2_flagship") or context.get("prompt_policy_v2"):
+           positive_prompt = sanitize_prompt_v2(positive_prompt)
+           negative_prompt = get_enforced_negative_prompt(negative_prompt)
+
        prompt_result = PromptResult(
            positive_prompt=positive_prompt,
            negative_prompt=negative_prompt,
@@ -197,6 +202,7 @@ class PromptAgent(BaseAgent):
            "prompt_result": prompt_result,
            "positive_prompt": positive_prompt,
            "negative_prompt": negative_prompt,
+           "aspect_ratio": context.get("aspect_ratio", "16:9"),
        }
 
        # Carry shot context forward for ImageAgent traceability

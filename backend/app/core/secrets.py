@@ -31,6 +31,9 @@ class SecretsManager:
     def get(self, name: str, required: bool = True) -> str | None:
         """`name` is the Settings field name, e.g. 'runpod_api_key'."""
         value = getattr(self._settings, name, None)
+        if not value and name in ("fal_api_key", "fal_key"):
+            alt_name = "fal_key" if name == "fal_api_key" else "fal_api_key"
+            value = getattr(self._settings, alt_name, None)
         if required and not value:
             raise SecretNotConfigured(
                 f"Secret '{name}' is not configured. Set it in .env."
@@ -50,3 +53,12 @@ def get_secrets_manager() -> SecretsManager:
     if _secrets_manager is None:
         _secrets_manager = SecretsManager()
     return _secrets_manager
+
+
+def get_secret(name: str, default: str | None = None) -> str | None:
+    """Convenience helper to retrieve a secret or return default without raising."""
+    try:
+        val = get_secrets_manager().get(name, required=False)
+        return val if val is not None else default
+    except Exception:
+        return default

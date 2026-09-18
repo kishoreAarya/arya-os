@@ -1,0 +1,100 @@
+version: "3.9"
+
+# ==============================================================================
+# Project Arya OS — Hardened Production Docker Compose
+# Self-hosted single-operator deployment configuration.
+# PostgreSQL and Redis ports are NOT exposed to the host/internet.
+# Persistent volumes mounted for PostgreSQL, Redis, and media storage artifacts.
+# ==============================================================================
+
+networks:
+  arya-net:
+    driver: bridge
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: arya-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-arya}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?ERROR: POSTGRES_PASSWORD must be set in production}
+      POSTGRES_DB: ${POSTGRES_DB:-arya_os}
+    # Database is strictly internal to arya-net; NOT published to public internet
+    networks:
+      - arya-net
+    volumes:
+      - arya_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-arya} -d ${POSTGRES_DB:-arya_os}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: arya-redis-prod
+    restart: unless-stopped
+    # Redis is strictly internal to arya-net; NOT published to public internet
+    networks:
+      - arya-net
+    volumes:
+      - arya_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: arya-backend-prod
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      DEBUG: "false"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      BACKEND_HOST: "0.0.0.0"
+      BACKEND_PORT: "8000"
+      UVICORN_WORKERS: "1"
+      UVICORN_TIMEOUT_KEEP_ALIVE: "65"
+      UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "60"
+      AUTO_RUN_MIGRATIONS: "true"
+      API_AUTH_ENABLED: "true"
+      ARYA_API_KEY: ${ARYA_API_KEY:?ERROR: ARYA_API_KEY must be set in production}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-arya}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-arya_os}
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_LOCAL_PATH: /app/data/storage
+    env_file:
+      - .env
+    ports:
+      - "${BACKEND_BIND_IP:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
+    networks:
+      - arya-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # Persistent storage volume ensures videos/thumbnails survive container rebuilds
+      - arya_storage_data:/app/data/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  arya_postgres_data:
+    name: arya_postgres_data
+  arya_redis_data:
+    name: arya_redis_data
+  arya_storage_data:
+    name: arya_storage_data

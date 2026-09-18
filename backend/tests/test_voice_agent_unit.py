@@ -51,19 +51,18 @@ async def test_run_success_produces_voice_result():
 
 
 @pytest.mark.asyncio
-async def test_run_reflects_current_no_tts_adapter_reality():
-    """Documents the real, current state: with the REAL ExecutionEngine
-    (not mocked), this fails today because no TTS adapter exists yet —
-    confirmed by not mocking ExecutionEngine at all. asyncio.sleep is
-    patched only to avoid real retry-backoff delay slowing the test;
-    nothing about the failure itself is mocked."""
-    from unittest.mock import patch
-
-    agent = VoiceAgent(db=AsyncMock())
-    with patch("app.services.execution_engine.asyncio.sleep", new=AsyncMock()):
-        result = await agent.run({"script_content": "narration text"})
+async def test_run_execution_engine_failure():
+    """Verify that when ExecutionEngine fails, VoiceAgent returns
+    success=False with the error."""
+    agent = _agent_with_mocked_engine(
+        ExecutionResult(
+            success=False,
+            error="TTS provider unavailable",
+        )
+    )
+    result = await agent.run({"script_content": "narration text"})
     assert result.success is False
-    assert result.error is not None
+    assert result.error == "TTS provider unavailable"
 
 
 @pytest.mark.asyncio

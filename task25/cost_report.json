@@ -1,0 +1,74 @@
+{
+  "unit_costs": {
+    "together": {
+      "flux_1_1_pro": 0.04,
+      "flux_dev": 0.025,
+      "flux_schnell": 0.003,
+      "video_kling": null,
+      "video_wan": "container-hourly"
+    },
+    "fal": {
+      "flux_1_1_pro": 0.05,
+      "flux_dev": 0.025,
+      "flux_schnell": 0.003,
+      "video_kling_standard": 0.1,
+      "video_wan": 0.08
+    },
+    "replicate": {
+      "flux_1_1_pro": 0.055,
+      "flux_dev": 0.03,
+      "flux_schnell": 0.003,
+      "video_kling_standard": 0.1
+    }
+  },
+  "scene_profiles_cost": {
+    "current_legacy": {
+      "profile": "current_legacy",
+      "display_name": "Current Legacy (FLUX Schnell / Fixed)",
+      "image_model": "black-forest-labs/flux-schnell:c846a69991daf4c0e5d016514849d14ee5b2e6846ce6b9d6f21369e564cfe51e",
+      "image_provider": "replicate",
+      "cost_per_image": 0.003,
+      "total_images": 4,
+      "total_image_cost": 0.012,
+      "video_model": "kwaivgi/kling-v1.6-standard:e6f571e8d6990da3c96abf8d3082894024d652822f0ca3cd244acece84a1cc3e",
+      "video_provider": "kling",
+      "cost_per_video": 0.25,
+      "total_videos": 1,
+      "total_video_cost": 0.25,
+      "total_scene_cost": 0.262,
+      "target_quality_rating": 7.0
+    },
+    "visual_v2_lean": {
+      "profile": "visual_v2_lean",
+      "display_name": "Visual Standard V2 Lean (FLUX Dev 28-step / Smart Lean)",
+      "image_model": "black-forest-labs/flux-dev",
+      "image_provider": "replicate",
+      "cost_per_image": 0.025,
+      "total_images": 6,
+      "total_image_cost": 0.15,
+      "video_model": "kwaivgi/kling-v1.6-standard:e6f571e8d6990da3c96abf8d3082894024d652822f0ca3cd244acece84a1cc3e",
+      "video_provider": "kling",
+      "cost_per_video": 0.25,
+      "total_videos": 1,
+      "total_video_cost": 0.25,
+      "total_scene_cost": 0.4,
+      "target_quality_rating": 8.5
+    },
+    "visual_v2_flagship": {
+      "profile": "visual_v2_flagship",
+      "display_name": "Visual Standard V2 Flagship (FLUX 1.1 Pro / Multi-Candidate / Continuity)",
+      "image_model": "black-forest-labs/flux-1.1-pro",
+      "image_provider": "replicate",
+      "cost_per_image": 0.04,
+      "total_images": 8,
+      "total_image_cost": 0.32,
+      "video_model": "kwaivgi/kling-v1.6-standard:e6f571e8d6990da3c96abf8d3082894024d652822f0ca3cd244acece84a1cc3e",
+      "video_provider": "kling",
+      "cost_per_video": 0.25,
+      "total_videos": 1,
+      "total_video_cost": 0.25,
+      "total_scene_cost": 0.57,
+      "target_quality_rating": 9.5
+    }
+  }
+}
