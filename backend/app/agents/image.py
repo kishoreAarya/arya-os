@@ -33,6 +33,8 @@ class ImageResult:
     storage_path: str | None = None
     candidate_urls: list[str] = field(default_factory=list)
     keyframe_selection: dict | None = None
+    model: str | None = None
+    provider: str | None = None
 
 
 def _build_image_prompt(shot_description: str, style_guide: str | None) -> str:
@@ -141,6 +143,12 @@ class ImageAgent(BaseAgent):
                 duration_seconds=0.01,
             )
 
+        explicit_model = context.get("image_model") or context.get("model")
+        explicit_provider = context.get("image_provider") or context.get("provider")
+
+        target_model = explicit_model if explicit_model else profile.image_model
+        priority = [explicit_provider] if explicit_provider else None
+
         exec_result = await self._execution_engine.execute(
             capability=Capability.IMAGE_GENERATION,
             call=build_media_generation_call(
@@ -148,11 +156,13 @@ class ImageAgent(BaseAgent):
                 prompt=generation_prompt,
                 aspect_ratio=aspect_ratio,
                 num_outputs=num_candidates,
-                image_model=profile.image_model,
+                image_model=target_model,
+                image_provider=explicit_provider,
             ),
             workflow_run_id=context.get("workflow_run_id"),
             stage="image_generation",
             validator_name="image",
+            priority=priority,
         )
 
         if not exec_result.success:
@@ -162,6 +172,16 @@ class ImageAgent(BaseAgent):
         storage_path = output.get("storage_path")
         candidate_urls = output.get("candidate_urls") or ([storage_path] if storage_path else [])
         keyframe_selection_data = None
+
+        actual_provider = getattr(exec_result, "provider", None) or (
+            output.get("provider_used") if isinstance(output, dict) else None
+        )
+        actual_model = (
+            getattr(exec_result, "model", None)
+            or (output.get("model_used") if isinstance(output, dict) else None)
+            or (output.get("model") if isinstance(output, dict) else None)
+            or target_model
+        )
 
         if len(candidate_urls) > 1:
             try:
@@ -183,6 +203,8 @@ class ImageAgent(BaseAgent):
             storage_path=storage_path,
             candidate_urls=candidate_urls,
             keyframe_selection=keyframe_selection_data,
+            model=actual_model,
+            provider=actual_provider,
         )
 
         result_output = {
@@ -190,6 +212,12 @@ class ImageAgent(BaseAgent):
             "source_image_path": storage_path,
             "aspect_ratio": aspect_ratio,
             "candidate_urls": candidate_urls,
+            "provider_used": actual_provider,
+            "model_used": actual_model,
+            "actual_provider": actual_provider,
+            "actual_model": actual_model,
+            "requested_provider": explicit_provider,
+            "requested_model": explicit_model,
         }
         if keyframe_selection_data:
             result_output["keyframe_selection"] = keyframe_selection_data
@@ -206,7 +234,7 @@ class ImageAgent(BaseAgent):
         return AgentResult(
             success=True,
             output=result_output,
-            provider_used=exec_result.provider,
+            provider_used=actual_provider,
             cost_usd=exec_result.cost_usd,
             duration_seconds=exec_result.elapsed_time,
         )

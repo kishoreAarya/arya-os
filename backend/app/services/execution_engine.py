@@ -371,10 +371,17 @@ class ExecutionEngine:
             validated=validator_name is not None,
         )
 
+        model_name = (
+            router_result.output.get("model_used")
+            or router_result.output.get("model")
+            if isinstance(router_result.output, dict)
+            else None
+        )
         return ExecutionResult(
             success=True,
             output=router_result.output,
             provider=router_result.provider_used,
+            model=model_name,
             cost_usd=router_result.cost_usd,
             elapsed_time=context.elapsed_time,
             attempts=attempt_count,

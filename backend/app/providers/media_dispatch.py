@@ -198,7 +198,20 @@ def build_media_generation_call(
                 prompt=prompt, api_key=api_key, model=effective_model, **call_kwargs
             )
         # generate_image
-        effective_model = kwargs.get("model") or kwargs.get("image_model") or model
+        req_provider = kwargs.get("image_provider") or kwargs.get("provider")
+        req_model = kwargs.get("model") or kwargs.get("image_model")
+        if req_provider and provider.name != req_provider:
+            # Fallback provider: check if requested model is supported by this provider, otherwise use provider default
+            supported = list(provider.supported_models or ())
+            if capability in provider.capability_models:
+                supported.extend(provider.capability_models[capability])
+            if req_model and any(req_model.lower() in s.lower() or s.lower() in req_model.lower() for s in supported):
+                effective_model = req_model
+            else:
+                effective_model = model
+        else:
+            effective_model = req_model or model
+
         call_kwargs = {}
         if "num_outputs" in signature(method).parameters:
             if "num_outputs" in kwargs and kwargs["num_outputs"] is not None:
@@ -208,12 +221,25 @@ def build_media_generation_call(
             res, cost = await method(
                 prompt=prompt, api_key=api_key, model=effective_model, aspect_ratio=aspect_ratio, **call_kwargs
             )
-            if isinstance(res, dict) and "aspect_ratio" not in res:
-                res["aspect_ratio"] = aspect_ratio
+            if isinstance(res, dict):
+                if "aspect_ratio" not in res:
+                    res["aspect_ratio"] = aspect_ratio
+                if req_provider or req_model:
+                    res.setdefault("provider_used", provider.name)
+                    res.setdefault("model_used", effective_model)
+                    res.setdefault("provider", provider.name)
+                    res.setdefault("model", effective_model)
             return res, cost
+
         res, cost = await method(prompt=prompt, api_key=api_key, model=effective_model, **call_kwargs)
-        if isinstance(res, dict) and aspect_ratio and "aspect_ratio" not in res:
-            res["aspect_ratio"] = aspect_ratio
+        if isinstance(res, dict):
+            if aspect_ratio and "aspect_ratio" not in res:
+                res["aspect_ratio"] = aspect_ratio
+            if req_provider or req_model:
+                res.setdefault("provider_used", provider.name)
+                res.setdefault("model_used", effective_model)
+                res.setdefault("provider", provider.name)
+                res.setdefault("model", effective_model)
         return res, cost
 
     return call_provider

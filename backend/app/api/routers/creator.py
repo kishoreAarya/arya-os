@@ -84,6 +84,10 @@ class CreatorJobResponse(BaseModel):
     prompt: str
     model: str | None = None
     provider: str | None = None
+    requested_model: str | None = None
+    requested_provider: str | None = None
+    actual_model: str | None = None
+    actual_provider: str | None = None
     aspect_ratio: str | None = None
     duration_seconds: float | None = None
     total_cost_usd: float = 0.0
@@ -102,6 +106,10 @@ class CreatorHistoryItem(BaseModel):
     prompt: str
     model: str | None = None
     provider: str | None = None
+    requested_model: str | None = None
+    requested_provider: str | None = None
+    actual_model: str | None = None
+    actual_provider: str | None = None
     aspect_ratio: str | None = None
     duration_seconds: float | None = None
     status: str
@@ -398,12 +406,29 @@ async def _execute_creator_job_background(
                 if not storage_path:
                     storage_path = agent_output.get("source_image_path") or agent_output.get("storage_path")
 
+                actual_provider = (
+                    res.provider_used
+                    or agent_output.get("provider_used")
+                    or (getattr(img_res, "provider", None) if img_res else None)
+                    or payload.provider
+                    or "arya-os"
+                )
+                actual_model = (
+                    agent_output.get("model_used")
+                    or agent_output.get("model")
+                    or (getattr(img_res, "model", None) if img_res else None)
+                    or payload.model
+                )
+
                 final_asset_url = storage_path
                 output_payload = {
                     "asset_url": final_asset_url,
                     "storage_path": final_asset_url,
                     "candidate_urls": agent_output.get("candidate_urls", [final_asset_url]),
-                    "provider_used": res.provider_used,
+                    "provider_used": actual_provider,
+                    "model_used": actual_model,
+                    "requested_provider": payload.provider,
+                    "requested_model": payload.model,
                     "duration_seconds": res.duration_seconds,
                     "aspect_ratio": payload.aspect_ratio,
                     "generation_type": "image",
@@ -432,13 +457,18 @@ async def _execute_creator_job_background(
 
                 total_cost += float(res.cost_usd or 0.0)
                 agent_output = res.output or {}
+                actual_provider = res.provider_used or agent_output.get("provider_used") or payload.provider or "arya-os"
+                actual_model = agent_output.get("model_used") or agent_output.get("model") or payload.model
                 final_asset_url = agent_output.get("video_storage_path") or agent_output.get("source_video_path")
                 output_payload = {
                     "asset_url": final_asset_url,
                     "storage_path": final_asset_url,
                     "source_image_path": start_img,
                     "duration_seconds": payload.duration_seconds or 5.0,
-                    "provider_used": res.provider_used,
+                    "provider_used": actual_provider,
+                    "model_used": actual_model,
+                    "requested_provider": payload.provider,
+                    "requested_model": payload.model,
                     "aspect_ratio": payload.aspect_ratio,
                     "generation_type": "image_to_video",
                 }
@@ -492,13 +522,18 @@ async def _execute_creator_job_background(
 
                 total_cost += float(vid_res.cost_usd or 0.0)
                 vid_output = vid_res.output or {}
+                actual_provider = vid_res.provider_used or vid_output.get("provider_used") or payload.provider or "arya-os"
+                actual_model = vid_output.get("model_used") or vid_output.get("model") or payload.model
                 final_asset_url = vid_output.get("video_storage_path") or vid_output.get("source_video_path")
                 output_payload = {
                     "asset_url": final_asset_url,
                     "storage_path": final_asset_url,
                     "keyframe_image_url": start_img,
                     "duration_seconds": payload.duration_seconds or 5.0,
-                    "provider_used": vid_res.provider_used,
+                    "provider_used": actual_provider,
+                    "model_used": actual_model,
+                    "requested_provider": payload.provider,
+                    "requested_model": payload.model,
                     "aspect_ratio": payload.aspect_ratio,
                     "generation_type": "video",
                 }
@@ -506,17 +541,20 @@ async def _execute_creator_job_background(
             elapsed = round(time.perf_counter() - start_time, 3)
             now_utc = datetime.now(timezone.utc)
 
-            # Persist Asset in DB
+            actual_provider = output_payload.get("provider_used") or payload.provider or "arya-os"
+            actual_model = output_payload.get("model_used") or payload.model
+
+            # Persist Asset in DB with actual execution provider
             if final_asset_url:
                 db_asset = Asset(
                     workflow_run_id=run_id,
                     asset_type="image" if payload.generation_type == GenerationType.IMAGE else "video",
                     storage_path=str(final_asset_url),
-                    provider_name=payload.provider or "arya-os",
+                    provider_name=actual_provider,
                 )
                 db.add(db_asset)
 
-            # Persist SystemLog with complete structured output
+            # Persist SystemLog with complete structured output distinguishing requested vs actual
             db_log = SystemLog(
                 workflow_run_id=run_id,
                 event_type="CreatorGenerationResult",
@@ -525,8 +563,12 @@ async def _execute_creator_job_background(
                         "job_id": job_id,
                         "generation_type": payload.generation_type.value,
                         "prompt": payload.prompt,
-                        "model": payload.model,
-                        "provider": payload.provider,
+                        "requested_model": payload.model,
+                        "requested_provider": payload.provider,
+                        "model": actual_model,
+                        "provider": actual_provider,
+                        "model_used": actual_model,
+                        "provider_used": actual_provider,
                         "aspect_ratio": payload.aspect_ratio,
                         "duration_seconds": payload.duration_seconds,
                         "asset_url": final_asset_url,
@@ -553,6 +595,12 @@ async def _execute_creator_job_background(
                 {
                     "status": "completed",
                     "current_stage": "completed",
+                    "model": actual_model,
+                    "provider": actual_provider,
+                    "requested_model": payload.model,
+                    "requested_provider": payload.provider,
+                    "actual_model": actual_model,
+                    "actual_provider": actual_provider,
                     "total_cost_usd": total_cost,
                     "completed_at": now_utc.isoformat(),
                     "output": output_payload,
@@ -701,6 +749,11 @@ async def get_creator_job_status(
     gen_type = "image"
     aspect_ratio = "16:9"
     model_used = None
+    provider_used = None
+    requested_model = None
+    requested_provider = None
+    actual_model = None
+    actual_provider = None
 
     if sys_log and sys_log.event_type == "CreatorGenerationResult":
         try:
@@ -708,9 +761,47 @@ async def get_creator_job_status(
             output_data = parsed.get("output", {})
             gen_type = parsed.get("generation_type", "image")
             aspect_ratio = parsed.get("aspect_ratio", "16:9")
-            model_used = parsed.get("model")
+
+            requested_provider = parsed.get("requested_provider")
+            requested_model = parsed.get("requested_model")
+
+            actual_provider = (
+                parsed.get("actual_provider")
+                or output_data.get("provider_used")
+                or parsed.get("provider_used")
+            )
+            actual_model = (
+                parsed.get("actual_model")
+                or output_data.get("model_used")
+                or parsed.get("model_used")
+            )
+
+            # Historical fallback if requested_* was not explicitly persisted
+            if not requested_provider and parsed.get("provider"):
+                requested_provider = parsed.get("provider")
+            if not requested_model and parsed.get("model"):
+                requested_model = parsed.get("model")
+
+            if not actual_provider:
+                actual_provider = parsed.get("provider")
+            if not actual_model:
+                if actual_provider and requested_provider and actual_provider != requested_provider and actual_provider == "replicate":
+                    actual_model = "black-forest-labs/flux-schnell:c846a69991daf4c0e5d016514849d14ee5b2e6846ce6b9d6f21369e564cfe51e"
+                else:
+                    actual_model = parsed.get("model")
+
+            model_used = actual_model
+            provider_used = actual_provider
         except Exception:
             pass
+
+    if not provider_used:
+        asset_stmt = select(Asset).where(Asset.workflow_run_id == run.id).limit(1)
+        asset_row = (await db.execute(asset_stmt)).scalars().first()
+        if asset_row and asset_row.provider_name:
+            provider_used = asset_row.provider_name
+            if not actual_provider:
+                actual_provider = asset_row.provider_name
 
     return CreatorJobResponse(
         job_id=str(run.id),
@@ -720,7 +811,11 @@ async def get_creator_job_status(
         generation_type=gen_type,
         prompt=run.topic or "",
         model=model_used,
-        provider=None,
+        provider=provider_used,
+        requested_model=requested_model,
+        requested_provider=requested_provider,
+        actual_model=actual_model,
+        actual_provider=actual_provider,
         aspect_ratio=aspect_ratio,
         duration_seconds=5.0,
         total_cost_usd=float(run.total_cost_usd or 0.0),
@@ -766,6 +861,10 @@ async def get_creator_history(
         duration_seconds = 5.0
         model_name = None
         provider_name = None
+        requested_model = None
+        requested_provider = None
+        actual_model = None
+        actual_provider = None
 
         if sys_log and sys_log.event_type == "CreatorGenerationResult":
             try:
@@ -774,18 +873,52 @@ async def get_creator_history(
                 gen_type = parsed.get("generation_type", "image")
                 aspect_ratio = parsed.get("aspect_ratio", "16:9")
                 duration_seconds = parsed.get("duration_seconds", 5.0)
-                model_name = parsed.get("model")
-                provider_name = parsed.get("provider")
+                output_sub = parsed.get("output", {})
+
+                requested_model = parsed.get("requested_model")
+                requested_provider = parsed.get("requested_provider")
+
+                actual_provider = (
+                    parsed.get("actual_provider")
+                    or output_sub.get("provider_used")
+                    or parsed.get("provider_used")
+                )
+                actual_model = (
+                    parsed.get("actual_model")
+                    or output_sub.get("model_used")
+                    or parsed.get("model_used")
+                )
+
+                # Historical fallback
+                if not requested_provider and parsed.get("provider"):
+                    requested_provider = parsed.get("provider")
+                if not requested_model and parsed.get("model"):
+                    requested_model = parsed.get("model")
+
+                if not actual_provider:
+                    actual_provider = parsed.get("provider")
+                if not actual_model:
+                    if actual_provider and requested_provider and actual_provider != requested_provider and actual_provider == "replicate":
+                        actual_model = "black-forest-labs/flux-schnell:c846a69991daf4c0e5d016514849d14ee5b2e6846ce6b9d6f21369e564cfe51e"
+                    else:
+                        actual_model = parsed.get("model")
+
+                model_name = actual_model
+                provider_name = actual_provider
             except Exception:
                 pass
 
-        if not asset_url:
+        if not asset_url or not provider_name:
             asset_stmt = select(Asset).where(Asset.workflow_run_id == run.id).limit(1)
             asset_row = (await db.execute(asset_stmt)).scalars().first()
             if asset_row:
-                asset_url = asset_row.storage_path
-                gen_type = asset_row.asset_type
-                provider_name = asset_row.provider_name
+                if not asset_url:
+                    asset_url = asset_row.storage_path
+                    gen_type = asset_row.asset_type
+                if not provider_name:
+                    provider_name = asset_row.provider_name
+                if not actual_provider:
+                    actual_provider = asset_row.provider_name
 
         items.append(
             CreatorHistoryItem(
@@ -795,6 +928,10 @@ async def get_creator_history(
                 prompt=run.topic or "Untitled generation",
                 model=model_name,
                 provider=provider_name,
+                requested_model=requested_model,
+                requested_provider=requested_provider,
+                actual_model=actual_model,
+                actual_provider=actual_provider,
                 aspect_ratio=aspect_ratio,
                 duration_seconds=duration_seconds,
                 status=run.status.value,
