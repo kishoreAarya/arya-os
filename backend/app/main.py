@@ -10,11 +10,12 @@ from contextlib import asynccontextmanager
 
 import redis.asyncio as redis
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 from app.core.security import verify_api_key
-from app.api.routers import agents, approvals, feature_flags, health, lineage, workflow_runs, workflows
+from app.api.routers import agents, analytics, approvals, creator, feature_flags, health, lineage, publishing, research, workflow_runs, workflows
 from app.workers.scheduler import start_scheduler, stop_scheduler
 
 settings = get_settings()
@@ -42,6 +43,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # One FastAPI app, multiple routers — NOT separate microservices.
 # Sensitive routers protected by Bearer token authentication:
 app.include_router(approvals.router, dependencies=[Depends(verify_api_key)])
@@ -50,6 +59,10 @@ app.include_router(lineage.router, dependencies=[Depends(verify_api_key)])
 app.include_router(workflow_runs.router, dependencies=[Depends(verify_api_key)])
 app.include_router(agents.router, dependencies=[Depends(verify_api_key)])
 app.include_router(workflows.router, dependencies=[Depends(verify_api_key)])
+app.include_router(creator.router, dependencies=[Depends(verify_api_key)])
+app.include_router(research.router, dependencies=[Depends(verify_api_key)])
+app.include_router(publishing.router, dependencies=[Depends(verify_api_key)])
+app.include_router(analytics.router, dependencies=[Depends(verify_api_key)])
 
 # Health router includes public probes (/health, /ready) and protected diagnostics (/providers, /database, /storage, /validators)
 app.include_router(health.router)
@@ -58,3 +71,15 @@ app.include_router(health.router)
 @app.get("/")
 async def root():
     return {"service": "arya-os", "status": "running", "sprint": 3}
+
+
+import os
+from fastapi.staticfiles import StaticFiles
+
+_frontend_dist = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "frontend",
+    "dist",
+)
+if os.path.exists(_frontend_dist):
+    app.mount("/app", StaticFiles(directory=_frontend_dist, html=True), name="creator_app")

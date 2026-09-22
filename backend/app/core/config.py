@@ -152,6 +152,22 @@ class Settings(BaseSettings):
     youtube_refresh_token: str | None = None
     youtube_channel_id: str | None = None
 
+    # ------------------------------------------------------------------
+    # Reddit Research Settings
+    # ------------------------------------------------------------------
+    reddit_client_id: str | None = None
+    reddit_client_secret: str | None = None
+    reddit_user_agent: str = "AryaOS-Research/1.0 (Content Factory Assistant)"
+    reddit_timeout_seconds: float = 10.0
+
+    # ------------------------------------------------------------------
+    # Postiz Publishing Settings
+    # ------------------------------------------------------------------
+    postiz_base_url: str = "http://localhost:4007"
+    postiz_api_key: str | None = None
+    postiz_timeout_seconds: float = 30.0
+    postiz_default_integration_id: str | None = None
+
 
 
 @lru_cache

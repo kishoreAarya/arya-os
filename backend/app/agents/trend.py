@@ -128,11 +128,21 @@ class TrendAgent(BaseAgent):
                 success=False, error="context.topic is required and was empty"
             )
 
+        subreddit = context.get("subreddit")
+        time_filter = context.get("time_filter") or context.get("time_range", "all")
+        limit = context.get("limit", 5)
+        try:
+            limit = max(1, min(50, int(limit)))
+        except (TypeError, ValueError):
+            limit = 5
+
         feedback = await self._read_learning_feedback()
         discovered_signals = await self._trend_service.discover_trends(
             topic_hint=str(topic),
             feedback=feedback,
-            limit=5,
+            limit=limit,
+            subreddit=str(subreddit) if subreddit else None,
+            time_filter=str(time_filter),
         )
         trend_signals = [
             s.to_dict() if hasattr(s, "to_dict") else s for s in discovered_signals

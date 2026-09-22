@@ -31,24 +31,43 @@ from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 
 class Analytics(Base, UUIDPrimaryKeyMixin, TimestampMixin):
-    """A snapshot of how a published video is performing, pulled from
-    the YouTube API on a schedule. Feeds PerformanceLearningFeedback."""
+    """A snapshot of how a published video or post is performing across platforms.
+    Supports YouTube, Postiz, and direct platform connectors with normalized metrics.
+    """
 
     __tablename__ = "analytics"
 
-    video_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("videos.id"), nullable=False
+    video_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("videos.id"), nullable=True
     )
+    workflow_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflow_runs.id"), nullable=True, index=True
+    )
+    asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("assets.id"), nullable=True
+    )
+    platform: Mapped[str] = mapped_column(String(50), nullable=False, default="youtube")
+    external_post_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    source: Mapped[str] = mapped_column(String(50), nullable=False, default="direct")
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+
     snapshot_at: Mapped[datetime] = mapped_column(nullable=False)
     views: Mapped[int] = mapped_column(Integer, default=0)
     likes: Mapped[int] = mapped_column(Integer, default=0)
     comments: Mapped[int] = mapped_column(Integer, default=0)
     shares: Mapped[int] = mapped_column(Integer, default=0)
+    saves: Mapped[int | None] = mapped_column(Integer, nullable=True)
     subscribers_gained: Mapped[int] = mapped_column(Integer, default=0)
     click_through_rate: Mapped[float | None] = mapped_column(Numeric(6, 4), nullable=True)
     average_view_duration_seconds: Mapped[float | None] = mapped_column(nullable=True)
     average_view_percentage: Mapped[float | None] = mapped_column(Numeric(6, 4), nullable=True)
+    engagement_rate: Mapped[float | None] = mapped_column(Numeric(6, 4), nullable=True)
+    watch_time_seconds: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    completion_rate: Mapped[float | None] = mapped_column(Numeric(6, 4), nullable=True)
+    clicks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    revenue_usd: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     audience_drop_off_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_metadata: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class PerformanceLearningFeedback(Base, UUIDPrimaryKeyMixin, TimestampMixin):

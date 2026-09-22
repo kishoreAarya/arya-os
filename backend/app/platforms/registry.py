@@ -15,14 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.secrets import SecretsManager, get_secrets_manager
 from app.platforms.base import PlatformAdapter
+from app.platforms.postiz import PostizAdapter
 from app.platforms.youtube import YouTubeAdapter
 
 PLATFORM_ADAPTER_REGISTRY: dict[str, type[PlatformAdapter]] = {
     "youtube": YouTubeAdapter,
-    # To add a new platform:
-    # 1. Create app/platforms/<platform>.py implementing PlatformAdapter
-    # 2. Import it above
-    # 3. Add "<platform>": <Platform>Adapter to this dict
+    "postiz": PostizAdapter,
 }
 
 

@@ -12,6 +12,7 @@ from app.services.trend_sources.base import BaseTrendSource, TrendSignal
 from app.services.trend_sources.cache import TrendCache
 from app.services.trend_sources.google_trends import GoogleTrendsSource
 from app.services.trend_sources.ranker import rank_trend_signals
+from app.services.trend_sources.reddit import RedditTrendSource
 from app.services.trend_sources.youtube import YouTubeTrendSource
 
 if TYPE_CHECKING:
@@ -32,7 +33,7 @@ class TrendDiscoveryService:
         self._sources = (
             sources
             if sources is not None
-            else [YouTubeTrendSource(), GoogleTrendsSource()]
+            else [YouTubeTrendSource(), GoogleTrendsSource(), RedditTrendSource()]
         )
         self._cache = cache or TrendCache[list[TrendSignal]](default_ttl_seconds=ttl_seconds)
 
@@ -97,20 +98,39 @@ class TrendDiscoveryService:
         feedback: list[PerformanceLearningFeedback] | None = None,
         limit: int = 5,
         use_cache: bool = True,
+        subreddit: str | None = None,
+        time_filter: str = "all",
     ) -> list[TrendSignal]:
         """Discover, blend, and rank trends for a given topic."""
         clean_topic = topic_hint.strip()
+        cache_key = (
+            f"{clean_topic}::{subreddit or ''}::{time_filter}"
+            if (subreddit or time_filter != "all")
+            else clean_topic
+        )
 
         # 1. Check cache
         if use_cache:
-            cached = await self._cache.get(clean_topic)
+            cached = await self._cache.get(cache_key)
             if cached:
                 logger.info("trend_discovery_cache_hit", topic=clean_topic, count=len(cached))
                 ranked_cached = rank_trend_signals(cached, feedback=feedback, topic_hint=clean_topic)
                 return ranked_cached[:limit]
 
         # 2. Query external sources concurrently
-        tasks = [source.fetch_trends(clean_topic, limit=limit) for source in self._sources]
+        tasks = []
+        for source in self._sources:
+            if isinstance(source, RedditTrendSource):
+                tasks.append(
+                    source.fetch_trends(
+                        clean_topic,
+                        limit=limit,
+                        subreddit=subreddit,
+                        time_filter=time_filter,
+                    )
+                )
+            else:
+                tasks.append(source.fetch_trends(clean_topic, limit=limit))
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         all_signals: list[TrendSignal] = []
@@ -131,6 +151,6 @@ class TrendDiscoveryService:
 
         # 5. Populate cache
         if use_cache and ranked:
-            await self._cache.set(clean_topic, ranked)
+            await self._cache.set(cache_key, ranked)
 
         return ranked[:limit]

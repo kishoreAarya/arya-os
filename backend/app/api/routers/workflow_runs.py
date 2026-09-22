@@ -28,10 +28,22 @@ from app.services.workflow_service import (
     ProjectNotFoundError,
     create_workflow_run,
     get_workflow_run,
+    list_workflow_runs,
     update_workflow_run,
 )
 
 router = APIRouter(prefix="/workflow-runs", tags=["workflow-runs"])
+
+
+@router.get("/", response_model=list[WorkflowRunResponse])
+async def list_workflow_runs_endpoint(
+    project_id: uuid.UUID | None = None,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+) -> list[WorkflowRunResponse]:
+    """List recent workflow runs from persistent storage."""
+    runs = await list_workflow_runs(db, project_id=project_id)
+    return [WorkflowRunResponse.model_validate(r) for r in runs[:limit]]
 
 
 @router.post("/", response_model=WorkflowRunCreateResponse, status_code=status.HTTP_201_CREATED)
