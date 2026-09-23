@@ -2,8 +2,9 @@
 
 Status: DRAFT SPECIFICATION — NOT IMPLEMENTED
 Owner: AryaOS V2
-Scope: Design/specification only. No production code, dependency, or packaging
-decision is established by this document.
+Scope: Design/specification only. No production code or dependency change
+is established by this document. The source-provisioning decision recorded
+in §14.1 is established by this document.
 
 Provenance of findings:
 - The Hermes behavioral facts in this document were supplied by the operator
@@ -364,22 +365,47 @@ diagnostic attachments only. Reconstructing what happened requires only
 AryaOS records. Blocked/denied requests are first-class audit events, not
 noise.
 
-## 14. Dependency Strategy (Deliberately Unresolved)
+## 14. Source Provisioning and Dependency Strategy
 
-- The verified Hermes repository does not support normal wheel/sdist
-  building [VERIFIED-SUPPLIED]. It cannot be consumed as a standard
-  PyPI-style dependency.
-- This specification DOES NOT choose a packaging/vendor mechanism (git
-  submodule, vendored copy, path dependency, container image layer, or other).
-- The mechanism must be selected only after inspecting AryaOS's existing
-  Python packaging and runtime: uv + lockfile + hatchling build of
-  `backend/app` [EXISTS: pyproject.toml, uv.lock], plus the deployment
-  target (docker-compose [EXISTS]).
+14.1 Source provisioning (decided).
+- Hermes source is provisioned as a Git submodule: `vendor/hermes-agent`.
+- The submodule MUST point to exactly
+  `c0d7294769a38c17ceae51d8f7995e66e1dcae27`. The submodule pointer
+  (gitlink) is the repository-level source of truth for the approved
+  Hermes source version.
+- No floating Hermes branch, tag, or version is permitted for production.
+- Updating Hermes requires an explicit AryaOS change reviewed against §15.
+  Changing the submodule pointer alone is not sufficient to bypass the
+  runtime/source verification requirements.
+- Runtime/build verification must not rely solely on Git metadata being
+  present inside the production container. The later runtime/build slice
+  [NEEDS IMPLEMENTATION] must record the approved Hermes commit SHA and
+  the tree hash of that commit
+  (`eff225d07a45bcff9ecd96d4632564657218798e` at the current pin) in an
+  AryaOS-controlled manifest or equivalent immutable build metadata, and
+  startup verification (§2) must fail closed on absence or mismatch.
+- Basis [VERIFIED-SUPPLIED]: the pinned Hermes repository intentionally
+  does not support normal wheel/sdist building (`setup.py` blocks
+  `bdist_wheel`/`sdist` outside a Nix build), so Hermes cannot be consumed
+  as a standard PyPI-style dependency or a non-editable `git+https`
+  dependency. Supported consumption at the pin is a source checkout with
+  an editable install; the upstream installer itself supports
+  `--commit SHA` pinning.
+
+14.2 Dependency strategy (deliberately unresolved).
+- Dependency-union work (installing Hermes's dependencies into AryaOS's
+  uv + lockfile environment [EXISTS: pyproject.toml, uv.lock]) is kept
+  separate from source provisioning. The decision in §14.1 does NOT
+  authorize `pyproject.toml`, `uv.lock`, Docker, or dependency changes.
+- The dependency mechanism must still be selected against the existing
+  packaging and runtime surface (uv + lockfile + hatchling build of
+  `backend/app`, docker-compose deployment [EXISTS]).
 - Selection criteria (minimum): pinability to the exact commit, reproducible
   install, no accidental floating resolution, no secret leakage into the
   artifact, and compatibility with the startup assertions of §2/§4/§5.
-- Until the mechanism is chosen and reviewed, Hermes remains absent from
-  AryaOS dependencies. No `pyproject.toml` change is authorized by this spec.
+- Until that mechanism is chosen and reviewed, Hermes remains absent from
+  AryaOS dependencies. No `pyproject.toml` change is authorized by this
+  spec.
 
 ## 15. Upgrade Policy
 
@@ -393,6 +419,10 @@ noise.
      fail-closed behavior, isolation of HERMES_HOME, scrub effectiveness);
   3. architecture review against the approved AryaOS V2 architecture;
   4. explicit human approval recorded before the pin changes.
+- An upgrade is effected by moving the `vendor/hermes-agent` submodule
+  pointer (§14.1). Changing the pointer alone is not sufficient: the
+  recorded manifest/build metadata of §14.1 must be updated in the same
+  change and must agree with the new pin.
 - No automated upgrade path may exist. Dependency bots/renovate must not be
   able to bump Hermes silently.
 
@@ -469,7 +499,9 @@ as security verification.
 2. Exact env-var scrub list (from pinned source) — §5.5.
 3. Hermes runtime-state failure/cleanup semantics for unsuccessful jobs
    (§5.2, §6).
-4. Packaging/vendor mechanism for Hermes — §14.
+4. Source provisioning for Hermes — RESOLVED: Git submodule
+   `vendor/hermes-agent` at the pinned commit (§14.1). Dependency-union
+   mechanism remains open (§14.2).
 5. Resource-limit default values — §12.
 6. Audit store for tool-request records — §13.
 7. Binding of each typed capability to its AryaOS service — §9 table.
