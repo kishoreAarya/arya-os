@@ -6,8 +6,28 @@ Everything flows through this single Settings object, injected
 wherever it's needed (dependency injection, not global state).
 """
 from functools import lru_cache
-from pydantic import Field
+from typing import Annotated
+
+from pydantic import BeforeValidator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Absolute Hermes-Agent commit pin — single source of truth.
+# HERMES_INTEGRATION_SPEC §2/§15: changing this requires source verification,
+# runtime security verification, architecture review, and explicit approval.
+HERMES_COMMIT_PIN = "c0d7294769a38c17ceae51d8f7995e66e1dcae27"
+
+
+def _reject_bool(value: object) -> object:
+    # bool is a subclass of int, so pydantic's lax mode would silently coerce
+    # True/False into 1/0 limits. Hermes limits reject bools instead: invalid
+    # configuration fails, it is never coerced (HERMES_INTEGRATION_SPEC §12).
+    if isinstance(value, bool):
+        raise ValueError("boolean is not a valid numeric Hermes setting")
+    return value
+
+
+HermesLimitInt = Annotated[int, BeforeValidator(_reject_bool)]
+HermesLimitFloat = Annotated[float, BeforeValidator(_reject_bool)]
 
 
 class Settings(BaseSettings):
@@ -167,6 +187,27 @@ class Settings(BaseSettings):
     postiz_api_key: str | None = None
     postiz_timeout_seconds: float = 30.0
     postiz_default_integration_id: str | None = None
+
+    # ------------------------------------------------------------------
+    # Hermes Runtime (V2) — see docs/architecture/HERMES_INTEGRATION_SPEC.md
+    #
+    # Disabled by default. There are deliberately NO default values for the
+    # resource limits: enabling Hermes requires the operator to supply every
+    # value, and app.hermes.config.get_validated_hermes_config() fails closed
+    # on any missing, non-finite, or non-positive limit. Unbounded is not a
+    # valid configuration.
+    # ------------------------------------------------------------------
+    hermes_enabled: bool = False
+    hermes_commit_pin: str = HERMES_COMMIT_PIN
+    hermes_plugin_path: str | None = None
+    hermes_home: str | None = None
+    hermes_max_iterations: HermesLimitInt | None = None
+    hermes_max_execution_seconds: HermesLimitFloat | None = None
+    hermes_max_tool_calls: HermesLimitInt | None = None
+    hermes_max_tool_calls_per_capability: HermesLimitInt | None = None
+    hermes_max_generation_budget_usd: HermesLimitFloat | None = None
+    hermes_max_context_tokens: HermesLimitInt | None = None
+    hermes_max_blocked_requests: HermesLimitInt | None = None
 
 
 
