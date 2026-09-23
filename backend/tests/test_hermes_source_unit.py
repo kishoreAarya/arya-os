@@ -7,6 +7,7 @@ Build-boundary tests construct throwaway Git repositories in tmp_path;
 runtime tests never require Git. No test imports or executes Hermes.
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -404,11 +405,16 @@ def test_verification_does_not_import_hermes(tmp_path):
 def test_real_repo_submodule_state():
     """The checked-out repository must either verify cleanly (submodule and
     generated record present) or fail with exactly the legitimate pre-build
-    states: submodule not checked out (CI), or record not yet generated
-    (fresh clone). Any other violation is a real integrity failure."""
+    states: submodule not checked out, or record not yet generated (fresh
+    clone). In CI — where the workflow provisions the submodule and
+    generates the record — verification must succeed with the approved
+    pins; absence is an explicit integration-environment failure, never a
+    silent pass (spec §16)."""
     try:
         verification = verify_hermes_source()
     except HermesSourceError as exc:
+        if os.environ.get("CI") == "true":
+            pytest.fail(f"CI must verify the Hermes source: {exc.violations}")
         codes = {code for code, _ in exc.violations}
         assert codes <= {"source_missing", "record_missing"}
     else:

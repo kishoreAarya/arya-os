@@ -57,6 +57,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Hermes source (vendor/hermes-agent) is part of the test
+          # environment: checkout fails closed if the pinned submodule
+          # SHA cannot be fetched.
+          submodules: recursive
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
@@ -68,6 +73,12 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --extra dev
+
+      - name: Verify Hermes source and generate source record
+        # Verifies the submodule's commit and tree SHAs against the
+        # approved pins, then emits backend/app/hermes/source_record.json.
+        # Any mismatch or missing source fails this job (spec §2/§14.1).
+        run: uv run python -m app.hermes.source
 
       - name: Wait for Postgres
         run: |
