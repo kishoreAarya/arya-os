@@ -15,6 +15,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # HERMES_INTEGRATION_SPEC §2/§15: changing this requires source verification,
 # runtime security verification, architecture review, and explicit approval.
 HERMES_COMMIT_PIN = "c0d7294769a38c17ceae51d8f7995e66e1dcae27"
+# Tree hash of the pinned Hermes commit — the second identity anchor,
+# verified alongside the commit at the build boundary (app.hermes.source).
+# Same §15 change control.
+HERMES_TREE_PIN = "eff225d07a45bcff9ecd96d4632564657218798e"
 
 
 def _reject_bool(value: object) -> object:
