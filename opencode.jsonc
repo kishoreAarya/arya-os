@@ -19,7 +19,18 @@
       "git push*": "deny",
       "git reset*": "deny",
       "git clean*": "deny",
-      "rm *": "deny"
+      "rm *": "deny",
+      "sh *": "deny",
+      "bash *": "deny",
+      "zsh *": "deny",
+      "eval *": "deny",
+      "exec *": "deny",
+      "source *": "deny",
+      ". *": "deny",
+      "env *": "deny",
+      "xargs *": "deny",
+      "sudo *": "deny",
+      "osascript *": "deny"
     },
 
     "webfetch": "ask",
