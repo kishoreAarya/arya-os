@@ -157,10 +157,18 @@ trusted.
 
 5.2 Filesystem isolation.
 - Dedicated `HERMES_HOME` [VERIFIED-SUPPLIED: Hermes honors a dedicated home
-  directory]. `HERMES_HOME` points at a per-job (or per-runtime) directory
-  owned by AryaOS, e.g. under the AryaOS data directory — never the AryaOS
-  repo, never the AryaOS config, never the user home. Exact path layout:
-  [NEEDS IMPLEMENTATION].
+  directory]. `HERMES_HOME` is rooted under the AryaOS data directory —
+  development `<AryaOS data root>/hermes`, production
+  `<deployment data root>/hermes`. The exact deployment mount is
+  environment/deployment configuration, not hard-coded into application
+  code.
+- Hermes uses per-job isolation: each job runs in
+  `<HERMES_HOME>/jobs/<job_id>/`.
+- "Never the AryaOS repo" is clarified: the sanctioned gitignored AryaOS
+  data directory is explicitly allowed for Hermes runtime state;
+  source-controlled/configuration areas are not.
+- "Never the user home" means: `HERMES_HOME` and every descendant of the
+  user's home directory are forbidden.
 - Isolated `config.yaml` written by AryaOS into `HERMES_HOME`
   [VERIFIED-SUPPLIED: Hermes reads its configuration from `config.yaml` under
   its home]. AryaOS generates this file at runtime; it is never hand-edited
@@ -204,10 +212,12 @@ runtime refuses to import Hermes.
   AryaOS supplies in the task; it has no independent recall path.
   `memory.retrieve` (§9) is the only memory access, and it reads from AryaOS.
 - All Hermes state (session files, caches, scratch) must remain inside the
-  dedicated `HERMES_HOME` (§5.2). At job end, AryaOS may archive or delete
-  `HERMES_HOME` contents per retention policy [NEEDS IMPLEMENTATION]. No
-  Hermes state may leak into AryaOS directories or survive into another job
-  unless explicitly promoted by AryaOS.
+  dedicated per-job `HERMES_HOME` directory (§5.2). The default retention
+  policy is deletion at successful job completion; failure/cleanup semantics
+  are to be defined by the runtime implementation, and no archive/retention
+  subsystem is introduced yet. No Hermes state may leak into AryaOS
+  directories or survive into another job unless AryaOS explicitly promotes
+  selected state into AryaOS-owned authoritative state.
 
 ## 7. Delegation
 
@@ -457,7 +467,8 @@ as security verification.
 
 1. Exact `enabled_toolsets` allowlist names (from pinned source) — §5.1.
 2. Exact env-var scrub list (from pinned source) — §5.5.
-3. `HERMES_HOME` path layout and retention policy — §5.2, §6.
+3. Hermes runtime-state failure/cleanup semantics for unsuccessful jobs
+   (§5.2, §6).
 4. Packaging/vendor mechanism for Hermes — §14.
 5. Resource-limit default values — §12.
 6. Audit store for tool-request records — §13.
