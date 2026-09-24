@@ -12,6 +12,7 @@ validation (app.hermes.toolsets). Slice 6 added the §4 policy-gate
 decision core, hook adapter, and registration assertion
 (app.hermes.policy). Slice 7 added the §3 runtime-adapter boundary
 (app.hermes.runtime) and the aryaos-policy plugin package
-(app.hermes.plugins). Typed capabilities are intentionally absent and
-arrive in later slices.
+(app.hermes.plugins). Slice 8 added the §12 per-job resource-limit
+ledger enforced at the policy boundary (app.hermes.limits). Typed
+capabilities are intentionally absent and arrive in later slices.
 """

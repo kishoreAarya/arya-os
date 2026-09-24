@@ -216,10 +216,24 @@ def test_scrub_defaults_to_process_environ(monkeypatch):
 
 def test_scrub_module_does_not_import_hermes():
     """The scrub step must be usable without Hermes present: importing it
-    must not pull in any vendored Hermes module."""
-    import sys
+    must not pull in any vendored Hermes module. Checked in a fresh
+    subprocess: the runtime integration tests legitimately import Hermes
+    into the shared pytest process, so a process-global sys.modules scan
+    would test file ordering, not this module."""
+    import subprocess
+    import sys as _sys
+    from pathlib import Path
 
-    assert not any(
-        mod == "agent" or mod.startswith(("agent.", "hermes", "hermes_"))
-        for mod in sys.modules
+    backend_dir = Path(__file__).resolve().parents[1]
+    code = (
+        "import sys\n"
+        f"sys.path.insert(0, {str(backend_dir)!r})\n"
+        "import app.hermes.env_scrub\n"
+        "assert not any(\n"
+        "    mod == 'agent' or mod.startswith(('agent.', 'hermes', 'hermes_'))\n"
+        "    for mod in sys.modules), 'env_scrub import pulled in Hermes'\n"
     )
+    result = subprocess.run(
+        [_sys.executable, "-c", code], capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 0, result.stderr

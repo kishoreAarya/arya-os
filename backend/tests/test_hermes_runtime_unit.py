@@ -234,12 +234,44 @@ def test_watchdog_reports_error():
 # 6. Failure BEFORE Hermes import (fail closed, no import side effects)
 # ---------------------------------------------------------------------------
 
+def _run_isolated(code_body: str, settings: Settings) -> str:
+    """Run a fresh-interpreter scenario and return its stderr (empty on
+    success). Used for 'fails BEFORE Hermes import' proofs: other test
+    files legitimately import Hermes into the shared pytest process, so
+    'run_agent not in sys.modules' is only observable in a clean process."""
+    import subprocess
+    import sys as _sys
+    from pathlib import Path
+
+    backend_dir = Path(__file__).resolve().parents[1]
+    code = (
+        "import sys\n"
+        f"sys.path.insert(0, {str(backend_dir)!r})\n"
+        "from pathlib import Path\n"
+        "import app.hermes.runtime as runtime\n"
+        "from app.core.config import Settings\n"
+        f"settings = Settings(**{dict(settings.model_dump())!r})\n"
+        "request = runtime.HermesJobRequest(\n"
+        "    job_id='iso-1', task_message=None,\n"
+        "    authorization_context=runtime.AuthorizationContext(\n"
+        "        user_id='u', project_id='p', job_id='j', agent_id='a', lineage_id='l'),\n"
+        "    provider='openai', base_url='http://127.0.0.1:9/v1',\n"
+        "    api_key='k', model='m')\n"
+        f"{code_body}\n"
+        "assert 'run_agent' not in sys.modules, 'Hermes was imported despite the gate'\n"
+    )
+    result = subprocess.run(
+        [_sys.executable, "-c", code], capture_output=True, text=True, timeout=120
+    )
+    return result.stderr
+
+
 def test_invalid_settings_fail_before_import(tmp_path):
     bad = Settings(hermes_enabled=True)  # missing limits/plugin path/home
     result = run_hermes_job(_request(), settings=bad)
     assert result.status == "failed"
     assert result.error_code == "settings_invalid"
-    assert "run_agent" not in sys.modules
+    assert _run_isolated("", bad) == ""
 
 
 def test_missing_plugin_on_disk_fails_before_import(tmp_path):
@@ -248,20 +280,41 @@ def test_missing_plugin_on_disk_fails_before_import(tmp_path):
     result = run_hermes_job(_request(), settings=settings)
     assert result.status == "failed"
     assert result.error_code in ("settings_invalid", "policy_plugin_missing_on_disk")
-    assert "run_agent" not in sys.modules
+    assert _run_isolated("", settings) == ""
 
 
-def test_scrub_failure_fails_before_import(tmp_path, monkeypatch):
+def test_scrub_failure_fails_before_import(tmp_path):
     import app.hermes.runtime as runtime
 
     def broken_scrub():
         raise RuntimeError("scrub exploded")
 
-    monkeypatch.setattr(runtime, "scrub_hermes_environment", broken_scrub)
-    result = run_hermes_job(_request(), settings=_valid_settings(tmp_path))
+    settings = _valid_settings(tmp_path)
+    result = run_hermes_job_with_broken_scrub(runtime, settings)
     assert result.status == "failed"
     assert result.error_code == "scrub_failed"
-    assert "run_agent" not in sys.modules
+    # Fresh-interpreter proof: a raising scrub still prevents the import.
+    body = (
+        "def broken_scrub():\n"
+        "    raise RuntimeError('scrub exploded')\n"
+        "runtime.scrub_hermes_environment = broken_scrub\n"
+        "result = runtime.run_hermes_job(request, settings=settings)\n"
+        "assert result.status == 'failed' and result.error_code == 'scrub_failed'\n"
+    )
+    assert _run_isolated(body, settings) == ""
+
+
+def run_hermes_job_with_broken_scrub(runtime, settings):
+    original = runtime.scrub_hermes_environment
+
+    def broken_scrub():
+        raise RuntimeError("scrub exploded")
+
+    runtime.scrub_hermes_environment = broken_scrub
+    try:
+        return run_hermes_job(_request(), settings=settings)
+    finally:
+        runtime.scrub_hermes_environment = original
 
 
 def test_job_home_cleanup_on_construction_failure(tmp_path):

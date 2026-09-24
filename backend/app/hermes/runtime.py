@@ -70,6 +70,7 @@ from pathlib import Path
 from app.core.config import Settings, get_settings
 from app.hermes.config import HermesRuntimeConfig, get_validated_hermes_config
 from app.hermes.env_scrub import get_hermes_scrub_names, scrub_hermes_environment
+from app.hermes.limits import JobLimitLedger
 from app.hermes.policy import AuthorizationContext, verify_policy_plugin_registered
 from app.hermes.source import verify_hermes_source
 from app.hermes.toolsets import get_frozen_enabled_toolsets
@@ -114,6 +115,25 @@ def get_active_authorization_context() -> AuthorizationContext:
                 "only load inside a runtime-managed Hermes job"
             )
         return _ACTIVE_CONTEXT
+
+
+# Per-job §12 limit ledger supplied to the policy plugin's register().
+# Set under the runtime lock before plugin discovery; cleared in finally.
+_ACTIVE_LEDGER: JobLimitLedger | None = None
+_ACTIVE_LEDGER_LOCK = threading.Lock()
+
+
+def set_active_job_ledger(ledger: JobLimitLedger | None) -> None:
+    """Bind the per-job §12 ledger the policy hook enforces against."""
+    global _ACTIVE_LEDGER
+    with _ACTIVE_LEDGER_LOCK:
+        _ACTIVE_LEDGER = ledger
+
+
+def get_active_job_ledger() -> JobLimitLedger | None:
+    """The ledger bound by the runtime, or None outside a runtime job."""
+    with _ACTIVE_LEDGER_LOCK:
+        return _ACTIVE_LEDGER
 
 
 class HermesRuntimeError(RuntimeError):
@@ -396,6 +416,7 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
     env_touched: list[str] = []
     agent = None
     context_was_set = False
+    ledger_was_set = False
     try:
         # 1. Settings + validated Hermes configuration (§ config slice).
         settings = settings if settings is not None else get_settings()
@@ -440,9 +461,17 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
         # 7. Runtime-owned environment.
         env_touched = apply_runtime_environment(job_home, plugin_path)
 
-        # 8. Bind the authorization context for the policy plugin.
+        # 8. Bind the authorization context and the §12 limit ledger for
+        # the policy plugin.
         set_active_authorization_context(request.authorization_context)
         context_was_set = True
+        ledger = JobLimitLedger(
+            config.max_tool_calls,
+            config.max_tool_calls_per_capability,
+            config.max_blocked_requests,
+        )
+        set_active_job_ledger(ledger)
+        ledger_was_set = True
         baseline_threads = frozenset(t.name for t in threading.enumerate())
 
         # 9. FIRST Hermes import — strictly after the scrub.
@@ -474,6 +503,16 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
                 raise HermesRuntimeError("chat_failed", f"{type(exc).__name__}")
             final_response = str(value) if value is not None else None
 
+        # §12/§11: a limit violation marks the job failed — never a silent
+        # continuation, even if the chat loop returned normally.
+        violation = ledger.violation_code
+        if violation is not None:
+            raise HermesRuntimeError(
+                violation,
+                f"Hermes job exceeded an AryaOS §12 resource limit "
+                f"(counters: {ledger.counts()})",
+            )
+
         return completed(request, final_response)
     except HermesRuntimeError as exc:
         return HermesJobResult(
@@ -504,3 +543,5 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
             clear_runtime_environment(env_touched)
         if context_was_set:
             set_active_authorization_context(None)
+        if ledger_was_set:
+            set_active_job_ledger(None)

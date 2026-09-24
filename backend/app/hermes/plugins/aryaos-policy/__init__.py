@@ -14,7 +14,14 @@ plugin-surface verification fails closed (§4.3).
 
 
 def register(ctx) -> None:
-    from app.hermes.policy import register_policy_plugin
-    from app.hermes.runtime import get_active_authorization_context
+    from app.hermes.limits import make_limit_enforcing_hook
+    from app.hermes.policy import make_pre_tool_call_hook
+    from app.hermes.runtime import get_active_authorization_context, get_active_job_ledger
 
-    register_policy_plugin(ctx, get_active_authorization_context())
+    hook = make_pre_tool_call_hook(get_active_authorization_context())
+    ledger = get_active_job_ledger()
+    if ledger is not None:
+        # §12 enforcement wraps the §4 decision hook; §4 directives pass
+        # through verbatim and the wrapper carries the plugin marker.
+        hook = make_limit_enforcing_hook(hook, ledger)
+    ctx.register_hook("pre_tool_call", hook)
