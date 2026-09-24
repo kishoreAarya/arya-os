@@ -8,6 +8,8 @@ Slice 1 added the fail-closed configuration validation layer
 verified build-boundary record generator (app.hermes.source). Slice 4
 added the §5.5 pre-import environment scrub (app.hermes.env_scrub).
 Slice 5 added the frozen §5.1 toolset allowlist and its fail-closed
-validation (app.hermes.toolsets). The runtime adapter, policy plugin, and
-typed capabilities are intentionally absent and arrive in later slices.
+validation (app.hermes.toolsets). Slice 6 added the §4 policy-gate
+decision core, hook adapter, and registration assertion
+(app.hermes.policy). The runtime adapter and typed capabilities are
+intentionally absent and arrive in later slices.
 """
