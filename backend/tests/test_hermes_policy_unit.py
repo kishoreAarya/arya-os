@@ -313,12 +313,27 @@ def test_verification_fails_on_hostile_introspection():
 # ---------------------------------------------------------------------------
 
 def test_no_hermes_import_and_no_side_effects():
-    import importlib
+    """Import the policy module in a FRESH process and assert the import is
+    side-effect free. (Previously this reloaded the module in-process; the
+    reload re-executes the module and replaces AuthorizationContext with a
+    new class object, breaking every isinstance() check — including the
+    policy gate's own context validation — for the rest of the test
+    process. Never reload app.hermes.policy in-process.)"""
+    import subprocess
 
-    environ_before = dict(__import__("os").environ)
-    importlib.reload(sys.modules["app.hermes.policy"])
-    assert dict(__import__("os").environ) == environ_before
-    assert not any(
-        mod == "model_tools" or mod.startswith(("hermes", "hermes_", "hermes_cli", "plugins"))
-        for mod in sys.modules
+    code = (
+        "import os, sys\n"
+        "sys.path.insert(0, 'backend')\n"
+        "before = dict(os.environ)\n"
+        "import app.hermes.policy\n"
+        "assert dict(os.environ) == before, 'policy import mutated the environment'\n"
+        "assert not any(m == 'model_tools' or m.startswith(('hermes', 'hermes_', 'hermes_cli', 'plugins'))\n"
+        "               for m in sys.modules), 'policy import pulled in Hermes'\n"
     )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr

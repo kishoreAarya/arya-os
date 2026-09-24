@@ -8,7 +8,6 @@ These tests cover ONLY the AryaOS-owned frozen allowlist and its
 fail-closed validation. Hermes is not imported, faked, or required. The
 agent-instantiation half of T6 belongs to the future runtime-adapter slice.
 """
-import sys
 
 import pytest
 
@@ -245,9 +244,24 @@ def test_validation_is_deterministic():
 # ---------------------------------------------------------------------------
 
 def test_module_does_not_import_hermes():
-    import app.hermes.toolsets  # noqa: F401
+    """Importing app.hermes.toolsets must not import Hermes. Checked in a
+    fresh subprocess: the runtime integration tests legitimately import
+    Hermes into the shared pytest process, so a process-global sys.modules
+    scan would test file ordering, not this module."""
+    import subprocess
+    import sys as _sys
+    from pathlib import Path
 
-    assert not any(
-        mod == "toolsets" or mod.startswith(("toolsets.", "model_tools", "agent", "hermes", "hermes_"))
-        for mod in sys.modules
+    backend_dir = Path(__file__).resolve().parents[1]
+    code = (
+        "import sys\n"
+        f"sys.path.insert(0, {str(backend_dir)!r})\n"
+        "import app.hermes.toolsets\n"
+        "assert not any(\n"
+        "    mod == 'toolsets' or mod.startswith(('toolsets.', 'model_tools', 'agent', 'hermes', 'hermes_'))\n"
+        "    for mod in sys.modules), 'toolsets module imported Hermes'\n"
     )
+    result = subprocess.run(
+        [_sys.executable, "-c", code], capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 0, result.stderr

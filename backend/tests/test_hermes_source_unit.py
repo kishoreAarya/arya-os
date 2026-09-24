@@ -9,7 +9,6 @@ runtime tests never require Git. No test imports or executes Hermes.
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -393,13 +392,31 @@ def test_emit_requires_git_metadata(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_verification_does_not_import_hermes(tmp_path):
+    """Source verification must not import Hermes. Checked in a fresh
+    subprocess: the runtime integration tests (test_hermes_runtime_unit)
+    legitimately import Hermes into the shared pytest process, so a
+    process-global sys.modules scan here would test file ordering, not
+    this module."""
+    import subprocess
+    import sys as _sys
+
     source = _write_source(tmp_path)
     record = tmp_path / "source_record.json"
     _write_record(record)
+    backend_dir = Path(__file__).resolve().parents[1]
 
-    verify_hermes_source(source_root=source, record_path=record)
-
-    assert not any(name in sys.modules for name in HERMES_MODULES)
+    code = (
+        "import sys\n"
+        f"sys.path.insert(0, {str(backend_dir)!r})\n"
+        "from pathlib import Path\n"
+        "from app.hermes.source import verify_hermes_source\n"
+        f"verify_hermes_source(source_root=Path({str(source)!r}), record_path=Path({str(record)!r}))\n"
+        f"assert not any(name in sys.modules for name in {HERMES_MODULES!r}), 'source verification imported Hermes'\n"
+    )
+    result = subprocess.run(
+        [_sys.executable, "-c", code], capture_output=True, text=True, timeout=120
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_real_repo_submodule_state():
