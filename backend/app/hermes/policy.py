@@ -222,8 +222,8 @@ def evaluate_tool_request(
 POLICY_PLUGIN_MARKER = "__aryaos_policy_plugin__"
 
 
-def make_pre_tool_call_hook(authorization_context: AuthorizationContext):
-    """Build the Hermes-shaped ``pre_tool_call`` callback (§4.2).
+def make_pre_tool_call_hook(authorization_context: AuthorizationContext, audit_sink: Any | None = None):
+    """Build the Hermes-shaped ``pre_tool_call`` callback (§4.2) with §13 audit recording.
 
     Contract (pinned source, hermes_cli/plugins.py): the callback receives
     ``tool_name`` (str), ``args`` (dict) and identity kwargs; it returns
@@ -235,6 +235,12 @@ def make_pre_tool_call_hook(authorization_context: AuthorizationContext):
 
     def pre_tool_call_hook(tool_name: str, args: dict | None = None, **_hook_kwargs: Any):
         decision = evaluate_tool_request(tool_name, args, authorization_context)
+        try:
+            from app.hermes.audit import record_policy_decision
+
+            record_policy_decision(authorization_context, tool_name, args, decision, sink=audit_sink)
+        except Exception:
+            pass  # Fail-closed: audit recording failures must never alter authorization or fail open
         if decision.allowed:
             return None
         return {"action": "block", "message": decision.message}
@@ -252,12 +258,16 @@ class PluginContextLike(Protocol):
     def register_hook(self, hook_name: str, callback: Any) -> Any: ...
 
 
-def register_policy_plugin(ctx: PluginContextLike, authorization_context: AuthorizationContext):
+def register_policy_plugin(
+    ctx: PluginContextLike,
+    authorization_context: AuthorizationContext,
+    audit_sink: Any | None = None,
+):
     """Register the policy gate's pre_tool_call hook on a Hermes plugin
     context (§4.2). Called from the plugin package's ``register(ctx)`` in
     the §3 runtime slice; no Hermes import happens here.
     """
-    return ctx.register_hook("pre_tool_call", make_pre_tool_call_hook(authorization_context))
+    return ctx.register_hook("pre_tool_call", make_pre_tool_call_hook(authorization_context, audit_sink=audit_sink))
 
 
 def verify_policy_plugin_registered(callbacks: object) -> None:

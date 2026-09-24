@@ -14,6 +14,7 @@ plugin-surface verification fails closed (§4.3).
 
 
 def register(ctx) -> None:
+    from app.hermes.audit import get_active_audit_sink
     from app.hermes.capabilities import (
         CAPABILITY_TOOLSET,
         capability_tool_definitions,
@@ -24,10 +25,10 @@ def register(ctx) -> None:
     from app.hermes.policy import make_pre_tool_call_hook
     from app.hermes.runtime import get_active_authorization_context, get_active_job_ledger
 
-    # Hook chain (§4 authorization -> §9 schema validation -> §12 limits,
+    # Hook chain (§4 authorization + §13 audit -> §9 schema validation -> §12 limits,
     # outermost): §4 directives pass through verbatim; each wrapper
     # carries the plugin marker so §4.3 verification still passes.
-    hook = make_pre_tool_call_hook(get_active_authorization_context())
+    hook = make_pre_tool_call_hook(get_active_authorization_context(), audit_sink=get_active_audit_sink())
     hook = make_capability_validating_hook(hook)
     ledger = get_active_job_ledger()
     if ledger is not None:

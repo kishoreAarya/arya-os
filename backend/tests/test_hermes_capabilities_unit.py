@@ -16,6 +16,7 @@ plugin isolation.
 import asyncio
 import importlib.util
 import os
+import uuid
 from pathlib import Path
 
 import pytest
@@ -101,8 +102,9 @@ def test_no_god_tool_in_registry():
         }, name
 
 
-def test_only_research_search_exposed_in_slice_1():
-    assert EXPOSED_CAPABILITIES == frozenset({"research.search"})
+def test_only_readonly_capabilities_exposed():
+    # Slice 1: research.search; Slice 2: asset.get (operator-approved).
+    assert EXPOSED_CAPABILITIES == frozenset({"research.search", "asset.get"})
 
 
 def test_allowlist_lockstep_contains_aryaos():
@@ -112,7 +114,7 @@ def test_allowlist_lockstep_contains_aryaos():
 
 def test_tool_definitions_shape():
     defs = capability_tool_definitions()
-    assert set(defs) == {"research.search"}
+    assert set(defs) == {"asset.get", "research.search"}
     schema = defs["research.search"]
     assert schema["name"] == "research.search"
     assert schema["description"].strip()
@@ -303,6 +305,295 @@ def test_tool_handler_wraps_execution():
     assert isinstance(result, str)  # Hermes tool-result contract: str
     payload = json.loads(result)
     assert "error" in payload or "results" in payload  # runs the real validation path
+
+
+# ---------------------------------------------------------------------------
+# 4b. asset.get: schema, uniform failure, tenant isolation, no fs access
+# ---------------------------------------------------------------------------
+
+def test_asset_get_schema_strictness():
+    from pydantic import ValidationError
+
+    from app.hermes.capabilities import AssetGetParams
+
+    ok = AssetGetParams.model_validate({"asset_id": "550e8400-e29b-41d4-a716-446655440000"})
+    assert ok.workflow_run_id is None
+    ok2 = AssetGetParams.model_validate(
+        {"asset_id": "550e8400-e29b-41d4-a716-446655440000", "workflow_run_id": "660e8400-e29b-41d4-a716-446655440001"}
+    )
+    assert ok2.workflow_run_id is not None
+    for bad in (
+        {},  # missing asset_id
+        {"asset_id": "not-a-uuid"},
+        {"asset_id": 123},
+        {"asset_id": "550e8400-e29b-41d4-a716-446655440000", "extra": 1},
+        {"asset_id": "550e8400-e29b-41d4-a716-446655440000", "workflow_run_id": "bad"},
+    ):
+        with pytest.raises(ValidationError):
+            AssetGetParams.model_validate(bad)
+
+
+def test_asset_get_unknown_capability_still_blocked_by_section_4():
+    """Sanity: §4 blocks everything outside the registry — unchanged."""
+    from app.hermes.policy import evaluate_tool_request
+
+    decision = evaluate_tool_request("asset.delete", {}, CONTEXT)
+    assert not decision.allowed
+
+
+def test_asset_get_binding_no_filesystem_access():
+    """STRICT boundary: the binding's response fields are metadata only —
+    no file content, no read/open/dereference of storage_path."""
+    import inspect
+
+    import app.hermes.capabilities as caps
+
+    source = inspect.getsource(caps._asset_get_binding)
+    for forbidden in ("open(", "Path.read", "read_bytes", "http", "requests", "urlopen"):
+        assert forbidden not in source, forbidden
+    # Response shape (from the success path in source) is exactly the
+    # approved metadata/reference fields.
+    for field in ("asset_id", "workflow_run_id", "asset_type", "provider_name", "storage_path", "created_at"):
+        assert f'"{field}"' in source
+
+
+async def _seed_asset(project_name: str) -> tuple[uuid.UUID, uuid.UUID]:
+    """Seed Project -> WorkflowRun -> Asset; return (project_id, asset_id)."""
+    from app.database.session import AsyncSessionLocal
+    from app.models.core import Project, WorkflowRun
+    from app.models.media import Asset
+
+    async with AsyncSessionLocal() as session:
+        project = Project(name=project_name)
+        session.add(project)
+        await session.flush()
+        run = WorkflowRun(project_id=project.id)
+        session.add(run)
+        await session.flush()
+        asset = Asset(
+            workflow_run_id=run.id,
+            asset_type="voice",
+            storage_path="storage://voices/test.wav",
+            provider_name="elevenlabs",
+        )
+        session.add(asset)
+        await session.commit()
+        return project.id, asset.id
+
+
+async def _cleanup_seeded(*pairs) -> None:
+
+    from app.database.session import AsyncSessionLocal
+    from app.models.core import Project, WorkflowRun
+    from app.models.media import Asset
+
+    async with AsyncSessionLocal() as session:
+        for project_id, asset_id in pairs:
+            asset = await session.get(Asset, asset_id)
+            if asset is not None:
+                run_id = asset.workflow_run_id
+                await session.delete(asset)
+                run = await session.get(WorkflowRun, run_id)
+                if run is not None:
+                    await session.delete(run)
+            project = await session.get(Project, project_id)
+            if project is not None:
+                await session.delete(project)
+        await session.commit()
+
+
+@pytest.fixture
+async def seeded_assets():
+    """Two assets in two DIFFERENT projects; the foreign one proves tenant
+    isolation. Yields (own, foreign, foreign_project_context)."""
+    own = await _seed_asset("hermes-cap-own")
+    foreign = await _seed_asset("hermes-cap-foreign")
+    yield own, foreign
+    await _cleanup_seeded(own, foreign)
+
+
+def test_asset_get_matching_project_lookup(seeded_assets):
+    import asyncio
+
+    (own_project, own_asset), _ = seeded_assets
+    import app.hermes.runtime as runtime
+
+    context = AuthorizationContext(
+        user_id="u", project_id=str(own_project), job_id="j", agent_id="a", lineage_id="l"
+    )
+    runtime.set_active_authorization_context(context)
+    try:
+        result = asyncio.run(execute_capability("asset.get", {"asset_id": str(own_asset)}))
+    finally:
+        runtime.set_active_authorization_context(None)
+    assert "error" not in result, result
+    assert result["asset_id"] == str(own_asset)
+    assert result["asset_type"] == "voice"
+    assert result["storage_path"] == "storage://voices/test.wav"
+
+
+def test_asset_get_foreign_project_uniform_not_found(seeded_assets):
+    import asyncio
+
+    (own_project, _), (foreign_project, foreign_asset) = seeded_assets
+    import app.hermes.runtime as runtime
+
+    context = AuthorizationContext(
+        user_id="u", project_id=str(own_project), job_id="j", agent_id="a", lineage_id="l"
+    )
+    runtime.set_active_authorization_context(context)
+    try:
+        foreign = asyncio.run(execute_capability("asset.get", {"asset_id": str(foreign_asset)}))
+        nonexistent = asyncio.run(
+            execute_capability("asset.get", {"asset_id": "00000000-0000-0000-0000-000000000000"})
+        )
+    finally:
+        runtime.set_active_authorization_context(None)
+    # Uniform failure category: foreign-project and nonexistent are
+    # indistinguishable (no enumeration oracle).
+    assert foreign == nonexistent
+    assert foreign["error"]["code"] == "asset_not_found"
+
+
+def test_asset_get_wrong_workflow_run_guard(seeded_assets):
+    import asyncio
+
+    (own_project, own_asset), _ = seeded_assets
+    import app.hermes.runtime as runtime
+
+    runtime.set_active_authorization_context(
+        AuthorizationContext(
+            user_id="u", project_id=str(own_project), job_id="j", agent_id="a", lineage_id="l"
+        )
+    )
+    try:
+        result = asyncio.run(
+            execute_capability(
+                "asset.get",
+                {"asset_id": str(own_asset), "workflow_run_id": "11111111-1111-1111-1111-111111111111"},
+            )
+        )
+    finally:
+        runtime.set_active_authorization_context(None)
+    assert result["error"]["code"] == "asset_not_found"
+
+
+def test_asset_get_missing_context_fails_closed():
+    import asyncio
+
+    result = asyncio.run(
+        execute_capability("asset.get", {"asset_id": "550e8400-e29b-41d4-a716-446655440000"})
+    )
+    assert result["error"]["code"] == "asset_not_found"
+
+
+def test_asset_get_engine_disposed_on_all_paths(monkeypatch):
+    """Cleanup/session closure: the per-call disposable engine is disposed
+    on success, not-found, and exception paths."""
+    import asyncio
+
+    import app.hermes.capabilities as caps
+
+    disposed: list[bool] = []
+    real_factory = caps._make_readonly_engine
+
+    class _EngineSpy:
+        def __init__(self, engine):
+            self._engine = engine
+
+        async def dispose(self):
+            disposed.append(True)
+            return await self._engine.dispose()
+
+        def __getattr__(self, item):
+            return getattr(self._engine, item)
+
+    def spying_factory():
+        return _EngineSpy(real_factory())
+
+    monkeypatch.setattr(caps, "_make_readonly_engine", spying_factory)
+    # not-found path (context set to an impossible project id)
+    import app.hermes.runtime as runtime
+
+    runtime.set_active_authorization_context(
+        AuthorizationContext(
+            user_id="u", project_id=str(uuid.uuid4()), job_id="j", agent_id="a", lineage_id="l"
+        )
+    )
+    try:
+        asyncio.run(
+            execute_capability("asset.get", {"asset_id": "00000000-0000-0000-0000-000000000000"})
+        )
+    finally:
+        runtime.set_active_authorization_context(None)
+    assert disposed == [True]
+
+
+def test_real_asset_get_end_to_end(tmp_path, seeded_assets):
+    """Real Hermes: registration, schema gate, tenant behavior, §4 block,
+    §12 counting — through the live dispatch path, mid-job."""
+    if not HERMES_AVAILABLE:
+        pytest.fail("§16: pinned Hermes source missing — integration environment failure")
+    import json
+
+    import app.hermes.runtime as runtime
+
+    (own_project, own_asset), (foreign_project, foreign_asset) = seeded_assets
+    context = AuthorizationContext(
+        user_id="u", project_id=str(own_project), job_id="j", agent_id="a", lineage_id="l"
+    )
+    request = HermesJobRequest(
+        job_id="cap-it-3",
+        task_message=None,
+        authorization_context=context,
+        provider="openai",
+        base_url="http://127.0.0.1:9/v1",
+        api_key="aryaos-explicit-test-key",
+        model="aryaos-test-model",
+    )
+    captured: dict = {}
+    original_assert = runtime._assert_plugin_surface
+
+    def capturing_assert():
+        import model_tools
+        from hermes_cli.plugins import iter_hook_callbacks
+
+        captured["hook"] = list(iter_hook_callbacks("pre_tool_call"))[0]
+        ok = model_tools.handle_function_call("asset.get", {"asset_id": str(own_asset)}, "t")
+        captured["ok"] = json.loads(ok)
+        foreign = model_tools.handle_function_call("asset.get", {"asset_id": str(foreign_asset)}, "t")
+        captured["foreign"] = json.loads(foreign)
+        nonexistent = model_tools.handle_function_call(
+            "asset.get", {"asset_id": "00000000-0000-0000-0000-000000000000"}, "t"
+        )
+        captured["nonexistent"] = json.loads(nonexistent)
+        bad_schema = model_tools.handle_function_call("asset.get", {"asset_id": "not-a-uuid"}, "t")
+        captured["bad_schema"] = json.loads(bad_schema)
+        blocked = model_tools.handle_function_call("shell", {}, "t")
+        captured["blocked"] = json.loads(blocked)
+        original_assert()
+
+    runtime._assert_plugin_surface = capturing_assert
+    try:
+        result = run_hermes_job(request, settings=_valid_settings(tmp_path))
+    finally:
+        runtime._assert_plugin_surface = original_assert
+    assert result.status == "completed", (result.error_code, result.error_detail)
+
+    assert "error" not in captured["ok"], captured["ok"]
+    assert captured["ok"]["asset_id"] == str(own_asset)
+    assert captured["foreign"] == captured["nonexistent"]
+    assert captured["foreign"]["error"]["code"] == "asset_not_found"
+    assert captured["bad_schema"]["error"]  # schema-invalid -> blocked result
+    assert captured["blocked"]["error"]
+
+    # §12 per-capability counting: 2 allowed asset.get calls consumed the
+    # job's per-capability budget of 5; verify via the live hook.
+    verdict = None
+    for _ in range(4):
+        verdict = captured["hook"]("asset.get", {"asset_id": str(own_asset)})
+    assert verdict is not None and verdict["action"] == "block"
+    assert "tool_call_per_capability_limit_exceeded" in verdict["message"]
 
 
 # ---------------------------------------------------------------------------

@@ -63,11 +63,13 @@ Out of scope by design (later slices): §9 typed capability bindings,
 """
 import os
 import shutil
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 from app.core.config import Settings, get_settings
+from app.hermes.audit import FileAuditSink, get_active_audit_sink, set_active_audit_sink
 from app.hermes.config import HermesRuntimeConfig, get_validated_hermes_config
 from app.hermes.env_scrub import get_hermes_scrub_names, scrub_hermes_environment
 from app.hermes.limits import JobLimitLedger
@@ -420,6 +422,7 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
     agent = None
     context_was_set = False
     ledger_was_set = False
+    audit_sink_was_set = False
     try:
         # 1. Settings + validated Hermes configuration (§ config slice).
         settings = settings if settings is not None else get_settings()
@@ -464,7 +467,7 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
         # 7. Runtime-owned environment.
         env_touched = apply_runtime_environment(job_home, plugin_path)
 
-        # 8. Bind the authorization context and the §12 limit ledger for
+        # 8. Bind the authorization context, the §12 limit ledger, and the §13 audit sink for
         # the policy plugin.
         set_active_authorization_context(request.authorization_context)
         context_was_set = True
@@ -475,6 +478,9 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
         )
         set_active_job_ledger(ledger)
         ledger_was_set = True
+        audit_sink = FileAuditSink(config.hermes_home / "audit" / "hermes_policy_audit.jsonl")
+        set_active_audit_sink(audit_sink)
+        audit_sink_was_set = True
         baseline_threads = frozenset(t.name for t in threading.enumerate())
 
         # 9. FIRST Hermes import — strictly after the scrub.
@@ -541,6 +547,11 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
             except Exception:
                 pass
         if job_home is not None:
+            if "hermes_logging" in sys.modules:
+                try:
+                    sys.modules["hermes_logging"].release_profile_log_handlers(job_home)
+                except Exception:
+                    pass
             shutil.rmtree(job_home, ignore_errors=True)
         if env_touched:
             clear_runtime_environment(env_touched)
@@ -548,3 +559,5 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
             set_active_authorization_context(None)
         if ledger_was_set:
             set_active_job_ledger(None)
+        if audit_sink_was_set:
+            set_active_audit_sink(None)
