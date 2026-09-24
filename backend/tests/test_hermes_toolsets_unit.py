@@ -108,15 +108,22 @@ def _codes(exc_info: pytest.ExceptionInfo[HermesToolsetError]) -> set[str]:
 # ---------------------------------------------------------------------------
 
 def test_allowlist_contents_are_frozen():
-    assert HERMES_TOOLSET_ALLOWLIST == ("todo",)
+    # §9 Slice 1 lockstep change (operator-approved): "aryaos" is the
+    # runtime-registered AryaOS capability toolset.
+    assert HERMES_TOOLSET_ALLOWLIST == ("aryaos", "todo")
 
 
-def test_allowlist_members_exist_in_static_registry_at_pin():
-    """Every allowed name must be a real static toolset at the pin (a
+def test_allowlist_members_resolve_to_real_tools():
+    """Every allowed name must resolve to real tools: static toolsets come
+    from the pinned registry; "aryaos" is the AryaOS runtime-registered
+    capability toolset whose tools come from the frozen §9 registry (a
     typo'd allowlist entry would silently enable nothing because Hermes
     fails open on unknown names)."""
+    from app.hermes.capabilities import EXPOSED_CAPABILITIES
+
     for name in HERMES_TOOLSET_ALLOWLIST:
-        assert name in HERMES_STATIC_TOOLSETS_AT_PIN
+        assert name == "aryaos" or name in HERMES_STATIC_TOOLSETS_AT_PIN
+    assert EXPOSED_CAPABILITIES  # the "aryaos" toolset resolves to these
 
 
 def test_allowlist_disjoint_from_spec_excluded_toolsets():
@@ -230,8 +237,8 @@ def test_dangerous_and_unknown_names_rejected():
 
 
 def test_valid_allowlist_accepted_and_sorted():
-    assert validate_enabled_toolsets(list(HERMES_TOOLSET_ALLOWLIST)) == ("todo",)
-    assert validate_enabled_toolsets(tuple(HERMES_TOOLSET_ALLOWLIST)) == ("todo",)
+    assert validate_enabled_toolsets(list(HERMES_TOOLSET_ALLOWLIST)) == ("aryaos", "todo")
+    assert validate_enabled_toolsets(tuple(HERMES_TOOLSET_ALLOWLIST)) == ("aryaos", "todo")
     assert validate_enabled_toolsets(["todo"]) == ("todo",)
 
 

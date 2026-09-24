@@ -55,15 +55,21 @@ Enumeration provenance (pinned commit c0d7294769a38c17ceae51d8f7995e66e1dcae27):
     context engine (toolsets.py:134; registration at agent_init.py:2061 ff);
     not statically boundable, so excluded fail-closed.
   * safe — composite of web + vision + image_gen (all excluded above).
-- "todo" is the sole permitted static toolset: todo_list is in-memory,
+- "todo" is the sole permitted STATIC toolset: todo_list is in-memory,
   per-agent planning state with no filesystem, network, or subprocess
   behavior (tools/todo_tool.py). §5.1 requires the allowlist to be
   non-empty; "todo" is the only static toolset with no §5.1 dangerous
   category and no source-verified boundary violation.
+- "aryaos" is the AryaOS runtime-registered capability toolset (§9 Slice
+  1): not a static Hermes toolset — it exists only when the aryaos-policy
+  plugin registers the frozen CAPABILITY_REGISTRY tools under it
+  (app.hermes.capabilities). Adding it to this allowlist was an explicit,
+  operator-approved lockstep security change (§5.1 frozen-allowlist edit
+  mechanism, §15 review): the model sees exactly
+  {todo_list} ∪ EXPOSED_CAPABILITIES and nothing else. It loosens no
+  exclusion: every §5.1 dangerous category remains excluded.
 
-The AryaOS typed-capability toolset (§9) does not exist yet; when that
-slice registers one, its name joins this frozen constant through the §15
-change process. Hermes is not imported here.
+Hermes is not imported here.
 """
 
 
@@ -152,7 +158,7 @@ HERMES_STATIC_TOOLSETS_AT_PIN: frozenset[str] = frozenset(
 # The frozen §5.1 allowlist: the ONLY toolset names AryaOS may ever pass to
 # Hermes as enabled_toolsets. Changes follow §15 (source verification +
 # runtime security verification + architecture review + explicit approval).
-HERMES_TOOLSET_ALLOWLIST: tuple[str, ...] = ("todo",)
+HERMES_TOOLSET_ALLOWLIST: tuple[str, ...] = ("aryaos", "todo")
 
 
 def get_frozen_enabled_toolsets() -> tuple[str, ...]:

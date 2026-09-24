@@ -387,9 +387,11 @@ def test_real_construction_only_job(tmp_path):
     from app.hermes.policy import SANCTIONED_NATIVE_TOOLS
 
     import model_tools
+    from app.hermes.capabilities import EXPOSED_CAPABILITIES
 
     resolved = set(model_tools._last_resolved_tool_names or [])
-    assert resolved == set(SANCTIONED_NATIVE_TOOLS) == {"todo_list"}
+    expected = set(SANCTIONED_NATIVE_TOOLS) | set(EXPOSED_CAPABILITIES)
+    assert resolved == expected == {"todo_list", "research.search"}
     assert not ({"tool_search", "tool_describe", "tool_call"} & resolved)
     # Per-job home deleted (§6/T13).
     assert not (Path(settings.hermes_home) / "jobs" / "it-1").exists()
@@ -433,7 +435,9 @@ def test_real_policy_plugin_loaded_and_tool_surface(tmp_path):
     assert callbacks, "policy hook must be registered"
     verdict = callbacks[0]("shell", {})
     assert verdict["action"] == "block"
-    assert callbacks[0]("research.search", {}) is None  # registered callback allows §9 capability
+    # §9 capability allowed with VALID parameters (the registered chain
+    # now includes live schema validation — invalid params would BLOCK).
+    assert callbacks[0]("research.search", {"topic": "ai"}) is None
 
 
 def test_real_watchdog_timeout_fails_closed(tmp_path):

@@ -314,6 +314,7 @@ def _assert_policy_hook_registered() -> None:
 
 def _construct_agent(request: HermesJobRequest, config: HermesRuntimeConfig, baseline_threads: frozenset[str]):
     """Steps 11-12: AIAgent with the frozen safe configuration."""
+    from app.hermes.capabilities import EXPOSED_CAPABILITIES
     from app.hermes.policy import SANCTIONED_NATIVE_TOOLS
     from run_agent import AIAgent
 
@@ -342,12 +343,14 @@ def _construct_agent(request: HermesJobRequest, config: HermesRuntimeConfig, bas
             f"allowlist {enabled}",
         )
     resolved = set(getattr(agent, "valid_tool_names", None) or ())
-    if resolved != set(SANCTIONED_NATIVE_TOOLS):
+    expected_surface = set(SANCTIONED_NATIVE_TOOLS) | set(EXPOSED_CAPABILITIES)
+    if resolved != expected_surface:
         raise HermesRuntimeError(
             "tool_surface_violation",
-            f"agent tool surface {sorted(resolved)} != the sanctioned native "
-            f"tools {sorted(SANCTIONED_NATIVE_TOOLS)} (Tool Search is disabled "
-            f"in the generated config; any bridge tool here is a violation)",
+            f"agent tool surface {sorted(resolved)} != the sanctioned surface "
+            f"{sorted(expected_surface)} = native tools + exposed §9 "
+            f"capabilities (exact equality; Tool Search is disabled in the "
+            f"generated config)",
         )
     if agent.api_key != request.api_key or agent.base_url != request.base_url:
         raise HermesRuntimeError(

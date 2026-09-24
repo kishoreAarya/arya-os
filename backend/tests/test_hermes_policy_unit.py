@@ -67,9 +67,12 @@ def test_delegate_task_explicitly_blocked_by_name():
 
 def test_sanctioned_native_tools_match_section_5_1_allowlist_resolution():
     """The native-tool sanction is exactly the tool surface of the §5.1
-    frozen allowlist ("todo" -> ["todo_list"], pinned toolsets.py:127)."""
+    frozen allowlist's STATIC entry ("todo" -> ["todo_list"], pinned
+    toolsets.py:127). The allowlist also carries "aryaos" — the §9
+    runtime-registered capability toolset, whose tools are NOT native
+    (they are governed by the §9 registry, not SANCTIONED_NATIVE_TOOLS)."""
     assert SANCTIONED_NATIVE_TOOLS == frozenset({"todo_list"})
-    assert HERMES_TOOLSET_ALLOWLIST == ("todo",)
+    assert HERMES_TOOLSET_ALLOWLIST == ("aryaos", "todo")
 
 
 def test_authorization_universes_are_disjoint():
