@@ -826,3 +826,371 @@ def test_real_hermes_persists_blocked_request_limit_final_outcome(tmp_path: Path
         ("todo_list", "BLOCK", "blocked_request_limit_exceeded"),  # §13.1 post-violation
     ]
 
+
+# ---------------------------------------------------------------------------
+# 10. Job-boundary records (§13)
+# ---------------------------------------------------------------------------
+
+def test_hermes_job_audit_record_serialization_round_trip():
+    """HermesJobAuditRecord serializes deterministically and reconstructs."""
+    from app.hermes.audit import JOB_BOUNDARY_RECORD_TYPE, HermesJobAuditRecord
+
+    record = HermesJobAuditRecord(
+        event="JOB_START",
+        user_id="u",
+        project_id="p",
+        job_id="j",
+        agent_id="a",
+        lineage_id="l",
+        runtime_job_id="runtime-job-1",
+        hermes_commit="c" * 40,
+        hermes_tree="t" * 40,
+        hermes_git_verified=True,
+        config_sha256="a" * 64,
+        plugin_verification="pending",
+        limits_snapshot={"allowed_total": 0, "max_tool_calls": 10},
+    )
+    data = record.to_dict()
+    assert data["record_type"] == JOB_BOUNDARY_RECORD_TYPE
+    assert data["event"] == "JOB_START"
+    assert data["limits_snapshot"] == {"allowed_total": 0, "max_tool_calls": 10}
+
+    restored = HermesJobAuditRecord.from_dict(json.loads(record.to_json()))
+    assert restored.event == record.event
+    assert restored.audit_id == record.audit_id
+    assert restored.hermes_commit == record.hermes_commit
+    assert restored.hermes_git_verified is True
+    assert restored.limits_snapshot == record.limits_snapshot
+    assert restored.duration_seconds is None  # absent -> None, never a crash
+    restored_end = HermesJobAuditRecord.from_dict(
+        {**data, "event": "JOB_END", "duration_seconds": 1.5, "outcome": "completed"}
+    )
+    assert restored_end.duration_seconds == 1.5 and restored_end.outcome == "completed"
+
+
+def test_file_sink_routes_job_and_request_records(tmp_path: Path):
+    """The shared store holds both shapes; per-request readers never see
+    job-boundary lines and read_job_records() returns only those."""
+    from app.hermes.audit import (
+        JOB_BOUNDARY_RECORD_TYPE,
+        JOB_END,
+        JOB_START,
+        HermesJobAuditRecord,
+    )
+
+    sink = FileAuditSink(tmp_path / "audit" / "mixed.jsonl")
+    tool = AuthorizationDecisionAuditRecord(
+        user_id="u", project_id="p", job_id="j", agent_id="a", lineage_id="l",
+        tool_name="research.search", decision="ALLOW",
+        reason_code="allowed_typed_capability", parameter_digest="d",
+    )
+    start = HermesJobAuditRecord(
+        event=JOB_START, user_id="u", project_id="p", job_id="j",
+        agent_id="a", lineage_id="l", runtime_job_id="r1",
+    )
+    end = HermesJobAuditRecord(
+        event=JOB_END, user_id="u", project_id="p", job_id="j",
+        agent_id="a", lineage_id="l", runtime_job_id="r1", outcome="completed",
+        duration_seconds=2.0,
+    )
+    sink.record(start)
+    sink.record(tool)
+    sink.record(end)
+
+    requests = sink.read_records()
+    assert len(requests) == 1 and requests[0].tool_name == "research.search"
+    jobs = sink.read_job_records()
+    assert [r.event for r in jobs] == [JOB_START, JOB_END]
+    assert jobs[1].outcome == "completed" and jobs[1].duration_seconds == 2.0
+    assert JOB_BOUNDARY_RECORD_TYPE in (tmp_path / "audit" / "mixed.jsonl").read_text()
+
+    memory = InMemoryAuditSink()
+    memory.record(tool)
+    memory.record(end)
+    assert len(memory.records()) == 1 and memory.records()[0] == tool
+    assert [r.event for r in memory.job_records()] == [JOB_END]
+
+
+def test_record_job_boundary_writes_and_is_total():
+    """record_job_boundary persists to the sink, degrades identity for a
+    missing context, and never raises — including on a broken sink."""
+    from app.hermes.audit import (
+        HermesJobAuditRecord,
+        InMemoryAuditSink,
+        record_job_boundary,
+    )
+
+    class BrokenSink:
+        def record(self, record):
+            raise OSError("disk full")
+
+    sink = InMemoryAuditSink()
+    record = record_job_boundary(
+        "JOB_END",
+        CONTEXT,
+        sink=sink,
+        runtime_job_id="r9",
+        plugin_verification="verified",
+        limits_snapshot={"allowed_total": 1},
+        duration_seconds=1.23456789,
+        outcome="failed",
+        error_code="chat_timeout",
+        violation_code=None,
+    )
+    assert record is not None
+    assert record.event == "JOB_END" and record.runtime_job_id == "r9"
+    assert record.duration_seconds == 1.234568  # stable numeric rounding
+    assert sink.job_records() == [record]
+    assert isinstance(sink.job_records()[0], HermesJobAuditRecord)
+
+    # Missing context degrades to <unknown>; broken sink never raises.
+    degraded = record_job_boundary("JOB_START", None, sink=BrokenSink())
+    assert degraded is not None and degraded.user_id == "<unknown>"
+    assert record_job_boundary("JOB_START", None, sink=BrokenSink()) is not None
+
+
+def test_job_boundary_records_for_successful_job(tmp_path: Path):
+    """§13 job-boundary integration: a completed job persists JOB_START and
+    JOB_END with full identity, verified pin, config hash, plugin
+    verification, ledger snapshots, duration, and outcome — while the
+    per-request reader is unaffected by the job lines."""
+    import importlib.util
+
+    if importlib.util.find_spec("run_agent") is None:
+        pytest.fail("§16: pinned Hermes source missing")
+    import hashlib
+
+    from app.core.config import HERMES_COMMIT_PIN, HERMES_TREE_PIN
+    from app.hermes import runtime
+    from app.hermes.audit import JOB_END, JOB_START
+
+    settings = _final_outcome_settings(tmp_path, "jobstart")
+    res = runtime.run_hermes_job(_final_outcome_request("audit-job-1"), settings=settings)
+    assert res.status == "completed", (res.error_code, res.error_detail)
+
+    sink = FileAuditSink(Path(settings.hermes_home) / "audit" / "hermes_policy_audit.jsonl")
+    jobs = sink.read_job_records()
+    assert [r.event for r in jobs] == [JOB_START, JOB_END]
+    start, end = jobs
+
+    for record in (start, end):  # job identity block matches §4 records
+        assert record.user_id == CONTEXT.user_id
+        assert record.project_id == CONTEXT.project_id
+        assert record.job_id == CONTEXT.job_id
+        assert record.agent_id == CONTEXT.agent_id
+        assert record.lineage_id == CONTEXT.lineage_id
+        assert record.runtime_job_id == "audit-job-1"
+        assert record.occurred_at
+
+    # JOB_START: verified source identity, deterministic config digest,
+    # honest pending plugin state, initial (zeroed) ledger snapshot.
+    assert start.hermes_commit == HERMES_COMMIT_PIN
+    assert start.hermes_tree == HERMES_TREE_PIN
+    assert isinstance(start.hermes_git_verified, bool)
+    assert start.config_sha256 == hashlib.sha256(
+        runtime.render_config_yaml().encode("utf-8")
+    ).hexdigest()
+    assert start.plugin_verification == "pending"
+    assert start.limits_snapshot == {
+        "allowed_total": 0,
+        "blocked_total": 0,
+        "max_tool_calls": 10,
+        "max_tool_calls_per_capability": 5,
+        "max_blocked_requests": 3,
+    }
+
+    # JOB_END: real outcome, actual verification result, duration, counters.
+    assert end.outcome == "completed" and end.error_code is None
+    assert end.violation_code is None
+    assert end.plugin_verification == "verified"
+    assert isinstance(end.duration_seconds, float) and end.duration_seconds >= 0
+    assert end.limits_snapshot == start.limits_snapshot  # nothing executed
+
+    # Per-request reader unaffected by the job-boundary lines.
+    assert sink.read_records() == []
+
+
+def test_job_boundary_records_for_failed_limit_job(tmp_path: Path):
+    """A §12-violation failure persists JOB_START/JOB_END with the failure
+    outcome, the violation code, and the FINAL ledger state — and the §4 /
+    §13.1 per-request trail remains exactly as before this slice."""
+    import importlib.util
+
+    if importlib.util.find_spec("run_agent") is None:
+        pytest.fail("§16: pinned Hermes source missing")
+    from app.hermes import runtime
+    from app.hermes.audit import JOB_END, JOB_START
+
+    original_assert = runtime._assert_plugin_surface
+
+    def capturing_assert():
+        from hermes_cli.plugins import iter_hook_callbacks
+
+        hook = next(iter(iter_hook_callbacks("pre_tool_call")))
+        assert hook("todo_list", {}) is None  # 1/1 allowed
+        verdict = hook("todo_list", {})  # total limit exceeded
+        assert verdict["action"] == "block"
+        original_assert()
+
+    runtime._assert_plugin_surface = capturing_assert
+    try:
+        settings = _final_outcome_settings(
+            tmp_path,
+            "jobfail",
+            hermes_max_tool_calls=1,
+            hermes_max_tool_calls_per_capability=1,
+            hermes_max_blocked_requests=5,
+        )
+        res = runtime.run_hermes_job(_final_outcome_request("audit-job-2"), settings=settings)
+    finally:
+        runtime._assert_plugin_surface = original_assert
+
+    assert res.status == "failed"
+    assert res.error_code == "tool_call_limit_exceeded"
+
+    sink = FileAuditSink(Path(settings.hermes_home) / "audit" / "hermes_policy_audit.jsonl")
+    jobs = sink.read_job_records()
+    assert [r.event for r in jobs] == [JOB_START, JOB_END]
+    start, end = jobs
+    assert start.plugin_verification == "pending"
+    assert end.outcome == "failed"
+    assert end.error_code == "tool_call_limit_exceeded"
+    assert end.violation_code == "tool_call_limit_exceeded"
+    assert end.plugin_verification == "verified"
+    assert isinstance(end.duration_seconds, float) and end.duration_seconds >= 0
+    assert end.limits_snapshot == {
+        "allowed_total": 1,
+        "blocked_total": 0,
+        "max_tool_calls": 1,
+        "max_tool_calls_per_capability": 1,
+        "max_blocked_requests": 5,
+    }
+
+    # §4 + §13.1 per-request records: unchanged, exactly the §13.1 trail.
+    trail = [(r.tool_name, r.decision, r.reason_code) for r in sink.read_records()]
+    assert trail == [
+        ("todo_list", "ALLOW", "allowed_sanctioned_native_tool"),
+        ("todo_list", "ALLOW", "allowed_sanctioned_native_tool"),
+        ("todo_list", "BLOCK", "tool_call_limit_exceeded"),
+    ]
+
+
+def test_job_end_persisted_before_cleanup_on_timeout(tmp_path: Path):
+    """A watchdog-timeout job still persists JOB_END BEFORE sink cleanup and
+    job-home deletion — the record outlives the disposable Hermes state."""
+    import importlib.util
+    import os
+    import time as _time
+
+    if importlib.util.find_spec("run_agent") is None:
+        pytest.fail("§16: pinned Hermes source missing")
+    from app.hermes import runtime
+    from app.hermes.audit import JOB_END, JOB_START
+
+    class _BlockingAgent:
+        # Immutable stub attributes: nothing in the stubbed path reads them;
+        # the runtime only calls .chat()/.close() on the returned agent.
+        enabled_toolsets = ("todo",)
+        valid_tool_names = frozenset({"todo_list"})
+        api_key = "aryaos-explicit-test-key"
+        base_url = "http://127.0.0.1:9/v1"
+
+        def chat(self, _message):
+            _time.sleep(30)
+            return "never"
+
+        def close(self):
+            pass
+
+    original_construct = runtime._construct_agent
+    runtime._construct_agent = lambda request, config, baseline_threads: _BlockingAgent()
+    try:
+        settings = _final_outcome_settings(
+            tmp_path, "jobtimeout", hermes_max_execution_seconds=0.5
+        )
+        timeout_request = runtime.HermesJobRequest(
+            job_id="audit-job-3",
+            task_message="never returns",  # the chat path must actually run
+            authorization_context=CONTEXT,
+            provider="openai",
+            base_url="http://127.0.0.1:9/v1",
+            api_key="aryaos-explicit-test-key",
+            model="aryaos-test-model",
+        )
+        res = runtime.run_hermes_job(timeout_request, settings=settings)
+    finally:
+        runtime._construct_agent = original_construct
+
+    assert res.status == "failed"
+    assert res.error_code == "chat_timeout"
+
+    # JOB_END was persisted (before cleanup) with the timeout outcome.
+    sink = FileAuditSink(Path(settings.hermes_home) / "audit" / "hermes_policy_audit.jsonl")
+    jobs = sink.read_job_records()
+    assert [r.event for r in jobs] == [JOB_START, JOB_END]
+    end = jobs[1]
+    assert end.outcome == "failed" and end.error_code == "chat_timeout"
+    assert end.plugin_verification == "verified"  # construction stub ran post-verification
+    assert end.duration_seconds >= 0.4  # the watchdog fired, then JOB_END
+
+    # Normal Hermes job-home cleanup still occurred; runtime env cleared.
+    assert not (Path(settings.hermes_home) / "jobs" / "audit-job-3").exists()
+    assert "HERMES_HOME" not in os.environ
+    assert "HERMES_BUNDLED_PLUGINS" not in os.environ
+
+
+def test_job_boundary_audit_failure_is_not_fatal(tmp_path: Path, monkeypatch):
+    """A persistently failing audit sink changes nothing: the job completes,
+    cleanup runs, and no audit error escapes into the job result."""
+    import importlib.util
+
+    if importlib.util.find_spec("run_agent") is None:
+        pytest.fail("§16: pinned Hermes source missing")
+    from app.hermes import runtime
+    from app.hermes.audit import FileAuditSink as _FileSink
+
+    def _raising_record(self, record):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(_FileSink, "record", _raising_record)
+    settings = _final_outcome_settings(tmp_path, "jobsink")
+    res = runtime.run_hermes_job(_final_outcome_request("audit-job-4"), settings=settings)
+    assert res.status == "completed", (res.error_code, res.error_detail)
+    # Cleanup still ran (job home deleted) despite every audit write failing.
+    assert not (Path(settings.hermes_home) / "jobs" / "audit-job-4").exists()
+
+
+def test_job_boundary_records_contain_no_secrets(tmp_path: Path):
+    """The persisted job-boundary records carry the config as a SHA-256
+    digest only: no API keys, no raw config.yaml contents, no env values."""
+    import importlib.util
+
+    if importlib.util.find_spec("run_agent") is None:
+        pytest.fail("§16: pinned Hermes source missing")
+    from app.hermes import runtime
+
+    canary_key = "aryaos-secret-canary-4f8a1c"
+    request = runtime.HermesJobRequest(
+        job_id="audit-job-5",
+        task_message=None,
+        authorization_context=CONTEXT,
+        provider="openai",
+        base_url="http://127.0.0.1:9/v1",
+        api_key=canary_key,
+        model="aryaos-test-model",
+    )
+    settings = _final_outcome_settings(tmp_path, "jobsecret")
+    res = runtime.run_hermes_job(request, settings=settings)
+    assert res.status == "completed", (res.error_code, res.error_detail)
+
+    audit_file = Path(settings.hermes_home) / "audit" / "hermes_policy_audit.jsonl"
+    raw = audit_file.read_text(encoding="utf-8")
+    assert canary_key not in raw  # no credentials ever persisted
+    assert "tirith_fail_open" not in raw  # config contents stay out; digest only
+    assert "plugins:" not in raw
+    jobs = FileAuditSink(audit_file).read_job_records()
+    assert [r.event for r in jobs] == ["JOB_START", "JOB_END"]
+    start_digest = jobs[0].config_sha256
+    assert isinstance(start_digest, str) and len(start_digest) == 64
+    assert all(c in "0123456789abcdef" for c in start_digest)
+

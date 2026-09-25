@@ -58,18 +58,27 @@ Hermes. Concretely:
     cannot support concurrent embedded jobs (plugin managers cache per
     resolved home, hermes_cli/plugins.py:1591).
 
-Out of scope by design (later slices): §9 typed capability bindings,
-§10 expanded context, §11 approval flow, §13 audit store, concurrency.
+Out of scope by design (later slices): §10 expanded context, §11 approval
+flow, §13 cost/execution-outcome audit (job-boundary records ARE persisted:
+one JOB_START + one JOB_END per job in the AryaOS-owned audit store,
+best-effort), concurrency.
 """
+import hashlib
 import os
 import shutil
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from app.core.config import Settings, get_settings
-from app.hermes.audit import FileAuditSink, get_active_audit_sink, set_active_audit_sink
+from app.hermes.audit import (
+    FileAuditSink,
+    get_active_audit_sink,
+    record_job_boundary,
+    set_active_audit_sink,
+)
 from app.hermes.config import HermesRuntimeConfig, get_validated_hermes_config
 from app.hermes.env_scrub import get_hermes_scrub_names, scrub_hermes_environment
 from app.hermes.limits import JobLimitLedger
@@ -417,12 +426,31 @@ def run_hermes_job(
 
 
 def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> HermesJobResult:
+    """Run one bounded Hermes job under the §3 ordering contract.
+
+    Never raises for job-level failures — returns HermesJobResult with
+    status "failed" and a stable error code. Cleanup runs on both paths.
+    §13 job-boundary audit (best-effort, AryaOS-owned): JOB_START is
+    persisted once the job-scoped setup (steps 1-8) has succeeded, and
+    JOB_END — carrying the actual outcome, §12 violation/ledger state,
+    wall-clock duration, and the real plugin-verification result — is
+    persisted at the TOP of the finally block, before the sink unbinding
+    and job-home deletion, so the record always outlives the job.
+    """
     job_home: Path | None = None
     env_touched: list[str] = []
     agent = None
     context_was_set = False
     ledger_was_set = False
     audit_sink_was_set = False
+    ledger: JobLimitLedger | None = None
+    audit_sink: FileAuditSink | None = None
+    source_verification = None  # HermesSourceVerification once step 2 passes
+    config_sha256: str | None = None
+    plugin_verification = "not_reached"  # -> pending -> verified | failed
+    outcome_status = "failed"
+    outcome_error_code: str | None = "job_result_not_recorded"
+    job_started_at = time.monotonic()
     try:
         # 1. Settings + validated Hermes configuration (§ config slice).
         settings = settings if settings is not None else get_settings()
@@ -442,15 +470,18 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
 
         # 2. Source integrity (§2/§14.1) — before any Hermes import.
         try:
-            verify_hermes_source()
+            source_verification = verify_hermes_source()
         except Exception as exc:
             raise HermesRuntimeError("source_verification_failed", str(exc)) from exc
 
         # 3. Fresh per-job HERMES_HOME (no .env is ever created).
         job_home = create_job_home(config.hermes_home, request.job_id)
 
-        # 4. Minimal generated config.yaml.
-        (job_home / "config.yaml").write_text(render_config_yaml(), encoding="utf-8")
+        # 4. Minimal generated config.yaml; §13 records its deterministic
+        # SHA-256 (a digest only — contents and secrets are never audited).
+        config_text = render_config_yaml()
+        (job_home / "config.yaml").write_text(config_text, encoding="utf-8")
+        config_sha256 = hashlib.sha256(config_text.encode("utf-8")).hexdigest()
 
         # 5-6. §5.5 scrub + verification (BEFORE any Hermes import).
         try:
@@ -483,15 +514,41 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
         audit_sink_was_set = True
         baseline_threads = frozenset(t.name for t in threading.enumerate())
 
+        # §13 JOB_START: the job boundary proper — config validated, source
+        # verified, job home + config.yaml written, context/ledger/sink
+        # bound. Plugin verification happens later (step 10), so the start
+        # record honestly carries "pending". Best-effort: a failure here
+        # never aborts the job.
+        try:
+            record_job_boundary(
+                "JOB_START",
+                request.authorization_context,
+                sink=audit_sink,
+                runtime_job_id=request.job_id,
+                hermes_commit=source_verification.commit,
+                hermes_tree=source_verification.tree,
+                hermes_git_verified=source_verification.git_verified,
+                config_sha256=config_sha256,
+                plugin_verification="pending",
+                limits_snapshot=ledger.counts(),
+            )
+        except Exception:
+            pass  # authorization-preserving, best-effort audit (§13)
+
         # 9. FIRST Hermes import — strictly after the scrub.
         import run_agent  # noqa: F401 — import side effect is the boundary
 
         # 10. Plugin discovery: only the AryaOS policy plugin may load.
         from hermes_cli.plugins import discover_plugins
 
-        discover_plugins()
-        _assert_plugin_surface()
-        _assert_policy_hook_registered()
+        try:
+            discover_plugins()
+            _assert_plugin_surface()
+            _assert_policy_hook_registered()
+        except BaseException:
+            plugin_verification = "failed"  # the ACTUAL verification outcome
+            raise
+        plugin_verification = "verified"
 
         # 11-12. Construct + assert the frozen safe configuration.
         agent = _construct_agent(request, config, baseline_threads)
@@ -522,8 +579,10 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
                 f"(counters: {ledger.counts()})",
             )
 
+        outcome_status, outcome_error_code = "completed", None
         return completed(request, final_response)
     except HermesRuntimeError as exc:
+        outcome_status, outcome_error_code = "failed", exc.code
         return HermesJobResult(
             job_id=request.job_id,
             status="failed",
@@ -532,6 +591,7 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
             error_detail=exc.detail,
         )
     except BaseException as exc:  # noqa: BLE001 — job boundary never raises
+        outcome_status, outcome_error_code = "failed", "unexpected_runtime_failure"
         return HermesJobResult(
             job_id=request.job_id,
             status="failed",
@@ -540,6 +600,27 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
             error_detail=f"{type(exc).__name__}",
         )
     finally:
+        # §13 JOB_END — FIRST, while the audit sink is still bound and
+        # before any cleanup, so the record always outlives the job (the
+        # persistent audit store lives under hermes_home/audit, outside the
+        # disposable per-job home). Best-effort: a recording failure never
+        # changes the job outcome or blocks cleanup.
+        if audit_sink is not None:
+            try:
+                record_job_boundary(
+                    "JOB_END",
+                    request.authorization_context,
+                    sink=audit_sink,
+                    runtime_job_id=request.job_id,
+                    plugin_verification=plugin_verification,
+                    limits_snapshot=ledger.counts() if ledger is not None else None,
+                    duration_seconds=time.monotonic() - job_started_at,
+                    outcome=outcome_status,
+                    error_code=outcome_error_code,
+                    violation_code=ledger.violation_code if ledger is not None else None,
+                )
+            except Exception:
+                pass  # authorization-preserving, best-effort audit (§13)
         # 14-16. Deterministic cleanup on BOTH paths.
         if agent is not None:
             try:
