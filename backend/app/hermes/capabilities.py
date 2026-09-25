@@ -525,7 +525,7 @@ async def _provider_generate_binding(params: ProviderGenerateParams) -> dict:
             await engine.dispose()
 
 
-async def _approval_gated_binding(tool_name: str, params) -> dict:
+async def _approval_gated_binding(tool_name: str, params, granted_operation=None) -> dict:
     """Shared §5.4/§11 approval gate for the designated gated capabilities
     (operator decisions D1-D5):
 
@@ -609,6 +609,11 @@ async def _approval_gated_binding(tool_name: str, params) -> dict:
             if approved is not None:
                 # Job N+1 (D3): the approved checkpoint authorizes exactly
                 # this workflow run's gated capability — nothing else.
+                if granted_operation is not None:
+                    # §9.4 (Option A): the capability's REAL operation runs
+                    # inside the verified session; it owns its §13.3
+                    # execution-outcome emission and result shape.
+                    return await granted_operation(session, run_uuid, params)
                 return {
                     "approval": "granted",
                     "stage": stage.value,
@@ -650,10 +655,49 @@ async def _approval_gated_binding(tool_name: str, params) -> dict:
     }
 
 
+async def _create_script_proposal(session, run_uuid: uuid.UUID, params) -> dict:
+    """§9.4 Option A (operator-locked): the REAL story.create operation —
+    persist the model-proposed draft as a versioned Script proposal row.
+
+    - Uses ONLY the existing Script model contract: workflow_run_id +
+      content are the required fields; word_count uses the repository's
+      established convention (len(content.split()), script.py:135);
+      status/version/parent_version_id/timestamps come from the existing
+      VersionedAssetMixin defaults (DRAFT proposal, version 1). No new
+      fields, no new versioning rules, no migration.
+    - NO LLM, NO ScriptAgent, NO ExecutionEngine, NO provider-generation
+      budget: the Hermes model IS the writer; this records its proposal.
+    - Emits the §13.3 execution-outcome record via the existing
+      best-effort mechanism (cost_estimate_usd None — non-chargeable).
+    """
+    started = time.monotonic()
+    from app.models.content import Script
+
+    script = Script(
+        workflow_run_id=run_uuid,
+        content=params.content,
+        word_count=len(params.content.split()),
+    )
+    session.add(script)
+    await session.commit()
+    result = {
+        "script_id": str(script.id),
+        "workflow_run_id": str(run_uuid),
+        "version": script.version,
+        "status": script.status.value,
+        "word_count": script.word_count,
+    }
+    _audit_readonly_execution("story.create", params, time.monotonic() - started, result)
+    return result
+
+
 async def _story_create_binding(params: StoryCreateParams) -> dict:
     """Execute the §5.4-gated story.create capability: proposal drafts
-    require AryaOS approval before execution."""
-    return await _approval_gated_binding("story.create", params)
+    require AryaOS approval before execution (§9.4 Option A: the approved
+    operation persists the proposed draft as a real Script row)."""
+    return await _approval_gated_binding(
+        "story.create", params, granted_operation=_create_script_proposal
+    )
 
 
 async def _publishing_request_binding(params: PublishingRequestParams) -> dict:
