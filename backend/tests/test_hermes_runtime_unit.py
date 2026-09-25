@@ -391,7 +391,7 @@ def test_real_construction_only_job(tmp_path):
 
     resolved = set(model_tools._last_resolved_tool_names or [])
     expected = set(SANCTIONED_NATIVE_TOOLS) | set(EXPOSED_CAPABILITIES)
-    assert resolved == expected == {"todo_list", "research.search", "asset.get"}
+    assert resolved == expected == {"todo_list", "research.search", "asset.get", "provider.generate"}
     assert not ({"tool_search", "tool_describe", "tool_call"} & resolved)
     # Per-job home deleted (§6/T13).
     assert not (Path(settings.hermes_home) / "jobs" / "it-1").exists()

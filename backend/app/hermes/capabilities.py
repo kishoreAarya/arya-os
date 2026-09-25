@@ -14,9 +14,14 @@ research.search -> TrendDiscoveryService.discover_trends
 binding asset.get -> the existing AryaOS assets table
 (app/models/media.py:61) with tenant verification via WorkflowRun.
 project_id against the job-bound AuthorizationContext (operator-approved
-decisions A/B/C). All other capabilities are NAMES ONLY (authorized by
-§4's frozen TYPED_CAPABILITIES, but no schema and no binding exist yet —
-they cannot be executed and are not exposed to the model).
+decisions A/B/C). Slice 3 (§9.3, operator decisions D1-D3) added the
+first CHARGEABLE binding provider.generate -> the existing AryaOS
+ExecutionEngine/provider router (TEXT_GENERATION only), with the §12
+USD budget enforced BEFORE execution against the WorkflowRun's
+authoritative accumulated total_cost_usd. All other capabilities are
+NAMES ONLY (authorized by §4's frozen TYPED_CAPABILITIES, but no schema
+and no binding exist yet — they cannot be executed and are not exposed
+to the model).
 
 Security model:
 - The registry is the ONLY source of exposed AryaOS capability tools.
@@ -41,6 +46,7 @@ Security model:
 policy.py is deliberately NOT modified: registry <-> TYPED_CAPABILITIES
 consistency is proven by test, per the slice contract.
 """
+import threading
 import types
 import uuid
 from dataclasses import dataclass
@@ -86,6 +92,25 @@ class AssetGetParams(BaseModel):
 
     asset_id: uuid.UUID
     workflow_run_id: uuid.UUID | None = None  # optional extra ownership guard
+
+
+class ProviderGenerateParams(BaseModel):
+    """§9 provider.generate — text generation through the AryaOS
+    capability-based provider router (Slice 3, operator decision D1:
+    TEXT_GENERATION only).
+
+    Strict; the single field mirrors the ONLY input the existing text
+    dispatcher accepts (providers/text_dispatch.py:52
+    ``build_text_generation_call(prompt)``). Provider selection, model
+    resolution, and credentials are resolved INTERNALLY by the
+    dispatcher/SecretsManager — the model can never supply or control
+    secrets, providers, endpoints, or routing. The authoritative run
+    identity comes from the job-bound AuthorizationContext, never from
+    model input."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str = Field(min_length=1, max_length=32_000)
 
 
 @dataclass(frozen=True)
@@ -137,8 +162,8 @@ def _trend_discovery_service():
 _ASSET_NOT_FOUND = {"error": {"code": "asset_not_found", "detail": "no such asset in this project"}}
 
 
-def _make_readonly_engine():
-    """Per-call disposable async engine for the read-only asset lookup.
+def _make_capability_engine():
+    """Per-call disposable async engine for capability bindings.
 
     Why not the global engine (app.database.session): Hermes async tool
     handlers execute on a fresh event loop per call
@@ -146,7 +171,11 @@ def _make_readonly_engine():
     connections are loop-bound — sharing the global pool across loops is
     unsafe. A per-call engine created from the existing
     settings.database_url adds no global state and is disposed on every
-    path (see _asset_get_binding's finally)."""
+    path (see the bindings' finally blocks). asset.get uses it read-only;
+    the §9.3 provider.generate binding uses the same engine with a
+    writable session for normal AryaOS bookkeeping (GenerationAttempt +
+    WorkflowRun.total_cost_usd, caller-side update per the creator.py
+    precedent)."""
     from sqlalchemy.ext.asyncio import create_async_engine
 
     from app.core.config import get_settings
@@ -177,7 +206,7 @@ async def _asset_get_binding(params: AssetGetParams) -> dict:
     from app.models.core import WorkflowRun
     from app.models.media import Asset
 
-    engine = _make_readonly_engine()
+    engine = _make_capability_engine()
     try:
         from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -200,6 +229,154 @@ async def _asset_get_binding(params: AssetGetParams) -> dict:
             }
     finally:
         await engine.dispose()
+
+
+# §9.3 provider.generate deterministic result/error codes (value-free
+# details: never prompt text, exception payloads, or credentials).
+_PROVIDER_UNAVAILABLE = "provider_unavailable"
+_COST_LIMIT_EXCEEDED = "cost_limit_exceeded"
+_GENERATION_RUN_UNAVAILABLE = "generation_run_unavailable"
+
+# §9.3 F1 correction: process-local per-job serialization of the chargeable
+# critical section (read accumulated spend -> budget decision -> provider
+# execution -> run-total update). Hermes runs registry tools in parallel
+# tool segments on worker threads (agent/tool_executor.py:1504,
+# _plan_tool_segments; provider.generate is not in _NEVER_PARALLEL_TOOLS),
+# so two same-turn calls would otherwise both read the same stale
+# WorkflowRun.total_cost_usd, both pass the budget check, and one
+# run-total write would clobber the other. The runtime's _RUNTIME_LOCK
+# guarantees at most ONE embedded Hermes job per process (runtime.py §3),
+# which makes this module-level lock exactly job-scoped for the embedded
+# runtime — the same threading.Lock primitive JobLimitLedger already uses.
+# Multi-PROCESS Hermes execution is outside the current architecture
+# (one job at a time per process, per the §3/§12 no-concurrency contract).
+_GENERATION_CRITICAL_SECTION = threading.Lock()
+
+
+async def _provider_generate_binding(params: ProviderGenerateParams) -> dict:
+    """Execute the §9.3 provider.generate capability: text generation
+    through the EXISTING AryaOS execution machinery (ExecutionEngine →
+    provider router → adapter), never a parallel provider path.
+
+    Security/bookkeeping contract:
+    - The run identity comes from the job-bound AuthorizationContext
+      (workflow_run_id + project_id tenant check); model input can never
+      supply or override it.
+    - The §12 USD budget is enforced BEFORE any chargeable execution,
+      with the router's own ceiling semantics (router.py:89: accumulated
+      spend at/over the configured maximum -> refuse; per-call cost is
+      only knowable after execution). Denial notes the ledger violation
+      (§11/§12: job fails, no silent continuation) and emits a §13.1
+      final-outcome record; ExecutionEngine/router are never invoked.
+    - Accumulated spend is the WorkflowRun's authoritative
+      total_cost_usd — the same value the router's running_cost_usd
+      contract defines — updated caller-side on success (creator.py
+      precedent). Adapter costs are provider execution estimates.
+    - execute() returns failures instead of raising; they map to the
+      structured Hermes error contract by the router's frozen message
+      contracts (CostLimitExceededError / AllProvidersFailedError).
+    - F1: the whole read->decide->execute->update critical section is
+      serialized per Hermes job (_GENERATION_CRITICAL_SECTION), so
+      same-turn parallel provider.generate calls cannot both pass a
+      stale budget check or lose a run-total update.
+    """
+    from app.hermes.limits import REASON_GENERATION_BUDGET
+    from app.hermes.runtime import (
+        get_active_authorization_context,
+        get_active_job_ledger,
+    )
+
+    def _err(code: str, detail: str) -> dict:
+        return {"error": {"code": code, "detail": detail}}
+
+    try:
+        context = get_active_authorization_context()
+    except RuntimeError:
+        context = None
+    ledger = get_active_job_ledger()
+    if context is None or ledger is None:
+        # Out-of-runtime invocation: a chargeable call never executes.
+        return _err(_GENERATION_RUN_UNAVAILABLE, "no active AryaOS authorization context")
+    expected_project = context.project_id.strip()
+    try:
+        run_uuid = uuid.UUID(str(context.workflow_run_id))
+    except (ValueError, TypeError):
+        return _err(_GENERATION_RUN_UNAVAILABLE, "workflow_run_id is not a valid identifier")
+
+    from app.core.config import get_settings
+
+    budget = get_settings().hermes_max_generation_budget_usd
+
+    # §9.3 F1: the ENTIRE chargeable critical section — read accumulated
+    # spend -> budget decision -> provider execution -> run-total update —
+    # is serialized per Hermes job (see _GENERATION_CRITICAL_SECTION). A
+    # concurrent same-turn call therefore re-reads the post-commit total
+    # and can never pass a stale budget check or clobber the update.
+    with _GENERATION_CRITICAL_SECTION:
+        engine = _make_capability_engine()
+        try:
+            from sqlalchemy.ext.asyncio import async_sessionmaker
+
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                from app.models.core import WorkflowRun
+
+                run = await session.get(WorkflowRun, run_uuid)
+                # Uniform failure for nonexistent AND foreign-project runs (the
+                # asset.get anti-enumeration discipline).
+                if run is None or str(run.project_id) != expected_project:
+                    return _err(_GENERATION_RUN_UNAVAILABLE, "no such workflow run in this project")
+                if budget is None:
+                    # §12: unbounded chargeable execution is not permitted.
+                    return _err(
+                        REASON_GENERATION_BUDGET,
+                        "hermes_max_generation_budget_usd is not configured; chargeable call denied",
+                    )
+                accumulated = float(run.total_cost_usd or 0.0)
+                if accumulated >= float(budget):
+                    ledger.note_generation_budget_exceeded()
+                    try:
+                        from app.hermes.audit import record_final_outcome
+
+                        record_final_outcome(
+                            "provider.generate", {"prompt": params.prompt}, REASON_GENERATION_BUDGET
+                        )
+                    except Exception:
+                        pass  # authorization-preserving, best-effort audit
+                    return _err(
+                        REASON_GENERATION_BUDGET,
+                        f"accumulated generation spend ${accumulated:.4f} is at/over "
+                        f"hermes_max_generation_budget_usd; chargeable call denied before execution",
+                    )
+
+                from app.providers.capabilities import Capability
+                from app.providers.text_dispatch import build_text_generation_call
+                from app.services.execution_engine import ExecutionEngine
+
+                result = await ExecutionEngine(session).execute(
+                    capability=Capability.TEXT_GENERATION,
+                    call=build_text_generation_call(params.prompt),
+                    workflow_run_id=run_uuid,
+                    stage="hermes_text_generation",
+                    running_cost_usd=accumulated,
+                )
+                if not result.success:
+                    error_text = result.error or ""
+                    if "max_cost_per_video_usd" in error_text:
+                        return _err(_COST_LIMIT_EXCEEDED, "provider cost ceiling reached before execution")
+                    return _err(_PROVIDER_UNAVAILABLE, "all providers failed or errored")
+                # Caller-side run-total update (creator.py precedent); the engine
+                # already wrote and committed its GenerationAttempt.
+                run.total_cost_usd = accumulated + float(result.cost_usd or 0.0)
+                await session.commit()
+                return {
+                    "text": str(result.output),
+                    "provider": result.provider,
+                    "cost_usd": float(result.cost_usd or 0.0),
+                    "duration_seconds": float(result.elapsed_time or 0.0),
+                    "attempts": int(result.attempts or 1),
+                }
+        finally:
+            await engine.dispose()
 
 
 _REGISTRY: dict[str, CapabilitySpec] = {
@@ -242,9 +419,13 @@ _REGISTRY: dict[str, CapabilitySpec] = {
     ),
     "provider.generate": CapabilitySpec(
         name="provider.generate",
-        description="Request generation through the AryaOS provider router (later slice).",
-        schema_model=None,
-        binding=None,
+        description=(
+            "Generate text through the AryaOS provider router "
+            "(text generation only; provider/model/credentials are "
+            "AryaOS-internal)."
+        ),
+        schema_model=ProviderGenerateParams,
+        binding=_provider_generate_binding,
     ),
     "agent.request": CapabilitySpec(
         name="agent.request",

@@ -39,7 +39,10 @@ limit trip, post-violation denials, and the fail-closed internal-error
 block — emits a best-effort BLOCK audit record with the deterministic
 reason code via app.hermes.audit.record_final_outcome. Counting
 semantics, thresholds, ordering, and failure behavior are unchanged,
-and audit failures never alter any decision.
+and audit failures never alter any decision. The §12 USD-budget
+violation (generation_budget_exceeded, §9.3) is noted on the ledger
+here but recorded/emitted by the provider.generate binding at the
+point of denial, before any chargeable execution.
 
 Out of scope by spec-ordered deferral: USD generation budget (§9
 provider.generate + router cost accounting) and the context-token cap
@@ -56,6 +59,7 @@ REASON_TOOL_CALL_LIMIT = "tool_call_limit_exceeded"
 REASON_PER_CAPABILITY_LIMIT = "tool_call_per_capability_limit_exceeded"
 REASON_BLOCKED_LIMIT = "blocked_request_limit_exceeded"
 REASON_LIMIT_CHECK_ERROR = "blocked_limit_check_error"
+REASON_GENERATION_BUDGET = "generation_budget_exceeded"
 
 
 class JobLimitLedger:
@@ -97,6 +101,17 @@ class JobLimitLedger:
         with self._lock:
             if self._violation_code is None:
                 self._violation_code = REASON_LIMIT_CHECK_ERROR
+
+    def note_generation_budget_exceeded(self) -> None:
+        """Record a §12 USD-budget violation (§9.3 chargeable-call gate):
+        the WorkflowRun's authoritative accumulated spend reached the
+        configured hermes_max_generation_budget_usd BEFORE a chargeable
+        provider.generate call was executed. First violation wins, exactly
+        like note_internal_error; the runtime fails the job through the
+        existing §11/§12 violation path — no silent continuation."""
+        with self._lock:
+            if self._violation_code is None:
+                self._violation_code = REASON_GENERATION_BUDGET
 
     def record(self, tool_name: str, allowed_by_policy: bool) -> str | None:
         """Account one tool request and decide whether it may proceed.
