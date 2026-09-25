@@ -235,6 +235,77 @@ def test_chain_todo_list_unchanged():
     assert hook("todo_list", {"anything": 1}) is None  # §4 allows; native passthrough
 
 
+def test_schema_rejection_final_outcome_audited_and_binding_not_executed(monkeypatch):
+    """§13.1: §4 ALLOW + §9 schema rejection -> the §4 ALLOW audit record
+    is preserved, an additive final BLOCK record carries
+    capability_schema_invalid, and the binding never executes."""
+    import app.hermes.capabilities as caps
+    from app.hermes.audit import InMemoryAuditSink, set_active_audit_sink
+
+    executed: list[dict] = []
+
+    class _SpyService:
+        async def discover_trends(self, *a, **k):
+            executed.append({"topic": k.get("topic_hint", a[0] if a else None)})
+            return []
+
+    monkeypatch.setattr(caps, "_TREND_SERVICE", _SpyService())
+
+    sink = InMemoryAuditSink()
+    set_active_audit_sink(sink)
+    try:
+        ledger = JobLimitLedger(5, 5, 5)
+        hook = make_limit_enforcing_hook(
+            make_capability_validating_hook(make_pre_tool_call_hook(CONTEXT, audit_sink=sink)),
+            ledger,
+        )
+        verdict = hook("research.search", {"topic": "x", "bogus": 1})
+        assert verdict["action"] == "block"
+        assert CAPABILITY_SCHEMA_INVALID in verdict["message"]
+        records = sink.records()
+        assert len(records) == 2
+        assert records[0].decision == "ALLOW"  # §4 — unchanged
+        assert records[0].reason_code == "allowed_typed_capability"
+        assert records[0].tool_name == "research.search"
+        assert records[1].decision == "BLOCK"  # §13.1 final outcome
+        assert records[1].reason_code == CAPABILITY_SCHEMA_INVALID
+        assert records[1].tool_name == "research.search"
+        assert executed == []  # the binding did not execute
+        assert ledger.counts()["allowed_total"] == 0
+        assert ledger.counts()["blocked_total"] == 1
+    finally:
+        set_active_audit_sink(None)
+
+
+def test_valid_capability_request_emits_no_final_outcome_record(monkeypatch):
+    """Control: a §4-ALLOWed, schema-valid request emits only the §4 ALLOW
+    record (no spurious final-outcome BLOCK)."""
+    import app.hermes.capabilities as caps
+    from app.hermes.audit import InMemoryAuditSink, set_active_audit_sink
+
+    class _StubService:
+        async def discover_trends(self, *a, **k):
+            return []
+
+    monkeypatch.setattr(caps, "_TREND_SERVICE", _StubService())
+
+    sink = InMemoryAuditSink()
+    set_active_audit_sink(sink)
+    try:
+        ledger = JobLimitLedger(5, 5, 5)
+        hook = make_limit_enforcing_hook(
+            make_capability_validating_hook(make_pre_tool_call_hook(CONTEXT, audit_sink=sink)),
+            ledger,
+        )
+        assert hook("research.search", {"topic": "ai"}) is None
+        records = sink.records()
+        assert [(r.decision, r.reason_code) for r in records] == [
+            ("ALLOW", "allowed_typed_capability")
+        ]
+    finally:
+        set_active_audit_sink(None)
+
+
 def test_validation_wrapper_carries_marker_and_never_raises():
     wrapper = make_capability_validating_hook(make_pre_tool_call_hook(CONTEXT))
     assert getattr(wrapper, POLICY_PLUGIN_MARKER, False) is True

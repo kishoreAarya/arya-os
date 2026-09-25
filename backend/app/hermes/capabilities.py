@@ -30,6 +30,11 @@ Security model:
   exceptions all fail closed with the deterministic reason
   "capability_schema_invalid". Error details carry field locations and
   error types ONLY — never parameter values or secrets.
+- A schema rejection on a §4-authorized capability additionally emits an
+  additive §13.1 final-outcome audit record (BLOCK,
+  "capability_schema_invalid") via app.hermes.audit.record_final_outcome;
+  the §4 ALLOW record stands unchanged and the binding never executes.
+  Audit is authorization-preserving and best-effort.
 - Binding exceptions surface as structured tool-result failures
   ({"error": {...}}); they never widen authorization or counting.
 
@@ -348,8 +353,10 @@ def make_capability_validating_hook(base_hook: Callable):
     validation, with §12 outermost (limits.py). §4 BLOCK directives pass
     through verbatim; a schema-invalid request on an authorized
     capability is BLOCKed with the deterministic
-    "capability_schema_invalid" reason. Never raises; block messages
-    carry names and reasons only — never parameter values.
+    "capability_schema_invalid" reason and emits an additive §13.1
+    final-outcome audit record (the §4 ALLOW record is preserved
+    unchanged; §4 logic and ordering are untouched). Never raises; block
+    messages carry names and reasons only — never parameter values.
     """
     from app.hermes.policy import POLICY_PLUGIN_MARKER
 
@@ -361,6 +368,12 @@ def make_capability_validating_hook(base_hook: Callable):
             validation = validate_capability_parameters(tool_name, args)
             if validation.ok:
                 return None
+            try:
+                from app.hermes.audit import record_final_outcome
+
+                record_final_outcome(tool_name, args, validation.reason)
+            except Exception:
+                pass  # authorization-preserving, best-effort audit (§13.1)
             return {
                 "action": "block",
                 "message": (

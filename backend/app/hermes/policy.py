@@ -240,7 +240,8 @@ def make_pre_tool_call_hook(authorization_context: AuthorizationContext, audit_s
 
             record_policy_decision(authorization_context, tool_name, args, decision, sink=audit_sink)
         except Exception:
-            pass  # Fail-closed: audit recording failures must never alter authorization or fail open
+            pass  # Authorization-preserving, best-effort audit: a recording
+            # failure never alters the §4 decision or fails open
         if decision.allowed:
             return None
         return {"action": "block", "message": decision.message}

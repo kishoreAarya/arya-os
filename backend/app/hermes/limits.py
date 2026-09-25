@@ -33,6 +33,14 @@ Counting semantics (deterministic, per job):
 - Any error inside the ledger/wrapper is fail-closed: the request is
   BLOCKED with "blocked_limit_check_error" and the violation is recorded.
 
+§13.1 final-outcome audit (additive observability only): every §12
+denial — total limit, per-capability limit, a fresh blocked-request
+limit trip, post-violation denials, and the fail-closed internal-error
+block — emits a best-effort BLOCK audit record with the deterministic
+reason code via app.hermes.audit.record_final_outcome. Counting
+semantics, thresholds, ordering, and failure behavior are unchanged,
+and audit failures never alter any decision.
+
 Out of scope by spec-ordered deferral: USD generation budget (§9
 provider.generate + router cost accounting) and the context-token cap
 (§5.2 model-config completion). No concurrency support: one ledger per
@@ -132,6 +140,17 @@ class JobLimitLedger:
             return REASON_LIMIT_CHECK_ERROR
 
 
+def _audit_final_outcome(tool_name: object, args: object, reason: str) -> None:
+    """Best-effort §13.1 final-outcome audit record (§12 layer). Never
+    raises into the request path; a recording failure changes nothing."""
+    try:
+        from app.hermes.audit import record_final_outcome
+
+        record_final_outcome(tool_name, args, reason)
+    except Exception:
+        pass  # authorization-preserving, best-effort audit (§13.1)
+
+
 def make_limit_enforcing_hook(base_hook: Callable, ledger: JobLimitLedger) -> Callable:
     """Wrap the §4 pre_tool_call hook with §12 limit enforcement.
 
@@ -140,19 +159,27 @@ def make_limit_enforcing_hook(base_hook: Callable, ledger: JobLimitLedger) -> Ca
     returns "modify"/"approve"; NEVER raises (a raising callback would
     fail open through Hermes' dispatch wrapper, model_tools.py:780). §4
     block directives are returned verbatim; limit denials carry their own
-    deterministic reason code. The wrapper carries the AryaOS policy
-    plugin marker so §4.3 registration verification still passes.
+    deterministic reason code. Every §12 denial additionally emits a
+    best-effort §13.1 final-outcome audit record (§4 records unchanged).
+    The wrapper carries the AryaOS policy plugin marker so §4.3
+    registration verification still passes.
     """
 
     def limit_enforcing_hook(tool_name: str, args: dict | None = None, **_hook_kwargs: Any):
         try:
             decision = base_hook(tool_name, args, **_hook_kwargs)
             if decision is not None:  # §4 BLOCK — count, preserve verbatim
+                violation_before = ledger.violation_code
                 ledger.record(tool_name, allowed_by_policy=False)
+                if violation_before is None and ledger.violation_code == REASON_BLOCKED_LIMIT:
+                    # This request exhausted the blocked-request budget (§12
+                    # job-level denial); the §4 block directive still stands.
+                    _audit_final_outcome(tool_name, args, REASON_BLOCKED_LIMIT)
                 return decision
             reason = ledger.record(tool_name, allowed_by_policy=True)
             if reason is None:
                 return None
+            _audit_final_outcome(tool_name, args, reason)
             name = tool_name if isinstance(tool_name, str) and tool_name else "<invalid>"
             return {"action": "block", "message": f"Blocked by AryaOS policy gate ({reason}): {name!r}"}
         except BaseException:  # noqa: BLE001 — §12/§4: never raise, fail closed
@@ -160,6 +187,7 @@ def make_limit_enforcing_hook(base_hook: Callable, ledger: JobLimitLedger) -> Ca
                 ledger.note_internal_error()
             except Exception:
                 pass
+            _audit_final_outcome(tool_name, args, REASON_LIMIT_CHECK_ERROR)
             name = tool_name if isinstance(tool_name, str) and tool_name else "<invalid>"
             return {
                 "action": "block",

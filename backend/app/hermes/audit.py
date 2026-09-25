@@ -14,6 +14,11 @@ This module implements the persistent authorization-decision audit record slice:
    and FileAuditSink (persistent append-only JSON Lines).
 4. Active audit-sink binding managed alongside AuthorizationContext during job execution.
 5. Structured logging via structlog that NEVER logs parameter values or secrets.
+6. Additive final-outcome records (§13.1): a request that passed §4 but was
+   finally rejected by the §9 schema-validation layer or the §12 limit layer
+   gets its own BLOCK record with the rejecting layer's deterministic reason
+   code; the §4 record is never rewritten. Audit remains authorization-
+   preserving and best-effort: recording failures never alter any decision.
 """
 from __future__ import annotations
 
@@ -272,4 +277,83 @@ def record_policy_decision(
         return record
     except Exception as exc:
         logger.error("hermes_record_policy_decision_failed", error=str(exc))
+        return None
+
+
+def record_final_outcome(
+    tool_name: Any,
+    parameters: Any,
+    reason_code: str,
+    sink: AuditSink | None = None,
+) -> AuthorizationDecisionAuditRecord | None:
+    """Record one additive final-outcome BLOCK (§13.1).
+
+    For a request that PASSED §4 — whose §4 ALLOW audit record stands
+    unchanged — but was finally rejected downstream by the §9 schema
+    validation layer (reason "capability_schema_invalid") or the §12
+    resource-limit layer (reason "tool_call_limit_exceeded", ...). The
+    resulting trail distinguishes:
+
+        §4 decision = ALLOW  (unmodified §4 record)
+        final outcome = BLOCK (this record, layer's reason code)
+
+    Identity fields come from the runtime-bound active authorization
+    context when available (the §9/§12 wrappers close over no context);
+    a missing context degrades to "<unknown>" fields, never an error.
+
+    Total function: never raises — audit is authorization-preserving and
+    best-effort; a recording failure must never bypass §4, flip a
+    decision, or fail the job.
+    """
+    try:
+        try:
+            from app.hermes.runtime import get_active_authorization_context
+
+            authorization_context = get_active_authorization_context()
+        except Exception:
+            authorization_context = None
+
+        user_id = getattr(authorization_context, "user_id", None) or "<unknown>"
+        project_id = getattr(authorization_context, "project_id", None) or "<unknown>"
+        job_id = getattr(authorization_context, "job_id", None) or "<unknown>"
+        agent_id = getattr(authorization_context, "agent_id", None) or "<unknown>"
+        lineage_id = getattr(authorization_context, "lineage_id", None) or "<unknown>"
+
+        tool_str = str(tool_name) if tool_name is not None else "<none>"
+
+        record = AuthorizationDecisionAuditRecord(
+            user_id=str(user_id),
+            project_id=str(project_id),
+            job_id=str(job_id),
+            agent_id=str(agent_id),
+            lineage_id=str(lineage_id),
+            tool_name=tool_str,
+            decision="BLOCK",
+            reason_code=str(reason_code),
+            parameter_digest=compute_parameter_digest(parameters),
+            parameters=parameters if isinstance(parameters, dict) else None,
+        )
+
+        # Structured logging: only the parameter digest, never raw values
+        logger.warning(
+            "hermes_final_outcome",
+            audit_id=record.audit_id,
+            decision=record.decision,
+            reason_code=record.reason_code,
+            tool_name=record.tool_name,
+            parameter_digest=record.parameter_digest,
+            job_id=record.job_id,
+            lineage_id=record.lineage_id,
+        )
+
+        target_sink = sink if sink is not None else get_active_audit_sink()
+        if target_sink is not None:
+            try:
+                target_sink.record(record)
+            except Exception as sink_exc:
+                logger.error("hermes_audit_sink_record_failed", error=str(sink_exc), audit_id=record.audit_id)
+
+        return record
+    except Exception as exc:
+        logger.error("hermes_record_final_outcome_failed", error=str(exc))
         return None

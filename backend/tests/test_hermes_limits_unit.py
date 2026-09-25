@@ -222,6 +222,131 @@ def test_wrapper_never_modifies_or_approves():
 
 
 # ---------------------------------------------------------------------------
+# 2b. §13.1 final-outcome audit of §12 denials (additive observability)
+# ---------------------------------------------------------------------------
+
+def test_total_limit_denial_final_outcome_audited():
+    from app.hermes.audit import InMemoryAuditSink, set_active_audit_sink
+
+    sink = InMemoryAuditSink()
+    set_active_audit_sink(sink)
+    try:
+        ledger = JobLimitLedger(max_tool_calls=1, max_tool_calls_per_capability=5, max_blocked_requests=5)
+        hook = make_limit_enforcing_hook(_base_hook(), ledger)
+        assert hook("todo_list", {}) is None
+        verdict = hook("research.search", {"topic": "x"})
+        assert verdict["action"] == "block"
+        assert REASON_TOOL_CALL_LIMIT in verdict["message"]
+        records = sink.records()
+        assert [(r.decision, r.reason_code) for r in records] == [
+            ("ALLOW", "allowed_sanctioned_native_tool"),
+            ("ALLOW", "allowed_typed_capability"),  # §4 allowed the denied request
+            ("BLOCK", REASON_TOOL_CALL_LIMIT),  # §13.1 final outcome
+        ]
+        assert records[2].tool_name == "research.search"
+    finally:
+        set_active_audit_sink(None)
+
+
+def test_per_capability_limit_denial_final_outcome_audited():
+    from app.hermes.audit import InMemoryAuditSink, set_active_audit_sink
+
+    sink = InMemoryAuditSink()
+    set_active_audit_sink(sink)
+    try:
+        ledger = JobLimitLedger(max_tool_calls=5, max_tool_calls_per_capability=1, max_blocked_requests=5)
+        hook = make_limit_enforcing_hook(_base_hook(), ledger)
+        assert hook("research.search", {"topic": "a"}) is None
+        verdict = hook("research.search", {"topic": "b"})
+        assert verdict["action"] == "block"
+        assert REASON_PER_CAPABILITY_LIMIT in verdict["message"]
+        records = sink.records()
+        assert [(r.decision, r.reason_code) for r in records][-1] == (
+            "BLOCK",
+            REASON_PER_CAPABILITY_LIMIT,
+        )
+    finally:
+        set_active_audit_sink(None)
+
+
+def test_post_violation_denial_final_outcome_audited():
+    from app.hermes.audit import InMemoryAuditSink, set_active_audit_sink
+
+    sink = InMemoryAuditSink()
+    set_active_audit_sink(sink)
+    try:
+        ledger = JobLimitLedger(max_tool_calls=1, max_tool_calls_per_capability=5, max_blocked_requests=5)
+        hook = make_limit_enforcing_hook(_base_hook(), ledger)
+        assert hook("todo_list", {}) is None
+        assert hook("todo_list", {})["action"] == "block"  # trip
+        post = hook("research.search", {"topic": "x"})  # post-violation denial
+        assert post["action"] == "block"
+        assert REASON_TOOL_CALL_LIMIT in post["message"]
+        records = sink.records()
+        assert [(r.decision, r.reason_code) for r in records] == [
+            ("ALLOW", "allowed_sanctioned_native_tool"),
+            ("ALLOW", "allowed_sanctioned_native_tool"),
+            ("BLOCK", REASON_TOOL_CALL_LIMIT),
+            ("ALLOW", "allowed_typed_capability"),  # §4 unchanged post-violation
+            ("BLOCK", REASON_TOOL_CALL_LIMIT),  # §13.1 post-violation final outcome
+        ]
+    finally:
+        set_active_audit_sink(None)
+
+
+def test_blocked_request_limit_trip_final_outcome_audited():
+    """A fresh blocked-request-limit trip emits exactly ONE §13.1 record;
+    §4 BLOCK records pass through unchanged, including post-violation."""
+    from app.hermes.audit import InMemoryAuditSink, set_active_audit_sink
+
+    sink = InMemoryAuditSink()
+    set_active_audit_sink(sink)
+    try:
+        ledger = JobLimitLedger(max_tool_calls=5, max_tool_calls_per_capability=5, max_blocked_requests=1)
+        hook = make_limit_enforcing_hook(_base_hook(), ledger)
+        assert hook("shell", {})["action"] == "block"  # blocked 1/1 — no trip yet
+        assert hook("delegate_task", {})["action"] == "block"  # 2 > 1 — trip
+        records = sink.records()
+        assert [(r.tool_name, r.decision, r.reason_code) for r in records] == [
+            ("shell", "BLOCK", "blocked_unknown_tool"),  # §4 — unchanged
+            ("delegate_task", "BLOCK", "blocked_explicit"),  # §4 — unchanged
+            ("delegate_task", "BLOCK", REASON_BLOCKED_LIMIT),  # §13.1 §12 trip
+        ]
+        # Post-violation §4-blocked request: only the §4 record — no duplicate
+        # §12 final-outcome record (the §4 directive IS the final outcome).
+        assert hook("shell", {})["action"] == "block"
+        records = sink.records()
+        assert len(records) == 4
+        assert records[3].reason_code == "blocked_unknown_tool"
+    finally:
+        set_active_audit_sink(None)
+
+
+def test_limit_audit_failure_never_alters_enforcement():
+    """§13.1 audit is non-fatal: a raising sink changes no §12 decision and
+    never raises into the request path."""
+    from app.hermes.audit import set_active_audit_sink
+
+    class BrokenSink:
+        def record(self, record):
+            raise OSError("disk full")
+
+    set_active_audit_sink(BrokenSink())
+    try:
+        ledger = JobLimitLedger(max_tool_calls=1, max_tool_calls_per_capability=5, max_blocked_requests=5)
+        hook = make_limit_enforcing_hook(_base_hook(), ledger)
+        assert hook("todo_list", {}) is None  # ALLOW stays ALLOW
+        verdict = hook("todo_list", {})  # denial still enforced
+        assert verdict["action"] == "block"
+        assert REASON_TOOL_CALL_LIMIT in verdict["message"]
+        post = hook("shell", {})  # §4 BLOCK still passes through verbatim
+        assert post["action"] == "block"
+        assert ledger.violation_code == REASON_TOOL_CALL_LIMIT
+    finally:
+        set_active_audit_sink(None)
+
+
+# ---------------------------------------------------------------------------
 # 3. Thread-safety / determinism
 # ---------------------------------------------------------------------------
 

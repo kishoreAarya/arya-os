@@ -20,6 +20,7 @@ from app.hermes.audit import (
     InMemoryAuditSink,
     compute_parameter_digest,
     get_active_audit_sink,
+    record_final_outcome,
     record_policy_decision,
     set_active_audit_sink,
 )
@@ -325,6 +326,67 @@ def test_record_policy_decision_fail_closed_on_sink_error():
 
 
 # ---------------------------------------------------------------------------
+# 5b. Final-outcome records (§13.1)
+# ---------------------------------------------------------------------------
+
+def test_record_final_outcome_to_active_sink():
+    """§13.1 helper: additive final-outcome BLOCK with identity from the
+    runtime-bound context, persisted to the active sink."""
+    from app.hermes import runtime
+
+    sink = InMemoryAuditSink()
+    try:
+        runtime.set_active_authorization_context(CONTEXT)
+        set_active_audit_sink(sink)
+        record = record_final_outcome("research.search", {"topic": "x"}, "capability_schema_invalid")
+        assert record is not None
+        assert record.decision == "BLOCK"
+        assert record.reason_code == "capability_schema_invalid"
+        assert record.tool_name == "research.search"
+        assert record.user_id == CONTEXT.user_id
+        assert record.job_id == CONTEXT.job_id
+        assert record.project_id == CONTEXT.project_id
+        assert record.lineage_id == CONTEXT.lineage_id
+        assert record.parameters == {"topic": "x"}
+        assert record.parameter_digest == compute_parameter_digest({"topic": "x"})
+        assert sink.records() == [record]
+    finally:
+        runtime.set_active_authorization_context(None)
+        set_active_audit_sink(None)
+
+
+def test_record_final_outcome_explicit_sink_unknown_context():
+    """Explicit sink wins over the active binding; a missing runtime
+    context degrades identity to <unknown>, never an error."""
+    sink = InMemoryAuditSink()
+    record = record_final_outcome("todo_list", {}, "tool_call_limit_exceeded", sink=sink)
+    assert record is not None
+    assert record.decision == "BLOCK"
+    assert record.reason_code == "tool_call_limit_exceeded"
+    assert record.user_id == "<unknown>"
+    assert record.job_id == "<unknown>"
+    assert len(sink.records()) == 1
+
+
+def test_record_final_outcome_total_on_broken_sink_and_odd_inputs():
+    """§13.1 audit is best-effort: a raising sink and malformed inputs
+    never raise into the caller."""
+    from app.hermes.limits import REASON_TOOL_CALL_LIMIT
+
+    class BrokenSink:
+        def record(self, record):
+            raise OSError("disk full")
+
+    record = record_final_outcome(
+        "research.search", {"bogus": 1}, "capability_schema_invalid", sink=BrokenSink()
+    )
+    assert record is not None
+    assert record.decision == "BLOCK"
+    for tool, params in ((None, None), (7, "args"), ("shell", [1, 2])):
+        assert record_final_outcome(tool, params, REASON_TOOL_CALL_LIMIT, sink=BrokenSink()) is not None
+
+
+# ---------------------------------------------------------------------------
 # 6. Hook Integration
 # ---------------------------------------------------------------------------
 
@@ -373,6 +435,95 @@ def test_active_audit_sink_binding():
     finally:
         set_active_audit_sink(None)
         assert get_active_audit_sink() is None
+
+
+# ---------------------------------------------------------------------------
+# 6b. Final-outcome fidelity through the full §4 -> §9 -> §12 chain (§13.1)
+# ---------------------------------------------------------------------------
+
+def _final_outcome_chain(sink, ledger):
+    """The production hook composition: §12 wrapper -> §9 wrapper -> §4 hook."""
+    from app.hermes.capabilities import make_capability_validating_hook
+    from app.hermes.limits import make_limit_enforcing_hook
+
+    hook = make_pre_tool_call_hook(CONTEXT, audit_sink=sink)
+    hook = make_capability_validating_hook(hook)
+    return make_limit_enforcing_hook(hook, ledger)
+
+
+def test_section_4_block_audit_unchanged_through_chain():
+    """§4 BLOCK through the full chain emits exactly ONE record — the
+    unchanged §4 BLOCK — and no spurious §9/§12 final-outcome record."""
+    from app.hermes.limits import JobLimitLedger
+
+    sink = InMemoryAuditSink()
+    set_active_audit_sink(sink)
+    try:
+        hook = _final_outcome_chain(sink, JobLimitLedger(5, 5, 5))
+        verdict = hook("shell", {"cmd": "id"})
+        assert isinstance(verdict, dict) and verdict.get("action") == "block"
+        records = sink.records()
+        assert len(records) == 1
+        assert records[0].decision == "BLOCK"
+        assert records[0].reason_code == "blocked_unknown_tool"
+        assert records[0].tool_name == "shell"
+    finally:
+        set_active_audit_sink(None)
+
+
+def test_schema_rejection_final_outcome_through_chain():
+    """§4 ALLOW + §9 rejection: §4 record stays ALLOW; an additive final
+    BLOCK record carries capability_schema_invalid."""
+    from app.hermes.capabilities import CAPABILITY_SCHEMA_INVALID
+    from app.hermes.limits import JobLimitLedger
+
+    sink = InMemoryAuditSink()
+    set_active_audit_sink(sink)
+    try:
+        hook = _final_outcome_chain(sink, JobLimitLedger(5, 5, 5))
+        verdict = hook("research.search", {})  # missing required topic
+        assert verdict["action"] == "block"
+        assert CAPABILITY_SCHEMA_INVALID in verdict["message"]
+        records = sink.records()
+        assert [(r.decision, r.reason_code) for r in records] == [
+            ("ALLOW", "allowed_typed_capability"),  # §4 — unchanged
+            ("BLOCK", CAPABILITY_SCHEMA_INVALID),  # §13.1 final outcome
+        ]
+    finally:
+        set_active_audit_sink(None)
+
+
+def test_broken_audit_sink_never_alters_decisions():
+    """§13.1 audit failures are non-fatal: with a raising sink on the §4
+    closure AND the active binding, every decision is unchanged and the
+    recorder never raises into the request path."""
+    from app.hermes.limits import (
+        REASON_PER_CAPABILITY_LIMIT,
+        JobLimitLedger,
+    )
+
+    class BrokenSink:
+        def record(self, record):
+            raise OSError("disk full")
+
+    broken = BrokenSink()
+    set_active_audit_sink(broken)
+    try:
+        ledger = JobLimitLedger(5, 1, 5)
+        hook = _final_outcome_chain(broken, ledger)
+        assert hook("todo_list", {}) is None  # ALLOW stays ALLOW (executes)
+        schema_verdict = hook("research.search", {"bogus": 1})  # schema rejection
+        assert schema_verdict["action"] == "block"
+        limit_verdict = hook("todo_list", {})  # per-capability denial
+        assert limit_verdict["action"] == "block"
+        assert REASON_PER_CAPABILITY_LIMIT in limit_verdict["message"]
+        post_verdict = hook("research.search", {"topic": "x"})  # post-violation
+        assert post_verdict["action"] == "block"
+        block_verdict = hook("shell", {})  # BLOCK stays BLOCK
+        assert block_verdict["action"] == "block"
+        assert ledger.violation_code == REASON_PER_CAPABILITY_LIMIT
+    finally:
+        set_active_audit_sink(None)
 
 
 # ---------------------------------------------------------------------------
@@ -477,4 +628,201 @@ def test_real_hermes_runtime_persists_audit_file(tmp_path: Path):
     assert "shell" in tool_names
     assert "ALLOW" in decisions
     assert "BLOCK" in decisions
+
+
+# ---------------------------------------------------------------------------
+# 9. Real Hermes final-outcome persistence integration (§13.1 / §16)
+# ---------------------------------------------------------------------------
+
+def _final_outcome_settings(tmp_path: Path, tag: str, **limit_overrides):
+    """Settings for a §13.1 integration job (distinct hermes_home per job)."""
+    from app.core.config import HERMES_COMMIT_PIN, Settings
+
+    repo_root = Path(__file__).resolve().parents[2]
+    base = {
+        "hermes_enabled": True,
+        "hermes_commit_pin": HERMES_COMMIT_PIN,
+        "hermes_plugin_path": str(repo_root / "backend" / "app" / "hermes" / "plugins"),
+        "hermes_home": str(tmp_path / f"hermes-root-{tag}"),
+        "hermes_max_iterations": 5,
+        "hermes_max_execution_seconds": 10.0,
+        "hermes_max_tool_calls": 10,
+        "hermes_max_tool_calls_per_capability": 5,
+        "hermes_max_generation_budget_usd": 1.0,
+        "hermes_max_context_tokens": 8_000,
+        "hermes_max_blocked_requests": 3,
+    }
+    base.update(limit_overrides)
+    return Settings(**base)
+
+
+def _final_outcome_request(job_id: str):
+    from app.hermes import runtime
+
+    return runtime.HermesJobRequest(
+        job_id=job_id,
+        task_message=None,
+        authorization_context=CONTEXT,
+        provider="openai",
+        base_url="http://127.0.0.1:9/v1",
+        api_key="aryaos-explicit-test-key",
+        model="aryaos-test-model",
+    )
+
+
+def test_real_hermes_persists_schema_and_total_limit_final_outcomes(tmp_path: Path):
+    """§13.1 integration: §9 schema rejection and §12 total-limit /
+    post-violation denials persist additive final-outcome BLOCK records
+    with deterministic reasons; §4 records remain unchanged."""
+    import importlib.util
+
+    if importlib.util.find_spec("run_agent") is None:
+        pytest.fail("§16: pinned Hermes source missing")
+    from app.hermes import runtime
+
+    original_assert = runtime._assert_plugin_surface
+
+    def capturing_assert():
+        from hermes_cli.plugins import iter_hook_callbacks
+
+        hook = next(iter(iter_hook_callbacks("pre_tool_call")))
+        schema_verdict = hook("research.search", {})  # §4 ALLOW -> §9 BLOCK
+        assert schema_verdict["action"] == "block"
+        assert "capability_schema_invalid" in schema_verdict["message"]
+        assert hook("research.search", {"topic": "a"}) is None  # allowed (1/2)
+        assert hook("todo_list", {}) is None  # allowed (2/2)
+        limit_verdict = hook("research.search", {"topic": "b"})  # total limit
+        assert limit_verdict["action"] == "block"
+        assert "tool_call_limit_exceeded" in limit_verdict["message"]
+        post_verdict = hook("todo_list", {})  # post-violation denial
+        assert post_verdict["action"] == "block"
+        assert "tool_call_limit_exceeded" in post_verdict["message"]
+        original_assert()
+
+    runtime._assert_plugin_surface = capturing_assert
+    try:
+        settings = _final_outcome_settings(
+            tmp_path,
+            "total",
+            hermes_max_tool_calls=2,
+            hermes_max_tool_calls_per_capability=2,
+            hermes_max_blocked_requests=5,
+        )
+        res = runtime.run_hermes_job(_final_outcome_request("audit-final-1"), settings=settings)
+    finally:
+        runtime._assert_plugin_surface = original_assert
+
+    # §11: the mid-job limit violation fails the job — no silent continuation.
+    assert res.status == "failed"
+    assert res.error_code == "tool_call_limit_exceeded"
+
+    audit_file = Path(settings.hermes_home) / "audit" / "hermes_policy_audit.jsonl"
+    assert audit_file.is_file()
+    trail = [
+        (r.tool_name, r.decision, r.reason_code) for r in FileAuditSink(audit_file).read_records()
+    ]
+    assert trail == [
+        ("research.search", "ALLOW", "allowed_typed_capability"),  # §4 — unchanged
+        ("research.search", "BLOCK", "capability_schema_invalid"),  # §13.1 §9 final
+        ("research.search", "ALLOW", "allowed_typed_capability"),
+        ("todo_list", "ALLOW", "allowed_sanctioned_native_tool"),
+        ("research.search", "ALLOW", "allowed_typed_capability"),  # §4 allowed the denied request
+        ("research.search", "BLOCK", "tool_call_limit_exceeded"),  # §13.1 §12 final
+        ("todo_list", "ALLOW", "allowed_sanctioned_native_tool"),  # §4 unchanged post-violation
+        ("todo_list", "BLOCK", "tool_call_limit_exceeded"),  # §13.1 §12 post-violation final
+    ]
+
+
+def test_real_hermes_persists_per_capability_limit_final_outcome(tmp_path: Path):
+    """§13.1 integration: the §12 per-capability limit denial and the
+    post-violation denial persist final-outcome BLOCK records."""
+    import importlib.util
+
+    if importlib.util.find_spec("run_agent") is None:
+        pytest.fail("§16: pinned Hermes source missing")
+    from app.hermes import runtime
+
+    original_assert = runtime._assert_plugin_surface
+
+    def capturing_assert():
+        from hermes_cli.plugins import iter_hook_callbacks
+
+        hook = next(iter(iter_hook_callbacks("pre_tool_call")))
+        assert hook("research.search", {"topic": "a"}) is None  # per-capability 1/1
+        verdict = hook("research.search", {"topic": "b"})  # per-capability exceeded
+        assert verdict["action"] == "block"
+        assert "tool_call_per_capability_limit_exceeded" in verdict["message"]
+        post_verdict = hook("todo_list", {})  # post-violation denial
+        assert post_verdict["action"] == "block"
+        assert "tool_call_per_capability_limit_exceeded" in post_verdict["message"]
+        original_assert()
+
+    runtime._assert_plugin_surface = capturing_assert
+    try:
+        settings = _final_outcome_settings(
+            tmp_path, "percap", hermes_max_tool_calls=5, hermes_max_tool_calls_per_capability=1
+        )
+        res = runtime.run_hermes_job(_final_outcome_request("audit-final-2"), settings=settings)
+    finally:
+        runtime._assert_plugin_surface = original_assert
+
+    assert res.status == "failed"
+    assert res.error_code == "tool_call_per_capability_limit_exceeded"
+
+    audit_file = Path(settings.hermes_home) / "audit" / "hermes_policy_audit.jsonl"
+    trail = [
+        (r.tool_name, r.decision, r.reason_code) for r in FileAuditSink(audit_file).read_records()
+    ]
+    assert trail == [
+        ("research.search", "ALLOW", "allowed_typed_capability"),
+        ("research.search", "ALLOW", "allowed_typed_capability"),  # §4 allowed the denied request
+        ("research.search", "BLOCK", "tool_call_per_capability_limit_exceeded"),  # §13.1 final
+        ("todo_list", "ALLOW", "allowed_sanctioned_native_tool"),  # §4 unchanged post-violation
+        ("todo_list", "BLOCK", "tool_call_per_capability_limit_exceeded"),  # §13.1 post-violation
+    ]
+
+
+def test_real_hermes_persists_blocked_request_limit_final_outcome(tmp_path: Path):
+    """§13.1 integration: a fresh §12 blocked-request-limit trip persists a
+    final-outcome BLOCK record while §4 BLOCK records pass through unchanged."""
+    import importlib.util
+
+    if importlib.util.find_spec("run_agent") is None:
+        pytest.fail("§16: pinned Hermes source missing")
+    from app.hermes import runtime
+
+    original_assert = runtime._assert_plugin_surface
+
+    def capturing_assert():
+        from hermes_cli.plugins import iter_hook_callbacks
+
+        hook = next(iter(iter_hook_callbacks("pre_tool_call")))
+        assert hook("shell", {})["action"] == "block"  # blocked 1/1 — no trip yet
+        assert hook("delegate_task", {})["action"] == "block"  # trips 2 > 1
+        post_verdict = hook("todo_list", {})  # post-violation denial
+        assert post_verdict["action"] == "block"
+        assert "blocked_request_limit_exceeded" in post_verdict["message"]
+        original_assert()
+
+    runtime._assert_plugin_surface = capturing_assert
+    try:
+        settings = _final_outcome_settings(tmp_path, "blocked", hermes_max_blocked_requests=1)
+        res = runtime.run_hermes_job(_final_outcome_request("audit-final-3"), settings=settings)
+    finally:
+        runtime._assert_plugin_surface = original_assert
+
+    assert res.status == "failed"
+    assert res.error_code == "blocked_request_limit_exceeded"
+
+    audit_file = Path(settings.hermes_home) / "audit" / "hermes_policy_audit.jsonl"
+    trail = [
+        (r.tool_name, r.decision, r.reason_code) for r in FileAuditSink(audit_file).read_records()
+    ]
+    assert trail == [
+        ("shell", "BLOCK", "blocked_unknown_tool"),  # §4 — unchanged
+        ("delegate_task", "BLOCK", "blocked_explicit"),  # §4 — unchanged
+        ("delegate_task", "BLOCK", "blocked_request_limit_exceeded"),  # §13.1 §12 trip
+        ("todo_list", "ALLOW", "allowed_sanctioned_native_tool"),  # §4 unchanged post-violation
+        ("todo_list", "BLOCK", "blocked_request_limit_exceeded"),  # §13.1 post-violation
+    ]
 
