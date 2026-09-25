@@ -975,6 +975,149 @@ def test_provider_generate_context_guards(monkeypatch, seeded_run):
     assert invalid.reason_code == "blocked_invalid_context_type"
 
 
+def test_provider_generate_emits_execution_outcome_records(monkeypatch, seeded_run):
+    """§13.2: every EXECUTED provider.generate call emits exactly one
+    execution-outcome record — success carries engine duration + cost
+    ESTIMATE + digest (never prompt values); provider failure and
+    router cost-limit failure carry outcome=failure + reason. A broken
+    audit sink changes none of the returned results."""
+    import asyncio
+
+    from app.hermes.audit import InMemoryAuditSink, set_active_audit_sink
+    from app.hermes.limits import JobLimitLedger
+    from app.hermes.runtime import (
+        set_active_authorization_context,
+        set_active_job_ledger,
+    )
+
+    empty_project, empty_run = seeded_run[1]
+    _budget_settings(monkeypatch, budget=1.0)
+
+    class _BrokenSink:
+        def record(self, record):
+            raise OSError("disk full")
+
+    def _run(stub_sink, *, success=True, error=None):
+        _install_engine_stub(monkeypatch, success=success, error=error, cost_usd=0.25)
+        ledger = JobLimitLedger(5, 5, 5)
+        set_active_authorization_context(_run_context(empty_project, empty_run))
+        set_active_job_ledger(ledger)
+        set_active_audit_sink(stub_sink)
+        try:
+            return asyncio.run(execute_capability("provider.generate", {"prompt": "p"}))
+        finally:
+            set_active_authorization_context(None)
+            set_active_job_ledger(None)
+            set_active_audit_sink(None)
+
+    # Success: one execution record, estimate semantics, no parameter values.
+    sink = InMemoryAuditSink()
+    result = _run(sink)
+    assert "error" not in result
+    executions = sink.execution_records()
+    assert len(executions) == 1
+    record = executions[0]
+    assert record.tool_name == "provider.generate" and record.outcome == "success"
+    assert record.reason_code is None
+    assert record.cost_estimate_usd == 0.25 and record.duration_seconds == 0.5
+    assert record.workflow_run_id == str(empty_run)
+    assert "p" != record.parameter_digest and len(record.parameter_digest) == 64
+    assert "prompt" not in record.to_dict()  # values never duplicated
+
+    # Provider failure: failure record with the deterministic reason.
+    sink = InMemoryAuditSink()
+    result = _run(sink, success=False, error="All providers for 'text_generation' failed: []")
+    assert result["error"]["code"] == "provider_unavailable"
+    executions = sink.execution_records()
+    assert len(executions) == 1
+    assert executions[0].outcome == "failure"
+    assert executions[0].reason_code == "provider_unavailable"
+    assert executions[0].cost_estimate_usd == 0.0
+
+    # Router cost-limit failure: failure record with cost_limit_exceeded.
+    sink = InMemoryAuditSink()
+    result = _run(
+        sink, success=False, error="Running cost $5.00 already at/over max_cost_per_video_usd=$5.00"
+    )
+    assert result["error"]["code"] == "cost_limit_exceeded"
+    assert sink.execution_records()[0].reason_code == "cost_limit_exceeded"
+
+    # Broken audit sink: results identical, nothing raises (best-effort).
+    result = _run(_BrokenSink())
+    assert "error" not in result
+    result = _run(
+        _BrokenSink(), success=False, error="All providers for 'text_generation' failed: []"
+    )
+    assert result["error"]["code"] == "provider_unavailable"
+
+
+def test_provider_generate_denials_are_first_class_audit_events(monkeypatch, seeded_run):
+    """§13.2: every generation_run_unavailable denial branch (no context,
+    no ledger, malformed run id, missing/foreign run) emits a §13.1-class
+    BLOCK final-outcome record — §4 said ALLOW, so the denial must not
+    vanish from the audit trail."""
+    import asyncio
+
+    from app.hermes.audit import InMemoryAuditSink, set_active_audit_sink
+    from app.hermes.limits import JobLimitLedger
+    from app.hermes.runtime import (
+        set_active_authorization_context,
+        set_active_job_ledger,
+    )
+
+    (at_budget_project, _at_budget_run), (empty_project, empty_run) = seeded_run
+    _budget_settings(monkeypatch, budget=1.0)
+    engine_calls = _install_engine_stub(monkeypatch)
+
+    sink = InMemoryAuditSink()
+
+    # 1. No context bound.
+    set_active_job_ledger(JobLimitLedger(5, 5, 5))
+    set_active_audit_sink(sink)
+    try:
+        asyncio.run(execute_capability("provider.generate", {"prompt": "x"}))
+    finally:
+        set_active_job_ledger(None)
+        set_active_audit_sink(None)
+
+    def _with(context):
+        set_active_authorization_context(context)
+        set_active_job_ledger(JobLimitLedger(5, 5, 5))
+        set_active_audit_sink(sink)
+        try:
+            return asyncio.run(execute_capability("provider.generate", {"prompt": "x"}))
+        finally:
+            set_active_authorization_context(None)
+            set_active_job_ledger(None)
+            set_active_audit_sink(None)
+
+    # 2. No ledger.
+    set_active_authorization_context(_run_context(empty_project, empty_run))
+    set_active_audit_sink(sink)
+    try:
+        asyncio.run(execute_capability("provider.generate", {"prompt": "x"}))
+    finally:
+        set_active_authorization_context(None)
+        set_active_audit_sink(None)
+
+    # 3. Malformed run id; 4. foreign run; 5. nonexistent run.
+    _with(AuthorizationContext(
+        user_id="u", project_id=str(empty_project), job_id="j",
+        workflow_run_id="not-a-uuid", agent_id="a", lineage_id="l",
+    ))
+    _with(_run_context(at_budget_project, empty_run))  # foreign project for this run
+    _with(_run_context(empty_project, "00000000-0000-0000-0000-000000000000"))
+
+    denials = [
+        r for r in sink.records()
+        if r.tool_name == "provider.generate" and r.decision == "BLOCK"
+        and r.reason_code == "generation_run_unavailable"
+    ]
+    assert len(denials) == 5, [r.reason_code for r in sink.records()]
+    assert engine_calls == []  # denials never executed the provider path
+    assert sink.execution_records() == []  # nothing executed -> no execution records
+
+
 def test_provider_generate_concurrent_budget_enforcement(monkeypatch):
     """§9.3 F1 regression: two CONCURRENT provider.generate calls for the
     same workflow/job (separate threads + event loops, the shape Hermes'
@@ -1072,6 +1215,15 @@ def test_provider_generate_concurrent_budget_enforcement(monkeypatch):
         # §13.1: the denial is a first-class final-outcome audit record.
         trail = [(r.tool_name, r.decision, r.reason_code) for r in sink.records()]
         assert ("provider.generate", "BLOCK", REASON_GENERATION_BUDGET) in trail
+
+        # §13.2: exactly ONE execution-outcome record (the single successful
+        # call — the denied call never executed, so it has none) and its
+        # cost estimate equals the recorded run-total delta.
+        executions = sink.execution_records()
+        assert len(executions) == 1, executions
+        assert executions[0].outcome == "success"
+        assert executions[0].cost_estimate_usd == pytest.approx(0.2)
+        assert executions[0].reason_code is None
     finally:
         asyncio.run(_cleanup_runs(seeded))
 

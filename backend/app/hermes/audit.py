@@ -26,6 +26,13 @@ This module implements the persistent authorization-decision audit record slice:
    duration, and the final job outcome. Job-boundary lines share the
    persistent audit store and are discriminated by record_type; per-request
    readers are unaffected. Still best-effort and secret-free.
+8. Execution-outcome records (§13.2): for an EXECUTED chargeable capability
+   (§9.3 provider.generate), one additive record per call carrying the
+   outcome (success/failure), engine-measured duration, the provider
+   execution COST ESTIMATE (never billing truth), the deterministic failure
+   reason, and the parameter digest (never parameter values). Binding-level
+   DENIALS remain §13.1 final-outcome BLOCK records via
+   record_final_outcome. Routed by record_type="execution_outcome".
 """
 from __future__ import annotations
 
@@ -146,6 +153,9 @@ class AuditSink(Protocol):
 JOB_BOUNDARY_RECORD_TYPE = "job_boundary"
 JOB_START = "JOB_START"
 JOB_END = "JOB_END"
+EXECUTION_OUTCOME_RECORD_TYPE = "execution_outcome"
+EXECUTION_SUCCEEDED = "success"
+EXECUTION_FAILED = "failure"
 
 
 @dataclass(frozen=True)
@@ -252,19 +262,106 @@ class HermesJobAuditRecord:
         )
 
 
+@dataclass(frozen=True)
+class HermesExecutionAuditRecord:
+    """One immutable execution-outcome record (§13.2): what an EXECUTED
+    chargeable capability call (§9.3 provider.generate) actually did.
+
+    Emitted from the capability binding AFTER execution, inside the
+    existing §12/F1 critical section — additive to the §4 decision record
+    (which is never rewritten) and distinct from §13.1 final-outcome BLOCK
+    records (which carry DENIALS; this record carries EXECUTIONS).
+
+    `outcome` — "success" | "failure".
+    `reason_code` — deterministic failure code for outcome="failure"
+    (e.g. provider_unavailable, cost_limit_exceeded); None on success.
+    `duration_seconds` — engine-measured wall clock of the execution.
+    `cost_estimate_usd` — the provider execution COST ESTIMATE reported by
+    the authoritative ExecutionResult (adapter estimate; NEVER billing
+    truth, and never a second accumulator — WorkflowRun.total_cost_usd
+    and GenerationAttempt.cost_usd remain the only spend records).
+    `parameter_digest` — SHA-256 of the tool parameters (correlation with
+    the §4 decision record; parameter VALUES are never duplicated here).
+    Identity — the job-bound AuthorizationContext fields.
+    """
+
+    tool_name: str
+    outcome: str
+    user_id: str
+    project_id: str
+    job_id: str
+    agent_id: str
+    lineage_id: str
+    workflow_run_id: str = ""
+    reason_code: str | None = None
+    duration_seconds: float | None = None
+    cost_estimate_usd: float | None = None
+    parameter_digest: str = ""
+    occurred_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    audit_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "record_type": EXECUTION_OUTCOME_RECORD_TYPE,
+            "audit_id": self.audit_id,
+            "occurred_at": self.occurred_at,
+            "user_id": self.user_id,
+            "project_id": self.project_id,
+            "job_id": self.job_id,
+            "agent_id": self.agent_id,
+            "lineage_id": self.lineage_id,
+            "workflow_run_id": self.workflow_run_id,
+            "tool_name": self.tool_name,
+            "outcome": self.outcome,
+            "reason_code": self.reason_code,
+            "duration_seconds": self.duration_seconds,
+            "cost_estimate_usd": self.cost_estimate_usd,
+            "parameter_digest": self.parameter_digest,
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), default=str)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> HermesExecutionAuditRecord:
+        duration = data.get("duration_seconds")
+        cost = data.get("cost_estimate_usd")
+        return cls(
+            tool_name=str(data.get("tool_name", "")),
+            outcome=str(data.get("outcome", "")),
+            user_id=str(data.get("user_id", "")),
+            project_id=str(data.get("project_id", "")),
+            job_id=str(data.get("job_id", "")),
+            agent_id=str(data.get("agent_id", "")),
+            lineage_id=str(data.get("lineage_id", "")),
+            workflow_run_id=str(data.get("workflow_run_id", "")),
+            reason_code=data.get("reason_code"),
+            duration_seconds=float(duration) if isinstance(duration, (int, float)) else None,
+            cost_estimate_usd=float(cost) if isinstance(cost, (int, float)) else None,
+            parameter_digest=str(data.get("parameter_digest", "")),
+            occurred_at=str(data.get("occurred_at", "")),
+            audit_id=str(data.get("audit_id", "")),
+        )
+
+
 class InMemoryAuditSink:
     """Thread-safe in-memory sink for testing, inspection, and verification."""
 
     def __init__(self) -> None:
-        self._records: list[AuthorizationDecisionAuditRecord | HermesJobAuditRecord] = []
+        self._records: list[
+            AuthorizationDecisionAuditRecord | HermesJobAuditRecord | HermesExecutionAuditRecord
+        ] = []
         self._lock = threading.Lock()
 
-    def record(self, record: AuthorizationDecisionAuditRecord | HermesJobAuditRecord) -> None:
+    def record(
+        self,
+        record: AuthorizationDecisionAuditRecord | HermesJobAuditRecord | HermesExecutionAuditRecord,
+    ) -> None:
         with self._lock:
             self._records.append(record)
 
     def records(self) -> list[AuthorizationDecisionAuditRecord]:
-        """All per-request records (job-boundary records excluded)."""
+        """All per-request decision records (job-boundary/execution excluded)."""
         with self._lock:
             return [r for r in self._records if isinstance(r, AuthorizationDecisionAuditRecord)]
 
@@ -272,6 +369,11 @@ class InMemoryAuditSink:
         """The job-boundary records only."""
         with self._lock:
             return [r for r in self._records if isinstance(r, HermesJobAuditRecord)]
+
+    def execution_records(self) -> list[HermesExecutionAuditRecord]:
+        """The execution-outcome records only (§13.2)."""
+        with self._lock:
+            return [r for r in self._records if isinstance(r, HermesExecutionAuditRecord)]
 
     def clear(self) -> None:
         with self._lock:
@@ -294,7 +396,10 @@ class FileAuditSink:
     def file_path(self) -> Path:
         return self._file_path
 
-    def record(self, record: AuthorizationDecisionAuditRecord | HermesJobAuditRecord) -> None:
+    def record(
+        self,
+        record: AuthorizationDecisionAuditRecord | HermesJobAuditRecord | HermesExecutionAuditRecord,
+    ) -> None:
         with self._lock:
             self._file_path.parent.mkdir(parents=True, exist_ok=True)
             with self._file_path.open("a", encoding="utf-8") as f:
@@ -318,12 +423,13 @@ class FileAuditSink:
         return lines
 
     def read_records(self) -> list[AuthorizationDecisionAuditRecord]:
-        """Per-request authorization records (job-boundary lines excluded)."""
+        """Per-request authorization records (job-boundary and
+        execution-outcome lines excluded — keeps §13.1 trails intact)."""
         with self._lock:
             records = []
             for data in self._read_lines():
-                if data.get("record_type") == JOB_BOUNDARY_RECORD_TYPE:
-                    continue
+                if data.get("record_type"):
+                    continue  # routed record types are not §4/§13.1 records
                 try:
                     records.append(AuthorizationDecisionAuditRecord.from_dict(data))
                 except Exception:
@@ -339,6 +445,19 @@ class FileAuditSink:
                     continue
                 try:
                     records.append(HermesJobAuditRecord.from_dict(data))
+                except Exception:
+                    pass
+            return records
+
+    def read_execution_records(self) -> list[HermesExecutionAuditRecord]:
+        """The execution-outcome records (§13.2) from the same store."""
+        with self._lock:
+            records = []
+            for data in self._read_lines():
+                if data.get("record_type") != EXECUTION_OUTCOME_RECORD_TYPE:
+                    continue
+                try:
+                    records.append(HermesExecutionAuditRecord.from_dict(data))
                 except Exception:
                     pass
             return records
@@ -608,4 +727,101 @@ def record_job_boundary(
         return record
     except Exception as exc:
         logger.error("hermes_record_job_boundary_failed", error=str(exc))
+        return None
+
+
+def record_execution_outcome(
+    tool_name: Any,
+    parameters: Any,
+    outcome: str,
+    *,
+    duration_seconds: float | None = None,
+    cost_estimate_usd: float | None = None,
+    reason_code: str | None = None,
+    sink: AuditSink | None = None,
+) -> HermesExecutionAuditRecord | None:
+    """Record one §13.2 execution outcome for an EXECUTED chargeable
+    capability call (§9.3 provider.generate binding).
+
+    Emitted after execution, from authoritative runtime data only: the
+    engine-measured duration, the provider execution COST ESTIMATE
+    (never billing truth, never a second accumulator), and the
+    deterministic failure reason. Parameter VALUES are never persisted
+    here — only the digest (values already live in the §4 record).
+
+    Total function: never raises — audit is authorization- and
+    execution-preserving; a recording failure can never alter the
+    capability's returned result.
+    """
+    try:
+        try:
+            from app.hermes.runtime import get_active_authorization_context
+
+            authorization_context = get_active_authorization_context()
+        except Exception:
+            authorization_context = None
+
+        user_id = getattr(authorization_context, "user_id", None) or "<unknown>"
+        project_id = getattr(authorization_context, "project_id", None) or "<unknown>"
+        job_id = getattr(authorization_context, "job_id", None) or "<unknown>"
+        agent_id = getattr(authorization_context, "agent_id", None) or "<unknown>"
+        lineage_id = getattr(authorization_context, "lineage_id", None) or "<unknown>"
+        workflow_run_id = getattr(authorization_context, "workflow_run_id", None) or "<unknown>"
+
+        record = HermesExecutionAuditRecord(
+            tool_name=str(tool_name) if tool_name is not None else "<none>",
+            outcome=str(outcome),
+            user_id=str(user_id),
+            project_id=str(project_id),
+            job_id=str(job_id),
+            agent_id=str(agent_id),
+            lineage_id=str(lineage_id),
+            workflow_run_id=str(workflow_run_id),
+            reason_code=reason_code,
+            duration_seconds=round(float(duration_seconds), 6)
+            if isinstance(duration_seconds, (int, float))
+            else None,
+            cost_estimate_usd=round(float(cost_estimate_usd), 6)
+            if isinstance(cost_estimate_usd, (int, float))
+            else None,
+            parameter_digest=compute_parameter_digest(parameters),
+        )
+
+        # Structured logging: digest and estimate only — never values/secrets
+        if record.outcome == EXECUTION_SUCCEEDED:
+            logger.info(
+                "hermes_execution_outcome",
+                audit_id=record.audit_id,
+                outcome=record.outcome,
+                tool_name=record.tool_name,
+                duration_seconds=record.duration_seconds,
+                cost_estimate_usd=record.cost_estimate_usd,
+                parameter_digest=record.parameter_digest,
+                job_id=record.job_id,
+                lineage_id=record.lineage_id,
+            )
+        else:
+            logger.warning(
+                "hermes_execution_outcome",
+                audit_id=record.audit_id,
+                outcome=record.outcome,
+                reason_code=record.reason_code,
+                tool_name=record.tool_name,
+                duration_seconds=record.duration_seconds,
+                cost_estimate_usd=record.cost_estimate_usd,
+                parameter_digest=record.parameter_digest,
+                job_id=record.job_id,
+                lineage_id=record.lineage_id,
+            )
+
+        target_sink = sink if sink is not None else get_active_audit_sink()
+        if target_sink is not None:
+            try:
+                target_sink.record(record)
+            except Exception as sink_exc:
+                logger.error("hermes_audit_sink_record_failed", error=str(sink_exc), audit_id=record.audit_id)
+
+        return record
+    except Exception as exc:
+        logger.error("hermes_record_execution_outcome_failed", error=str(exc))
         return None

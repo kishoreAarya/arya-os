@@ -289,6 +289,34 @@ async def _provider_generate_binding(params: ProviderGenerateParams) -> dict:
     def _err(code: str, detail: str) -> dict:
         return {"error": {"code": code, "detail": detail}}
 
+    def _audit_denial() -> None:
+        """§13.2: a binding-level denial is a first-class §13.1 BLOCK event."""
+        try:
+            from app.hermes.audit import record_final_outcome
+
+            record_final_outcome(
+                "provider.generate", {"prompt": params.prompt}, _GENERATION_RUN_UNAVAILABLE
+            )
+        except Exception:
+            pass  # authorization-preserving, best-effort audit (§13.2)
+
+    def _audit_execution(outcome: str, reason: str | None, duration: float, cost: float) -> None:
+        """§13.2: one execution-outcome record per EXECUTED call, from
+        authoritative ExecutionResult data only (estimate, never billing)."""
+        try:
+            from app.hermes.audit import record_execution_outcome
+
+            record_execution_outcome(
+                "provider.generate",
+                {"prompt": params.prompt},
+                outcome,
+                duration_seconds=duration,
+                cost_estimate_usd=cost,
+                reason_code=reason,
+            )
+        except Exception:
+            pass  # execution-preserving, best-effort audit (§13.2)
+
     try:
         context = get_active_authorization_context()
     except RuntimeError:
@@ -296,13 +324,14 @@ async def _provider_generate_binding(params: ProviderGenerateParams) -> dict:
     ledger = get_active_job_ledger()
     if context is None or ledger is None:
         # Out-of-runtime invocation: a chargeable call never executes.
+        _audit_denial()
         return _err(_GENERATION_RUN_UNAVAILABLE, "no active AryaOS authorization context")
     expected_project = context.project_id.strip()
     try:
         run_uuid = uuid.UUID(str(context.workflow_run_id))
     except (ValueError, TypeError):
+        _audit_denial()
         return _err(_GENERATION_RUN_UNAVAILABLE, "workflow_run_id is not a valid identifier")
-
     from app.core.config import get_settings
 
     budget = get_settings().hermes_max_generation_budget_usd
@@ -324,6 +353,7 @@ async def _provider_generate_binding(params: ProviderGenerateParams) -> dict:
                 # Uniform failure for nonexistent AND foreign-project runs (the
                 # asset.get anti-enumeration discipline).
                 if run is None or str(run.project_id) != expected_project:
+                    _audit_denial()
                     return _err(_GENERATION_RUN_UNAVAILABLE, "no such workflow run in this project")
                 if budget is None:
                     # §12: unbounded chargeable execution is not permitted.
@@ -361,13 +391,19 @@ async def _provider_generate_binding(params: ProviderGenerateParams) -> dict:
                 )
                 if not result.success:
                     error_text = result.error or ""
+                    duration = float(result.elapsed_time or 0.0)
                     if "max_cost_per_video_usd" in error_text:
+                        _audit_execution("failure", _COST_LIMIT_EXCEEDED, duration, 0.0)
                         return _err(_COST_LIMIT_EXCEEDED, "provider cost ceiling reached before execution")
+                    _audit_execution("failure", _PROVIDER_UNAVAILABLE, duration, 0.0)
                     return _err(_PROVIDER_UNAVAILABLE, "all providers failed or errored")
                 # Caller-side run-total update (creator.py precedent); the engine
                 # already wrote and committed its GenerationAttempt.
                 run.total_cost_usd = accumulated + float(result.cost_usd or 0.0)
                 await session.commit()
+                _audit_execution(
+                    "success", None, float(result.elapsed_time or 0.0), float(result.cost_usd or 0.0)
+                )
                 return {
                     "text": str(result.output),
                     "provider": result.provider,

@@ -1293,3 +1293,118 @@ def test_workflow_run_id_degradation_and_legacy_records():
     )
     assert restored.workflow_run_id == "run-789"
 
+
+# ---------------------------------------------------------------------------
+# 12. Execution-outcome records (§13.2)
+# ---------------------------------------------------------------------------
+
+def test_hermes_execution_audit_record_round_trip():
+    """HermesExecutionAuditRecord serializes deterministically, round-trips,
+    and reconstructs legacy/missing keys with defaults — never an error."""
+    from app.hermes.audit import (
+        EXECUTION_FAILED,
+        EXECUTION_OUTCOME_RECORD_TYPE,
+        HermesExecutionAuditRecord,
+    )
+
+    record = HermesExecutionAuditRecord(
+        tool_name="provider.generate",
+        outcome=EXECUTION_FAILED,
+        user_id="u", project_id="p", job_id="j", agent_id="a", lineage_id="l",
+        workflow_run_id="run-1",
+        reason_code="provider_unavailable",
+        duration_seconds=1.25,
+        cost_estimate_usd=0.0,
+        parameter_digest="d" * 64,
+    )
+    data = record.to_dict()
+    assert data["record_type"] == EXECUTION_OUTCOME_RECORD_TYPE
+    assert data["outcome"] == "failure" and data["reason_code"] == "provider_unavailable"
+    assert data["cost_estimate_usd"] == 0.0
+
+    restored = HermesExecutionAuditRecord.from_dict(json.loads(record.to_json()))
+    assert restored.audit_id == record.audit_id
+    assert restored.cost_estimate_usd == 0.0 and restored.duration_seconds == 1.25
+    assert restored.parameter_digest == "d" * 64
+
+    legacy = HermesExecutionAuditRecord.from_dict(
+        {"tool_name": "provider.generate", "outcome": "success",
+         "user_id": "u", "project_id": "p", "job_id": "j", "agent_id": "a", "lineage_id": "l"}
+    )
+    assert legacy.reason_code is None and legacy.duration_seconds is None
+    assert legacy.cost_estimate_usd is None and legacy.parameter_digest == ""
+
+
+def test_file_sink_routes_execution_records(tmp_path: Path):
+    """The shared store holds all three record shapes; §4/§13.1 readers
+    never see execution-outcome lines; the dedicated reader returns them."""
+    from app.hermes.audit import (
+        EXECUTION_OUTCOME_RECORD_TYPE,
+        EXECUTION_SUCCEEDED,
+        JOB_END,
+        HermesExecutionAuditRecord,
+        HermesJobAuditRecord,
+    )
+
+    sink = FileAuditSink(tmp_path / "audit" / "mixed3.jsonl")
+    tool = AuthorizationDecisionAuditRecord(
+        user_id="u", project_id="p", job_id="j", agent_id="a", lineage_id="l",
+        tool_name="provider.generate", decision="ALLOW",
+        reason_code="allowed_typed_capability", parameter_digest="d",
+    )
+    job = HermesJobAuditRecord(
+        event=JOB_END, user_id="u", project_id="p", job_id="j",
+        agent_id="a", lineage_id="l", runtime_job_id="r1", outcome="completed",
+    )
+    execution = HermesExecutionAuditRecord(
+        tool_name="provider.generate", outcome=EXECUTION_SUCCEEDED,
+        user_id="u", project_id="p", job_id="j", agent_id="a", lineage_id="l",
+        duration_seconds=0.5, cost_estimate_usd=0.2,
+    )
+    sink.record(tool)
+    sink.record(execution)
+    sink.record(job)
+
+    assert [r.tool_name for r in sink.read_records()] == ["provider.generate"]
+    assert [r.event for r in sink.read_job_records()] == [JOB_END]
+    executions = sink.read_execution_records()
+    assert len(executions) == 1 and executions[0].outcome == EXECUTION_SUCCEEDED
+    assert executions[0].cost_estimate_usd == 0.2
+    assert EXECUTION_OUTCOME_RECORD_TYPE in (tmp_path / "audit" / "mixed3.jsonl").read_text()
+
+    memory = InMemoryAuditSink()
+    memory.record(tool)
+    memory.record(execution)
+    assert len(memory.records()) == 1
+    assert [r.outcome for r in memory.execution_records()] == [EXECUTION_SUCCEEDED]
+
+
+def test_record_execution_outcome_writes_and_is_total():
+    """record_execution_outcome persists success/failure shapes, degrades
+    identity for a missing context, and never raises — including on a
+    broken sink."""
+    from app.hermes.audit import InMemoryAuditSink, record_execution_outcome
+
+    class BrokenSink:
+        def record(self, record):
+            raise OSError("disk full")
+
+    sink = InMemoryAuditSink()
+    success = record_execution_outcome(
+        "provider.generate", {"prompt": "x"}, "success",
+        duration_seconds=0.5, cost_estimate_usd=0.2, sink=sink,
+    )
+    assert success is not None and success.outcome == "success"
+    assert success.reason_code is None
+    failure = record_execution_outcome(
+        "provider.generate", {"prompt": "x"}, "failure",
+        duration_seconds=1.0, cost_estimate_usd=0.0,
+        reason_code="provider_unavailable", sink=sink,
+    )
+    assert failure is not None and failure.reason_code == "provider_unavailable"
+    assert [r.outcome for r in sink.execution_records()] == ["success", "failure"]
+
+    degraded = record_execution_outcome("provider.generate", {}, "success", sink=BrokenSink())
+    assert degraded is not None and degraded.user_id == "<unknown>"
+    assert record_execution_outcome("provider.generate", None, "failure", sink=BrokenSink()) is not None
+
