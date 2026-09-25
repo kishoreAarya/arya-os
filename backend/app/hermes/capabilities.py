@@ -67,6 +67,23 @@ CAPABILITY_TOOLSET = "aryaos"
 CAPABILITY_SCHEMA_INVALID = "capability_schema_invalid"
 _BINDING_FAILURE = "capability_binding_failed"
 
+# §5.4/§11 approval architecture (operator decisions D1-D5): the frozen
+# approval-gated designation. A gated capability's binding checks (and if
+# absent, creates) an ApprovalCheckpoint keyed to the job's WorkflowRun and
+# signals the runtime to end the job in the explicit "awaiting_approval"
+# state; provider.generate is deliberately NOT gated in this slice.
+APPROVAL_GATED_CAPABILITIES: frozenset[str] = frozenset({"story.create", "publishing.request"})
+# The existing ApprovalStage for each gated capability (no new enum value,
+# no migration): SCRIPT is the story gate; THUMBNAIL is the enum's
+# documented final pre-publish human gate for publishing.
+_APPROVAL_STAGES: dict[str, str] = {
+    "story.create": "script",
+    "publishing.request": "thumbnail",
+}
+_PENDING_APPROVAL = "capability_pending_approval"
+_APPROVAL_GRANTED = "capability_approval_granted"
+_APPROVAL_RUN_UNAVAILABLE = "approval_run_unavailable"
+
 _REDDIT_TIME_FILTERS = ("all", "day", "hour", "month", "week", "year")
 
 
@@ -97,6 +114,28 @@ class AssetGetParams(BaseModel):
 
     asset_id: uuid.UUID
     workflow_run_id: uuid.UUID | None = None  # optional extra ownership guard
+
+
+class StoryCreateParams(BaseModel):
+    """§9 story.create — story/script draft as a PROPOSAL (approval-gated,
+    §5.4 D1). Strict: the draft content only. The run identity, approval
+    state, and tenant scope all come from the job-bound
+    AuthorizationContext — never from model input."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1, max_length=32_000)
+
+
+class PublishingRequestParams(BaseModel):
+    """§9 publishing.request — request publishing for an AryaOS-owned
+    artifact (approval-gated, §5.4 D1). Strict: the artifact reference
+    only. Approval state can never be supplied or influenced by model
+    input; the gate reads AryaOS ApprovalCheckpoint records only."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_id: uuid.UUID
 
 
 class ProviderGenerateParams(BaseModel):
@@ -486,6 +525,143 @@ async def _provider_generate_binding(params: ProviderGenerateParams) -> dict:
             await engine.dispose()
 
 
+async def _approval_gated_binding(tool_name: str, params) -> dict:
+    """Shared §5.4/§11 approval gate for the designated gated capabilities
+    (operator decisions D1-D5):
+
+    - D4: the BINDING owns checkpoints — it creates (or reuses) the
+      pending ApprovalCheckpoint when a request reaches the gated
+      capability without approval; the runner never pre-creates.
+    - D5: the approval lookup is binding-level and read-only-then-write
+      against the existing ApprovalCheckpoint model, scoped to the
+      job-bound context's WorkflowRun (verified against the context's
+      project first — the asset.get/provider.generate anti-enumeration
+      discipline); there is never DB access in the §4 gate.
+    - Checkpoint key: (workflow_run_id, stage, reference_table
+      "workflow_runs", reference_id workflow_run_id) — run-scoped, using
+      only existing ApprovalStage values (no migration). Duplicate
+      requests reuse the existing pending checkpoint (deterministic).
+    - No approval: create/reuse the checkpoint, signal the runtime (the
+      job ends "awaiting_approval", D2/D3), emit a §13.1-style
+      final-outcome record (non-execution), and NEVER execute the
+      capability.
+    - Approval (action=APPROVE on the key): the gate passes. The
+      capability's real operation ships in its own §9 slice; this slice
+      returns the deterministic granted result (no fake work, no fake
+      records).
+    """
+    from app.hermes.runtime import (
+        get_active_authorization_context,
+        set_active_approval_pending,
+    )
+
+    def _err(code: str, detail: str) -> dict:
+        return {"error": {"code": code, "detail": detail}}
+
+    try:
+        context = get_active_authorization_context()
+    except RuntimeError:
+        context = None
+    if context is None:
+        # Out-of-runtime invocation: a gated capability never executes or
+        # creates checkpoints without the job-bound identity.
+        return _err(_APPROVAL_RUN_UNAVAILABLE, "no active AryaOS authorization context")
+    expected_project = context.project_id.strip()
+    try:
+        run_uuid = uuid.UUID(str(context.workflow_run_id))
+    except (ValueError, TypeError):
+        return _err(_APPROVAL_RUN_UNAVAILABLE, "workflow_run_id is not a valid identifier")
+
+    from app.models.approval import ApprovalCheckpoint
+    from app.models.enums import ApprovalAction, ApprovalStage
+
+    stage = ApprovalStage(_APPROVAL_STAGES[tool_name])
+    engine = _make_capability_engine()
+    try:
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        from app.models.core import WorkflowRun
+
+        async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+            run = await session.get(WorkflowRun, run_uuid)
+            # Uniform failure for nonexistent AND foreign-project runs (no
+            # tenant-existence oracle); nothing is created on these paths.
+            if run is None or str(run.project_id) != expected_project:
+                return _err(_APPROVAL_RUN_UNAVAILABLE, "no such workflow run in this project")
+
+            from sqlalchemy import select
+
+            checkpoints = (
+                await session.execute(
+                    select(ApprovalCheckpoint)
+                    .where(
+                        ApprovalCheckpoint.workflow_run_id == run_uuid,
+                        ApprovalCheckpoint.stage == stage,
+                        ApprovalCheckpoint.reference_table == "workflow_runs",
+                        ApprovalCheckpoint.reference_id == run_uuid,
+                    )
+                )
+            ).scalars().all()
+
+            approved = next(
+                (c for c in checkpoints if c.action == ApprovalAction.APPROVE), None
+            )
+            if approved is not None:
+                # Job N+1 (D3): the approved checkpoint authorizes exactly
+                # this workflow run's gated capability — nothing else.
+                return {
+                    "approval": "granted",
+                    "stage": stage.value,
+                    "checkpoint_id": str(approved.id),
+                    "detail": "approval gate passed; the capability operation ships in its own §9 slice",
+                }
+
+            # No approval: create or reuse the pending checkpoint (D4) and
+            # end the job awaiting approval — the capability never executes.
+            pending = next(
+                (c for c in checkpoints if c.action is None), None
+            )
+            if pending is None:
+                pending = ApprovalCheckpoint(
+                    workflow_run_id=run_uuid,
+                    stage=stage,
+                    reference_table="workflow_runs",
+                    reference_id=run_uuid,
+                )
+                session.add(pending)
+                await session.commit()
+            checkpoint_id = str(pending.id)
+    finally:
+        await engine.dispose()
+
+    set_active_approval_pending(stage.value, checkpoint_id)
+    try:
+        from app.hermes.audit import record_final_outcome
+
+        record_final_outcome(tool_name, params.model_dump(), _PENDING_APPROVAL)
+    except Exception:
+        pass  # authorization-preserving, best-effort audit (§13.1 usage)
+    return {
+        "pending_approval": {
+            "stage": stage.value,
+            "checkpoint_id": checkpoint_id,
+            "detail": "approval required before this capability executes; the job now ends awaiting approval",
+        }
+    }
+
+
+async def _story_create_binding(params: StoryCreateParams) -> dict:
+    """Execute the §5.4-gated story.create capability: proposal drafts
+    require AryaOS approval before execution."""
+    return await _approval_gated_binding("story.create", params)
+
+
+async def _publishing_request_binding(params: PublishingRequestParams) -> dict:
+    """Execute the §5.4-gated publishing.request capability: publishing an
+    AryaOS-owned artifact requires the terminal pre-publish approval."""
+    return await _approval_gated_binding("publishing.request", params)
+
+
 _REGISTRY: dict[str, CapabilitySpec] = {
     "research.search": CapabilitySpec(
         name="research.search",
@@ -514,9 +690,12 @@ _REGISTRY: dict[str, CapabilitySpec] = {
     ),
     "story.create": CapabilitySpec(
         name="story.create",
-        description="Create/revise story drafts as proposals (later slice).",
-        schema_model=None,
-        binding=None,
+        description=(
+            "Submit a story/script draft as a proposal (approval-gated: "
+            "execution requires AryaOS script-stage approval)."
+        ),
+        schema_model=StoryCreateParams,
+        binding=_story_create_binding,
     ),
     "memory.retrieve": CapabilitySpec(
         name="memory.retrieve",
@@ -548,9 +727,13 @@ _REGISTRY: dict[str, CapabilitySpec] = {
     ),
     "publishing.request": CapabilitySpec(
         name="publishing.request",
-        description="Request publishing for an AryaOS publish job (later slice).",
-        schema_model=None,
-        binding=None,
+        description=(
+            "Request publishing for an AryaOS-owned artifact "
+            "(approval-gated: execution requires the terminal pre-publish "
+            "approval)."
+        ),
+        schema_model=PublishingRequestParams,
+        binding=_publishing_request_binding,
     ),
 }
 

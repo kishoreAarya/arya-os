@@ -109,6 +109,39 @@ _ACTIVE_CONTEXT: AuthorizationContext | None = None
 _ACTIVE_CONTEXT_LOCK = threading.Lock()
 
 
+# §5.4/§11 approval-pending signal: set by an approval-gated capability
+# binding (§9) when a request reaches a gated capability without approval.
+# The runtime reads it AFTER the chat loop ends and BEFORE returning
+# completed — the job then terminates with the explicit caller-visible
+# status "awaiting_approval" (never an ordinary failure). First signal
+# wins; cleared in finally like the other per-job bindings.
+_ACTIVE_APPROVAL_PENDING: dict | None = None
+_ACTIVE_APPROVAL_PENDING_LOCK = threading.Lock()
+
+
+def set_active_approval_pending(stage: str, checkpoint_id: str) -> bool:
+    """Record that this job ended awaiting AryaOS approval (§5.4/§11).
+    First signal wins (deterministic); returns True if this call set it."""
+    global _ACTIVE_APPROVAL_PENDING
+    with _ACTIVE_APPROVAL_PENDING_LOCK:
+        if _ACTIVE_APPROVAL_PENDING is not None:
+            return False
+        _ACTIVE_APPROVAL_PENDING = {"stage": stage, "checkpoint_id": checkpoint_id}
+        return True
+
+
+def get_active_approval_pending() -> dict | None:
+    """The approval-pending signal for the currently executing job, or None."""
+    with _ACTIVE_APPROVAL_PENDING_LOCK:
+        return dict(_ACTIVE_APPROVAL_PENDING) if _ACTIVE_APPROVAL_PENDING is not None else None
+
+
+def _clear_active_approval_pending() -> None:
+    global _ACTIVE_APPROVAL_PENDING
+    with _ACTIVE_APPROVAL_PENDING_LOCK:
+        _ACTIVE_APPROVAL_PENDING = None
+
+
 def set_active_authorization_context(context: AuthorizationContext | None) -> None:
     """Bind the per-job AuthorizationContext the policy plugin registers with."""
     global _ACTIVE_CONTEXT
@@ -175,7 +208,7 @@ class HermesJobRequest:
 @dataclass(frozen=True)
 class HermesJobResult:
     job_id: str
-    status: str  # "completed" | "failed"
+    status: str  # "completed" | "failed" | "awaiting_approval" (§5.4/§11 D2)
     final_response: str | None
     error_code: str | None
     error_detail: str | None
@@ -579,6 +612,24 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
                 f"(counters: {ledger.counts()})",
             )
 
+        # §5.4/§11: an approval-gated capability requested approval — the
+        # job terminates in the explicit awaiting-approval state (D2: never
+        # an ordinary failure). Checked after the violation row so §12's
+        # hard-fail semantics stay exactly as before.
+        pending = get_active_approval_pending()
+        if pending is not None:
+            outcome_status, outcome_error_code = "awaiting_approval", "capability_pending_approval"
+            return HermesJobResult(
+                job_id=request.job_id,
+                status="awaiting_approval",
+                final_response=final_response,
+                error_code="capability_pending_approval",
+                error_detail=(
+                    f"stage={pending['stage']} checkpoint={pending['checkpoint_id']}; "
+                    "approval terminates this job — a new job resumes after approval (§5.4 D3)"
+                ),
+            )
+
         outcome_status, outcome_error_code = "completed", None
         return completed(request, final_response)
     except HermesRuntimeError as exc:
@@ -642,3 +693,4 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
             set_active_job_ledger(None)
         if audit_sink_was_set:
             set_active_audit_sink(None)
+        _clear_active_approval_pending()

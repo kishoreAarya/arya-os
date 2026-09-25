@@ -104,9 +104,12 @@ def test_no_god_tool_in_registry():
 
 def test_exposed_capabilities_surface():
     # Slice 1: research.search (read-only); Slice 2: asset.get (read-only,
-    # operator-approved); Slice 3 (§9.3, decisions D1-D3): provider.generate
-    # — the first CHARGEABLE capability, budget-gated before execution.
-    assert EXPOSED_CAPABILITIES == frozenset({"research.search", "asset.get", "provider.generate"})
+    # operator-approved); Slice 3 (§9.3): provider.generate (chargeable,
+    # budget-gated); §5.4 slice: story.create + publishing.request
+    # (approval-gated — gate machinery live, operations in later slices).
+    assert EXPOSED_CAPABILITIES == frozenset(
+        {"research.search", "asset.get", "provider.generate", "story.create", "publishing.request"}
+    )
 
 
 def test_allowlist_lockstep_contains_aryaos():
@@ -116,7 +119,9 @@ def test_allowlist_lockstep_contains_aryaos():
 
 def test_tool_definitions_shape():
     defs = capability_tool_definitions()
-    assert set(defs) == {"asset.get", "provider.generate", "research.search"}
+    assert set(defs) == {
+        "asset.get", "provider.generate", "research.search", "story.create", "publishing.request",
+    }
     schema = defs["research.search"]
     assert schema["name"] == "research.search"
     assert schema["description"].strip()
@@ -1252,6 +1257,435 @@ def test_asset_get_emits_execution_outcome(seeded_assets):
     assert records[0].outcome == "failure"
     assert records[0].reason_code == "asset_not_found"
     assert records[0].cost_estimate_usd is None
+
+
+# ---------------------------------------------------------------------------
+# 4d. §5.4/§11 approval architecture (gated capabilities)
+# ---------------------------------------------------------------------------
+
+async def _seed_checkpoint(run_id, stage, action):
+    """Directly write an ApprovalCheckpoint row (the external approval act)."""
+    from contextlib import asynccontextmanager
+
+    from app.hermes.capabilities import _make_capability_engine
+
+    @asynccontextmanager
+    async def _session():
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                yield session
+        finally:
+            await engine.dispose()
+
+    from app.models.approval import ApprovalCheckpoint
+    from app.models.enums import ApprovalAction, ApprovalStage
+
+    async with _session() as session:
+        checkpoint = ApprovalCheckpoint(
+            workflow_run_id=run_id,
+            stage=ApprovalStage(stage),
+            reference_table="workflow_runs",
+            reference_id=run_id,
+            action=(ApprovalAction(action) if action else None),
+        )
+        session.add(checkpoint)
+        await session.commit()
+        return checkpoint.id
+
+
+async def _count_checkpoints(run_id, stage) -> int:
+    from contextlib import asynccontextmanager
+
+    from app.hermes.capabilities import _make_capability_engine
+
+    @asynccontextmanager
+    async def _session():
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                yield session
+        finally:
+            await engine.dispose()
+
+    from app.models.approval import ApprovalCheckpoint
+    from app.models.enums import ApprovalStage
+    from sqlalchemy import func, select
+
+    async with _session() as session:
+        result = await session.execute(
+            select(func.count())
+            .select_from(ApprovalCheckpoint)
+            .where(
+                ApprovalCheckpoint.workflow_run_id == run_id,
+                ApprovalCheckpoint.stage == ApprovalStage(stage),
+            )
+        )
+        return int(result.scalar() or 0)
+
+
+async def _cleanup_checkpoints(*run_ids) -> None:
+    """Delete test-created ApprovalCheckpoints so run-fixture teardown
+    doesn't hit the FK constraint."""
+    from contextlib import asynccontextmanager
+
+    from app.hermes.capabilities import _make_capability_engine
+
+    @asynccontextmanager
+    async def _session():
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                yield session
+        finally:
+            await engine.dispose()
+
+    from app.models.approval import ApprovalCheckpoint
+    from sqlalchemy import delete
+
+    async with _session() as session:
+        for run_id in run_ids:
+            await session.execute(
+                delete(ApprovalCheckpoint).where(ApprovalCheckpoint.workflow_run_id == run_id)
+            )
+        await session.commit()
+
+
+def test_approval_designation_is_frozen():
+    """D1: exactly story.create and publishing.request are gated;
+    provider.generate (and everything else) is not."""
+    from app.hermes.capabilities import APPROVAL_GATED_CAPABILITIES
+
+    assert APPROVAL_GATED_CAPABILITIES == frozenset({"story.create", "publishing.request"})
+    assert "provider.generate" not in APPROVAL_GATED_CAPABILITIES
+    assert "research.search" not in APPROVAL_GATED_CAPABILITIES
+    assert "asset.get" not in APPROVAL_GATED_CAPABILITIES
+
+
+def test_gated_capability_schemas_strict():
+    """Gated schemas are strict; approval state can never be supplied or
+    influenced through tool parameters (extra fields are forbidden)."""
+    ok = validate_capability_parameters("story.create", {"content": "a draft"})
+    assert ok.ok and ok.validated.content == "a draft"
+    ok_pub = validate_capability_parameters(
+        "publishing.request", {"artifact_id": "550e8400-e29b-41d4-a716-446655440000"}
+    )
+    assert ok_pub.ok
+    for bad in (
+        {"content": "x", "approved": True},  # approval injection
+        {"content": "x", "action": "approve"},
+        {"content": "x", "workflow_run_id": "11111111-1111-1111-1111-111111111111"},
+        {},  # missing content
+        {"content": ""},  # empty
+        {"content": "x" * 32_001},
+    ):
+        result = validate_capability_parameters("story.create", bad)
+        assert not result.ok and result.reason == CAPABILITY_SCHEMA_INVALID, bad
+    for bad in ({"artifact_id": "not-a-uuid"}, {}, {"artifact_id": "x", "approved": True}):
+        result = validate_capability_parameters("publishing.request", bad)
+        assert not result.ok and result.reason == CAPABILITY_SCHEMA_INVALID, bad
+
+
+def test_gated_capability_without_approval_pends(seeded_run):
+    """No approval: the gate creates the pending checkpoint (correct run
+    identity), signals the runtime, emits the §13.1 record, and the
+    capability NEVER executes. Duplicate requests reuse the checkpoint."""
+    import asyncio
+
+    from app.hermes.audit import InMemoryAuditSink, set_active_audit_sink
+    from app.hermes.runtime import (
+        _clear_active_approval_pending,
+        get_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), _ = seeded_run
+    sink = InMemoryAuditSink()
+    try:
+        set_active_authorization_context(_run_context(project_id, run_id))
+        set_active_audit_sink(sink)
+        try:
+            result = asyncio.run(execute_capability("story.create", {"content": "a draft"}))
+        finally:
+            set_active_authorization_context(None)
+            set_active_audit_sink(None)
+
+        pending_info = result.get("pending_approval")
+        assert pending_info and pending_info["stage"] == "script"
+        checkpoint_id = uuid.UUID(pending_info["checkpoint_id"])
+
+        # D4/D5: checkpoint carries the run identity; pending action.
+        from contextlib import asynccontextmanager
+
+        from app.hermes.capabilities import _make_capability_engine
+        from app.models.approval import ApprovalCheckpoint
+
+        @asynccontextmanager
+        async def _session():
+            from sqlalchemy.ext.asyncio import async_sessionmaker
+
+            engine = _make_capability_engine()
+            try:
+                async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                    yield session
+            finally:
+                await engine.dispose()
+
+        async def _load():
+            async with _session() as session:
+                return await session.get(ApprovalCheckpoint, checkpoint_id)
+
+        checkpoint = asyncio.run(_load())
+        assert checkpoint is not None
+        assert checkpoint.workflow_run_id == run_id
+        assert checkpoint.reference_table == "workflow_runs" and checkpoint.reference_id == run_id
+        assert checkpoint.action is None  # pending
+
+        # The runtime pending signal is set with the checkpoint identity (D2).
+        signal = get_active_approval_pending()
+        assert signal == {"stage": "script", "checkpoint_id": pending_info["checkpoint_id"]}
+
+        # §13.1-style final-outcome record: non-execution is first-class.
+        trail = [(r.tool_name, r.decision, r.reason_code) for r in sink.records()]
+        assert ("story.create", "BLOCK", "capability_pending_approval") in trail
+        assert sink.execution_records() == []  # nothing executed
+
+        # Deterministic dedup: a second pending request reuses the checkpoint.
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            again = asyncio.run(execute_capability("story.create", {"content": "another"}))
+        finally:
+            set_active_authorization_context(None)
+        assert again["pending_approval"]["checkpoint_id"] == pending_info["checkpoint_id"]
+        assert asyncio.run(_count_checkpoints(run_id, "script")) == 1
+    finally:
+        # The runtime's finally normally clears the signal; direct-invocation
+        # tests must do it themselves so later tests start clean.
+        _clear_active_approval_pending()
+        asyncio.run(_cleanup_checkpoints(run_id))
+
+
+def test_approved_checkpoint_permits_job_n_plus_one(seeded_run):
+    """Job N+1 (D3): an APPROVED checkpoint on this run authorizes exactly
+    this run's gated capability; the gate passes without creating anything."""
+    import asyncio
+
+    from app.hermes.runtime import (
+        get_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), (_other_project, other_run) = seeded_run
+    try:
+        approved_id = asyncio.run(_seed_checkpoint(run_id, "script", "approve"))
+
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            result = asyncio.run(execute_capability("story.create", {"content": "a draft"}))
+        finally:
+            set_active_authorization_context(None)
+
+        assert result["approval"] == "granted"
+        assert result["stage"] == "script"
+        assert result["checkpoint_id"] == str(approved_id)
+        assert get_active_approval_pending() is None  # job does NOT await approval
+        assert asyncio.run(_count_checkpoints(run_id, "script")) == 1  # nothing new created
+
+        # An approved checkpoint on ANOTHER run does not authorize this one
+        # (and vice versa) — the lookup is strictly run-scoped.
+        other_approved = asyncio.run(_seed_checkpoint(other_run, "script", "approve"))
+        assert str(other_approved) != str(approved_id)
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            result = asyncio.run(execute_capability("story.create", {"content": "d"}))
+        finally:
+            set_active_authorization_context(None)
+        assert result["approval"] == "granted"  # still only THIS run's approval
+    finally:
+        asyncio.run(_cleanup_checkpoints(run_id, other_run))
+
+
+def test_gated_publishing_request_follows_same_gate(seeded_run):
+    """publishing.request uses the same architecture at the thumbnail stage."""
+    import asyncio
+
+    from app.hermes.runtime import (
+        _clear_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), _ = seeded_run
+    try:
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            result = asyncio.run(execute_capability(
+                "publishing.request", {"artifact_id": "550e8400-e29b-41d4-a716-446655440000"}
+            ))
+        finally:
+            set_active_authorization_context(None)
+        assert result["pending_approval"]["stage"] == "thumbnail"
+        assert asyncio.run(_count_checkpoints(run_id, "thumbnail")) == 1
+
+        asyncio.run(_seed_checkpoint(run_id, "thumbnail", "approve"))
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            result = asyncio.run(execute_capability(
+                "publishing.request", {"artifact_id": "550e8400-e29b-41d4-a716-446655440000"}
+            ))
+        finally:
+            set_active_authorization_context(None)
+        assert result["approval"] == "granted" and result["stage"] == "thumbnail"
+    finally:
+        _clear_active_approval_pending()
+        asyncio.run(_cleanup_checkpoints(run_id))
+
+
+def test_gated_context_guards_create_nothing(seeded_run):
+    """Fail-closed identity: no-context, malformed run id, missing run, and
+    foreign run all deny uniformly AND create no checkpoint."""
+    import asyncio
+
+    from app.hermes.runtime import set_active_authorization_context
+
+    (project_id, run_id), (other_project, _other_run) = seeded_run
+
+    async def _call():
+        return await execute_capability("story.create", {"content": "x"})
+
+    # No context bound.
+    result = asyncio.run(_call())
+    assert result["error"]["code"] == "approval_run_unavailable"
+
+    set_active_authorization_context(AuthorizationContext(
+        user_id="u", project_id=str(project_id), job_id="j",
+        workflow_run_id="not-a-uuid", agent_id="a", lineage_id="l",
+    ))
+    try:
+        result = asyncio.run(_call())
+    finally:
+        set_active_authorization_context(None)
+    assert result["error"]["code"] == "approval_run_unavailable"
+
+    for project, run in ((str(project_id), "00000000-0000-0000-0000-000000000000"),
+                         (str(other_project), run_id)):  # foreign run for this project
+        set_active_authorization_context(AuthorizationContext(
+            user_id="u", project_id=project, job_id="j",
+            workflow_run_id=str(run), agent_id="a", lineage_id="l",
+        ))
+        try:
+            result = asyncio.run(_call())
+        finally:
+            set_active_authorization_context(None)
+        assert result["error"]["code"] == "approval_run_unavailable"
+
+    # Nothing was created on any denial path.
+    assert asyncio.run(_count_checkpoints(run_id, "script")) == 0
+    assert asyncio.run(_count_checkpoints(run_id, "thumbnail")) == 0
+
+
+def test_schema_rejection_creates_no_checkpoint(seeded_run):
+    """Pre-execution §9 rejection never reaches the gate: no checkpoint."""
+    result = validate_capability_parameters("story.create", {"content": ""})
+    assert not result.ok
+    (_project_id, run_id), _ = seeded_run
+    import asyncio
+
+    assert asyncio.run(_count_checkpoints(run_id, "script")) == 0
+
+
+def test_real_job_awaiting_approval_end_to_end(tmp_path, monkeypatch, seeded_run):
+    """§5.4/§11 end-to-end through the REAL runtime: a job whose chat invokes
+    the gated capability ends in status "awaiting_approval" (never failed),
+    with JOB_START/JOB_END carrying the outcome, the §13.1 record in the
+    audit store, and the WorkflowRun untouched."""
+    if not HERMES_AVAILABLE:
+        pytest.fail("§16: pinned Hermes source missing — integration environment failure")
+
+    from app.core.config import Settings
+    from app.hermes import runtime as hermes_runtime
+    from app.hermes.audit import FileAuditSink
+
+    (project_id, run_id), _ = seeded_run
+
+    class _ApprovalRequestingAgent:
+        enabled_toolsets = ("todo",)
+        valid_tool_names = frozenset({"todo_list"})
+        api_key = "aryaos-explicit-test-key"
+        base_url = "http://127.0.0.1:9/v1"
+
+        def chat(self, _message):
+            import model_tools
+
+            model_tools.handle_function_call(
+                "story.create", {"content": "a draft proposal"}, "t"
+            )
+            return "model wraps up"
+
+        def close(self):
+            pass
+
+    settings = Settings(
+        hermes_enabled=True,
+        hermes_commit_pin=HERMES_COMMIT_PIN,
+        hermes_plugin_path=str(PLUGIN_PATH),
+        hermes_home=str(tmp_path / "hermes-root"),
+        hermes_max_iterations=5,
+        hermes_max_execution_seconds=10.0,
+        hermes_max_tool_calls=10,
+        hermes_max_tool_calls_per_capability=5,
+        hermes_max_generation_budget_usd=1.0,
+        hermes_max_context_tokens=8_000,
+        hermes_max_blocked_requests=3,
+    )
+    original_construct = hermes_runtime._construct_agent
+    hermes_runtime._construct_agent = lambda request, config, baseline_threads: _ApprovalRequestingAgent()
+    try:
+        result = run_hermes_job(
+            HermesJobRequest(
+                job_id="approval-it-1",
+                task_message="draft a story",
+                authorization_context=_run_context(project_id, run_id),
+                provider="openai",
+                base_url="http://127.0.0.1:9/v1",
+                api_key="aryaos-explicit-test-key",
+                model="aryaos-test-model",
+            ),
+            settings=settings,
+        )
+    finally:
+        hermes_runtime._construct_agent = original_construct
+
+    # D2: the explicit awaiting state — NOT an ordinary failure.
+    assert result.status == "awaiting_approval"
+    assert result.error_code == "capability_pending_approval"
+    assert "stage=script" in result.error_detail
+
+    # §13 lifecycle: JOB_START/JOB_END with the awaiting outcome + the
+    # §13.1 non-execution record — all through existing mechanisms.
+    audit_file = tmp_path / "hermes-root" / "audit" / "hermes_policy_audit.jsonl"
+    jobs = FileAuditSink(audit_file).read_job_records()
+    assert [r.event for r in jobs] == ["JOB_START", "JOB_END"]
+    assert jobs[1].outcome == "awaiting_approval"
+    trail = [
+        (r.tool_name, r.decision, r.reason_code)
+        for r in FileAuditSink(audit_file).read_records()
+    ]
+    assert ("story.create", "ALLOW", "allowed_typed_capability") in trail
+    assert ("story.create", "BLOCK", "capability_pending_approval") in trail
+
+    # The checkpoint exists; the pending signal is cleared post-job.
+    import asyncio
+
+    assert asyncio.run(_count_checkpoints(run_id, "script")) == 1
+    assert hermes_runtime.get_active_approval_pending() is None  # cleared in finally
+    asyncio.run(_cleanup_checkpoints(run_id))
+
 
 
 def test_provider_generate_concurrent_budget_enforcement(monkeypatch):
