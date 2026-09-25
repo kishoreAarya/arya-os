@@ -115,8 +115,15 @@ EXPLICITLY_BLOCKED_TOOLS: tuple[str, ...] = ("delegate_task",)
 SANCTIONED_NATIVE_TOOLS: frozenset[str] = frozenset({"todo_list"})
 
 # Identity fields required on every authorization context (§10 minimum,
-# identity subset; extended by the §10 slice).
-_REQUIRED_CONTEXT_FIELDS = ("user_id", "project_id", "job_id", "agent_id", "lineage_id")
+# identity subset; extended by the §10 slices).
+_REQUIRED_CONTEXT_FIELDS = (
+    "user_id",
+    "project_id",
+    "job_id",
+    "workflow_run_id",
+    "agent_id",
+    "lineage_id",
+)
 
 
 @dataclass(frozen=True)
@@ -126,11 +133,17 @@ class AuthorizationContext:
     §10's remaining fields (budget, approval_state, policy_context) join
     this dataclass in their own slices. A context is valid only when every
     identity field is a non-empty string.
+
+    `workflow_run_id` is the AryaOS WorkflowRun identity (§10 "job_id /
+    workflow_run_id"). Like `project_id` — also a DB-UUID identifier — it
+    is carried as a caller-supplied non-empty string: the context contract
+    validates presence and shape, never the database row.
     """
 
     user_id: str
     project_id: str
     job_id: str
+    workflow_run_id: str
     agent_id: str
     lineage_id: str
 

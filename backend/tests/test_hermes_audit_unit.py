@@ -35,6 +35,7 @@ CONTEXT = AuthorizationContext(
     user_id="user-123",
     project_id="project-abc",
     job_id="job-456",
+    workflow_run_id="run-789",
     agent_id="agent-789",
     lineage_id="lineage-xyz",
 )
@@ -1193,4 +1194,102 @@ def test_job_boundary_records_contain_no_secrets(tmp_path: Path):
     start_digest = jobs[0].config_sha256
     assert isinstance(start_digest, str) and len(start_digest) == 64
     assert all(c in "0123456789abcdef" for c in start_digest)
+
+
+# ---------------------------------------------------------------------------
+# 11. §10.1 workflow_run_id propagation into every audit record category
+# ---------------------------------------------------------------------------
+
+def test_workflow_run_id_propagated_to_all_record_categories(tmp_path: Path):
+    """§10.1/§13: the context's workflow_run_id appears on §4 decision
+    records (ALLOW and BLOCK), §13.1 final-outcome records, and the §13
+    JOB_START / JOB_END job-boundary records of a real job."""
+    import importlib.util
+
+    if importlib.util.find_spec("run_agent") is None:
+        pytest.fail("§16: pinned Hermes source missing")
+    from app.hermes import runtime
+    from app.hermes.audit import JOB_END, JOB_START
+
+    original_assert = runtime._assert_plugin_surface
+
+    def capturing_assert():
+        from hermes_cli.plugins import iter_hook_callbacks
+
+        hook = next(iter(iter_hook_callbacks("pre_tool_call")))
+        assert hook("todo_list", {}) is None  # §4 ALLOW
+        verdict = hook("research.search", {})  # §9 reject -> §13.1 BLOCK
+        assert verdict["action"] == "block"
+        original_assert()
+
+    runtime._assert_plugin_surface = capturing_assert
+    try:
+        settings = _final_outcome_settings(
+            tmp_path, "runid", hermes_max_tool_calls=5, hermes_max_blocked_requests=5
+        )
+        res = runtime.run_hermes_job(_final_outcome_request("audit-runid-1"), settings=settings)
+    finally:
+        runtime._assert_plugin_surface = original_assert
+    assert res.status == "completed", (res.error_code, res.error_detail)
+
+    sink = FileAuditSink(Path(settings.hermes_home) / "audit" / "hermes_policy_audit.jsonl")
+
+    # §4 records (ALLOW + BLOCK) carry the workflow_run_id.
+    request_records = sink.read_records()
+    assert [(r.decision, r.reason_code) for r in request_records] == [
+        ("ALLOW", "allowed_sanctioned_native_tool"),
+        ("ALLOW", "allowed_typed_capability"),
+        ("BLOCK", "capability_schema_invalid"),  # §13.1 final outcome
+    ]
+    for record in request_records:
+        assert record.workflow_run_id == CONTEXT.workflow_run_id  # "run-789"
+
+    # JOB_START / JOB_END carry the same workflow_run_id.
+    jobs = sink.read_job_records()
+    assert [r.event for r in jobs] == [JOB_START, JOB_END]
+    for record in jobs:
+        assert record.workflow_run_id == CONTEXT.workflow_run_id
+
+
+def test_workflow_run_id_degradation_and_legacy_records():
+    """Degradation contract: a missing context yields "<unknown>" (existing
+    pattern); a legacy record without the key reconstructs with "" — never
+    an error — and the field round-trips through serialization."""
+    from app.hermes.audit import (
+        AuthorizationDecisionAuditRecord,
+        HermesJobAuditRecord,
+        record_final_outcome,
+        record_job_boundary,
+    )
+
+    final = record_final_outcome("shell", {}, "blocked_unknown_tool")
+    assert final is not None and final.workflow_run_id == "<unknown>"
+    job = record_job_boundary("JOB_START", None)
+    assert job is not None and job.workflow_run_id == "<unknown>"
+
+    legacy_tool = AuthorizationDecisionAuditRecord.from_dict(
+        {
+            "user_id": "u", "project_id": "p", "job_id": "j", "agent_id": "a",
+            "lineage_id": "l", "tool_name": "shell", "decision": "BLOCK",
+            "reason_code": "blocked_unknown_tool", "parameter_digest": "d",
+        }
+    )
+    assert legacy_tool.workflow_run_id == ""
+    legacy_job = HermesJobAuditRecord.from_dict(
+        {"event": "JOB_END", "user_id": "u", "project_id": "p", "job_id": "j",
+         "agent_id": "a", "lineage_id": "l"}
+    )
+    assert legacy_job.workflow_run_id == ""
+
+    restored = AuthorizationDecisionAuditRecord.from_dict(
+        json.loads(
+            AuthorizationDecisionAuditRecord(
+                user_id="u", project_id="p", job_id="j", agent_id="a",
+                lineage_id="l", workflow_run_id="run-789", tool_name="shell",
+                decision="BLOCK", reason_code="blocked_unknown_tool",
+                parameter_digest="d",
+            ).to_json()
+        )
+    )
+    assert restored.workflow_run_id == "run-789"
 

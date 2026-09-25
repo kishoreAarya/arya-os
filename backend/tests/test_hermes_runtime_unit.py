@@ -37,7 +37,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PLUGIN_PATH = REPO_ROOT / "backend" / "app" / "hermes" / "plugins"
 
 CONTEXT = AuthorizationContext(
-    user_id="u", project_id="p", job_id="j", agent_id="a", lineage_id="l"
+    user_id="u", project_id="p", job_id="j", workflow_run_id="w", agent_id="a", lineage_id="l"
 )
 
 HERMES_AVAILABLE = importlib.util.find_spec("run_agent") is not None
@@ -254,7 +254,7 @@ def _run_isolated(code_body: str, settings: Settings) -> str:
         "request = runtime.HermesJobRequest(\n"
         "    job_id='iso-1', task_message=None,\n"
         "    authorization_context=runtime.AuthorizationContext(\n"
-        "        user_id='u', project_id='p', job_id='j', agent_id='a', lineage_id='l'),\n"
+        "        user_id='u', project_id='p', job_id='j', workflow_run_id='w', agent_id='a', lineage_id='l'),\n"
         "    provider='openai', base_url='http://127.0.0.1:9/v1',\n"
         "    api_key='k', model='m')\n"
         f"{code_body}\n"

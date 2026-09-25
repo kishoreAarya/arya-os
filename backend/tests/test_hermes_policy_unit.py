@@ -28,6 +28,7 @@ CONTEXT = AuthorizationContext(
     user_id="user-1",
     project_id="project-1",
     job_id="job-1",
+    workflow_run_id="run-1",
     agent_id="agent-1",
     lineage_id="lineage-1",
 )
@@ -105,15 +106,62 @@ def test_allow_requires_valid_context():
         None,
         {},
         "context",
-        AuthorizationContext(user_id="", project_id="p", job_id="j", agent_id="a", lineage_id="l"),
-        AuthorizationContext(user_id="u", project_id=" ", job_id="j", agent_id="a", lineage_id="l"),
-        AuthorizationContext(user_id="u", project_id="p", job_id=None, agent_id="a", lineage_id="l"),
+        AuthorizationContext(user_id="", project_id="p", job_id="j", workflow_run_id="w", agent_id="a", lineage_id="l"),
+        AuthorizationContext(user_id="u", project_id=" ", job_id="j", workflow_run_id="w", agent_id="a", lineage_id="l"),
+        AuthorizationContext(user_id="u", project_id="p", job_id=None, workflow_run_id="w", agent_id="a", lineage_id="l"),
     ]
     for bad in bad_contexts:
         decision = evaluate_tool_request("research.search", {}, bad)
         assert not decision.allowed, bad
         assert decision.reason_code.startswith("blocked_invalid_context")
         assert decision.message
+
+
+# ---------------------------------------------------------------------------
+# 2b. §10.1 workflow_run_id (identity field, fail-closed like the rest)
+# ---------------------------------------------------------------------------
+
+def test_workflow_run_id_valid_context_authorizes_unchanged():
+    """A repository-conforming workflow_run_id (non-empty string — the same
+    contract as project_id, itself a DB-UUID identifier) changes no §4
+    semantics: the existing decisions and reason codes are identical."""
+    for run_id in ("run-789", "550e8400-e29b-41d4-a716-446655440000"):
+        context = AuthorizationContext(
+            user_id="u", project_id="p", job_id="j",
+            workflow_run_id=run_id, agent_id="a", lineage_id="l",
+        )
+        allowed = evaluate_tool_request("research.search", {}, context)
+        assert allowed.allowed and allowed.reason_code == "allowed_typed_capability"
+        native = evaluate_tool_request("todo_list", {}, context)
+        assert native.allowed and native.reason_code == "allowed_sanctioned_native_tool"
+        blocked = evaluate_tool_request("shell", {}, context)
+        assert not blocked.allowed and blocked.reason_code == "blocked_unknown_tool"
+
+
+def test_workflow_run_id_missing_empty_or_wrong_type_blocks():
+    """§10/§11: a missing, empty, blank, or wrong-typed workflow_run_id is
+    an invalid authorization context -> BLOCK with the deterministic field
+    reason code (same fail-closed pattern as the other identity fields)."""
+    for bad_run in (None, "", "   ", 7, []):
+        context = AuthorizationContext(
+            user_id="u", project_id="p", job_id="j",
+            workflow_run_id=bad_run, agent_id="a", lineage_id="l",
+        )
+        decision = evaluate_tool_request("research.search", {}, context)
+        assert not decision.allowed, bad_run
+        assert decision.reason_code == "blocked_invalid_context_field:workflow_run_id"
+        assert decision.message
+
+
+def test_authorization_context_is_frozen():
+    """Immutability (§10): every identity field — workflow_run_id included —
+    rejects mutation identically after construction."""
+    import dataclasses
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        CONTEXT.workflow_run_id = "other-run"
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        CONTEXT.user_id = "other-user"
 
 
 # ---------------------------------------------------------------------------

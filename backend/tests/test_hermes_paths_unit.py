@@ -47,7 +47,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PLUGIN_PATH = REPO_ROOT / "backend" / "app" / "hermes" / "plugins"
 
 CONTEXT = AuthorizationContext(
-    user_id="u", project_id="p", job_id="j", agent_id="a", lineage_id="l"
+    user_id="u", project_id="p", job_id="j", workflow_run_id="w", agent_id="a", lineage_id="l"
 )
 
 HERMES_AVAILABLE = importlib.util.find_spec("run_agent") is not None

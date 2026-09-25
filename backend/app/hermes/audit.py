@@ -86,6 +86,7 @@ class AuthorizationDecisionAuditRecord:
     audit_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     occurred_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     parameters: dict[str, Any] | None = None
+    workflow_run_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a JSON-serializable dictionary."""
@@ -97,6 +98,7 @@ class AuthorizationDecisionAuditRecord:
             "job_id": self.job_id,
             "agent_id": self.agent_id,
             "lineage_id": self.lineage_id,
+            "workflow_run_id": self.workflow_run_id,
             "tool_name": self.tool_name,
             "decision": self.decision,
             "reason_code": self.reason_code,
@@ -124,6 +126,7 @@ class AuthorizationDecisionAuditRecord:
             reason_code=str(data.get("reason_code", "")),
             parameter_digest=str(data.get("parameter_digest", "")),
             parameters=data.get("parameters") if isinstance(data.get("parameters"), dict) else None,
+            workflow_run_id=str(data.get("workflow_run_id", "")),
         )
 
 
@@ -174,6 +177,7 @@ class HermesJobAuditRecord:
     agent_id: str
     lineage_id: str
     runtime_job_id: str = ""
+    workflow_run_id: str = ""
     occurred_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     audit_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     hermes_commit: str | None = None
@@ -200,6 +204,7 @@ class HermesJobAuditRecord:
             "agent_id": self.agent_id,
             "lineage_id": self.lineage_id,
             "runtime_job_id": self.runtime_job_id,
+            "workflow_run_id": self.workflow_run_id,
             "hermes_commit": self.hermes_commit,
             "hermes_tree": self.hermes_tree,
             "hermes_git_verified": self.hermes_git_verified,
@@ -229,6 +234,7 @@ class HermesJobAuditRecord:
             agent_id=str(data.get("agent_id", "")),
             lineage_id=str(data.get("lineage_id", "")),
             runtime_job_id=str(data.get("runtime_job_id", "")),
+            workflow_run_id=str(data.get("workflow_run_id", "")),
             occurred_at=str(data.get("occurred_at", "")),
             audit_id=str(data.get("audit_id", "")),
             hermes_commit=data.get("hermes_commit"),
@@ -379,6 +385,7 @@ def record_policy_decision(
         job_id = getattr(authorization_context, "job_id", None) or "<unknown>"
         agent_id = getattr(authorization_context, "agent_id", None) or "<unknown>"
         lineage_id = getattr(authorization_context, "lineage_id", None) or "<unknown>"
+        workflow_run_id = getattr(authorization_context, "workflow_run_id", None) or "<unknown>"
 
         tool_str = str(tool_name) if tool_name is not None else "<none>"
         param_digest = compute_parameter_digest(parameters)
@@ -391,6 +398,7 @@ def record_policy_decision(
             job_id=str(job_id),
             agent_id=str(agent_id),
             lineage_id=str(lineage_id),
+            workflow_run_id=str(workflow_run_id),
             tool_name=tool_str,
             decision=decision_str,
             reason_code=reason_code,
@@ -474,6 +482,7 @@ def record_final_outcome(
         job_id = getattr(authorization_context, "job_id", None) or "<unknown>"
         agent_id = getattr(authorization_context, "agent_id", None) or "<unknown>"
         lineage_id = getattr(authorization_context, "lineage_id", None) or "<unknown>"
+        workflow_run_id = getattr(authorization_context, "workflow_run_id", None) or "<unknown>"
 
         tool_str = str(tool_name) if tool_name is not None else "<none>"
 
@@ -483,6 +492,7 @@ def record_final_outcome(
             job_id=str(job_id),
             agent_id=str(agent_id),
             lineage_id=str(lineage_id),
+            workflow_run_id=str(workflow_run_id),
             tool_name=tool_str,
             decision="BLOCK",
             reason_code=str(reason_code),
@@ -547,6 +557,7 @@ def record_job_boundary(
         job_id = getattr(authorization_context, "job_id", None) or "<unknown>"
         agent_id = getattr(authorization_context, "agent_id", None) or "<unknown>"
         lineage_id = getattr(authorization_context, "lineage_id", None) or "<unknown>"
+        workflow_run_id = getattr(authorization_context, "workflow_run_id", None) or "<unknown>"
 
         record = HermesJobAuditRecord(
             event=str(event),
@@ -556,6 +567,7 @@ def record_job_boundary(
             agent_id=str(agent_id),
             lineage_id=str(lineage_id),
             runtime_job_id=str(runtime_job_id) if runtime_job_id is not None else "",
+            workflow_run_id=str(workflow_run_id),
             hermes_commit=hermes_commit,
             hermes_tree=hermes_tree,
             hermes_git_verified=hermes_git_verified,

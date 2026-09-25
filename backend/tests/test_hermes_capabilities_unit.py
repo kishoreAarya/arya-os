@@ -46,7 +46,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PLUGIN_PATH = REPO_ROOT / "backend" / "app" / "hermes" / "plugins"
 
 CONTEXT = AuthorizationContext(
-    user_id="u", project_id="p", job_id="j", agent_id="a", lineage_id="l"
+    user_id="u", project_id="p", job_id="j", workflow_run_id="w", agent_id="a", lineage_id="l"
 )
 
 HERMES_AVAILABLE = importlib.util.find_spec("run_agent") is not None
@@ -490,7 +490,7 @@ def test_asset_get_matching_project_lookup(seeded_assets):
     import app.hermes.runtime as runtime
 
     context = AuthorizationContext(
-        user_id="u", project_id=str(own_project), job_id="j", agent_id="a", lineage_id="l"
+        user_id="u", project_id=str(own_project), job_id="j", workflow_run_id="w", agent_id="a", lineage_id="l"
     )
     runtime.set_active_authorization_context(context)
     try:
@@ -510,7 +510,7 @@ def test_asset_get_foreign_project_uniform_not_found(seeded_assets):
     import app.hermes.runtime as runtime
 
     context = AuthorizationContext(
-        user_id="u", project_id=str(own_project), job_id="j", agent_id="a", lineage_id="l"
+        user_id="u", project_id=str(own_project), job_id="j", workflow_run_id="w", agent_id="a", lineage_id="l"
     )
     runtime.set_active_authorization_context(context)
     try:
@@ -534,7 +534,7 @@ def test_asset_get_wrong_workflow_run_guard(seeded_assets):
 
     runtime.set_active_authorization_context(
         AuthorizationContext(
-            user_id="u", project_id=str(own_project), job_id="j", agent_id="a", lineage_id="l"
+            user_id="u", project_id=str(own_project), job_id="j", workflow_run_id="w", agent_id="a", lineage_id="l"
         )
     )
     try:
@@ -588,7 +588,7 @@ def test_asset_get_engine_disposed_on_all_paths(monkeypatch):
 
     runtime.set_active_authorization_context(
         AuthorizationContext(
-            user_id="u", project_id=str(uuid.uuid4()), job_id="j", agent_id="a", lineage_id="l"
+            user_id="u", project_id=str(uuid.uuid4()), job_id="j", workflow_run_id="w", agent_id="a", lineage_id="l"
         )
     )
     try:
@@ -611,7 +611,7 @@ def test_real_asset_get_end_to_end(tmp_path, seeded_assets):
 
     (own_project, own_asset), (foreign_project, foreign_asset) = seeded_assets
     context = AuthorizationContext(
-        user_id="u", project_id=str(own_project), job_id="j", agent_id="a", lineage_id="l"
+        user_id="u", project_id=str(own_project), job_id="j", workflow_run_id="w", agent_id="a", lineage_id="l"
     )
     request = HermesJobRequest(
         job_id="cap-it-3",
