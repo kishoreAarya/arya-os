@@ -1118,6 +1118,142 @@ def test_provider_generate_denials_are_first_class_audit_events(monkeypatch, see
     assert sink.execution_records() == []  # nothing executed -> no execution records
 
 
+def test_research_search_emits_execution_outcome(monkeypatch):
+    """§13.3: research.search emits exactly one execution-outcome record —
+    success (cost None) or failure (reason = the deterministic code the
+    existing wrapper assigns) — with digest only, and a broken audit sink
+    cannot alter the execution result."""
+    import asyncio
+
+    import app.hermes.capabilities as caps
+    from app.hermes.audit import InMemoryAuditSink, set_active_audit_sink
+
+    class _Signal:
+        def to_dict(self):
+            return {"topic": "ai"}
+
+    class _StubService:
+        async def discover_trends(self, *a, **k):
+            return [_Signal()]
+
+    class _Boom:
+        async def discover_trends(self, *a, **k):
+            raise RuntimeError("service down")
+
+    class _BrokenSink:
+        def record(self, record):
+            raise OSError("disk full")
+
+    async def _call():
+        return await execute_capability("research.search", {"topic": "ai"})
+
+    # Success: one record, cost None (D2″), digest only.
+    sink = InMemoryAuditSink()
+    monkeypatch.setattr(caps, "_TREND_SERVICE", _StubService())
+    set_active_audit_sink(sink)
+    try:
+        result = asyncio.run(_call())
+    finally:
+        set_active_audit_sink(None)
+    assert "error" not in result
+    records = sink.execution_records()
+    assert len(records) == 1
+    record = records[0]
+    assert record.tool_name == "research.search" and record.outcome == "success"
+    assert record.reason_code is None
+    assert record.cost_estimate_usd is None  # non-chargeable: None, not 0.0
+    assert isinstance(record.duration_seconds, float) and record.duration_seconds >= 0
+    assert len(record.parameter_digest) == 64
+    assert "topic" not in record.to_dict() and "parameters" not in record.to_dict()
+
+    # Structured failure (binding raises -> wrapper's capability_binding_failed).
+    sink = InMemoryAuditSink()
+    monkeypatch.setattr(caps, "_TREND_SERVICE", _Boom())
+    set_active_audit_sink(sink)
+    try:
+        result = asyncio.run(_call())
+    finally:
+        set_active_audit_sink(None)
+    assert result["error"]["code"] == "capability_binding_failed"  # existing contract unchanged
+    records = sink.execution_records()
+    assert len(records) == 1
+    assert records[0].outcome == "failure"
+    assert records[0].reason_code == "capability_binding_failed"
+    assert records[0].cost_estimate_usd is None
+
+    # Broken audit sink: identical results, nothing raises (best-effort).
+    monkeypatch.setattr(caps, "_TREND_SERVICE", _StubService())
+    set_active_audit_sink(_BrokenSink())
+    try:
+        result = asyncio.run(_call())
+    finally:
+        set_active_audit_sink(None)
+    assert "error" not in result
+    monkeypatch.setattr(caps, "_TREND_SERVICE", _Boom())
+    set_active_audit_sink(_BrokenSink())
+    try:
+        result = asyncio.run(_call())
+    finally:
+        set_active_audit_sink(None)
+    assert result["error"]["code"] == "capability_binding_failed"
+
+
+def test_asset_get_emits_execution_outcome(seeded_assets):
+    """§13.3: asset.get emits exactly one execution-outcome record for both
+    the success and the uniform not-found paths, with cost None and the
+    binding's own deterministic error code."""
+    import asyncio
+
+    from app.hermes.audit import InMemoryAuditSink, set_active_audit_sink
+    from app.hermes.runtime import set_active_authorization_context
+
+    (own_project, own_asset), _ = seeded_assets
+
+    async def _call(asset_id):
+        return await execute_capability("asset.get", {"asset_id": str(asset_id)})
+
+    # Success.
+    sink = InMemoryAuditSink()
+    set_active_authorization_context(AuthorizationContext(
+        user_id="u", project_id=str(own_project), job_id="j",
+        workflow_run_id="w", agent_id="a", lineage_id="l",
+    ))
+    set_active_audit_sink(sink)
+    try:
+        result = asyncio.run(_call(own_asset))
+    finally:
+        set_active_authorization_context(None)
+        set_active_audit_sink(None)
+    assert "error" not in result
+    records = sink.execution_records()
+    assert len(records) == 1
+    record = records[0]
+    assert record.tool_name == "asset.get" and record.outcome == "success"
+    assert record.reason_code is None and record.cost_estimate_usd is None
+    assert isinstance(record.duration_seconds, float) and record.duration_seconds >= 0
+    assert len(record.parameter_digest) == 64
+    assert "asset_id" not in record.to_dict() and "parameters" not in record.to_dict()
+
+    # Uniform not-found failure: reason is the binding's own code.
+    sink = InMemoryAuditSink()
+    set_active_authorization_context(AuthorizationContext(
+        user_id="u", project_id=str(own_project), job_id="j",
+        workflow_run_id="w", agent_id="a", lineage_id="l",
+    ))
+    set_active_audit_sink(sink)
+    try:
+        result = asyncio.run(_call("00000000-0000-0000-0000-000000000000"))
+    finally:
+        set_active_authorization_context(None)
+        set_active_audit_sink(None)
+    assert result["error"]["code"] == "asset_not_found"  # existing contract unchanged
+    records = sink.execution_records()
+    assert len(records) == 1
+    assert records[0].outcome == "failure"
+    assert records[0].reason_code == "asset_not_found"
+    assert records[0].cost_estimate_usd is None
+
+
 def test_provider_generate_concurrent_budget_enforcement(monkeypatch):
     """§9.3 F1 regression: two CONCURRENT provider.generate calls for the
     same workflow/job (separate threads + event loops, the shape Hermes'

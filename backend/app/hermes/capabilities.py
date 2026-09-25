@@ -18,7 +18,11 @@ decisions A/B/C). Slice 3 (§9.3, operator decisions D1-D3) added the
 first CHARGEABLE binding provider.generate -> the existing AryaOS
 ExecutionEngine/provider router (TEXT_GENERATION only), with the §12
 USD budget enforced BEFORE execution against the WorkflowRun's
-authoritative accumulated total_cost_usd. All other capabilities are
+authoritative accumulated total_cost_usd. Slice 4 (§13.3) added
+execution-outcome audit records for the non-chargeable bindings
+(research.search, asset.get): outcome/duration with cost_estimate_usd
+None (not chargeable), reasons from the bindings' own structured error
+contract. All other capabilities are
 NAMES ONLY (authorized by §4's frozen TYPED_CAPABILITIES, but no schema
 and no binding exist yet — they cannot be executed and are not exposed
 to the model).
@@ -47,6 +51,7 @@ policy.py is deliberately NOT modified: registry <-> TYPED_CAPABILITIES
 consistency is proven by test, per the slice contract.
 """
 import threading
+import time
 import types
 import uuid
 from dataclasses import dataclass
@@ -127,20 +132,74 @@ class CapabilitySpec:
     binding: Callable[[BaseModel], Any] | None
 
 
+def _audit_readonly_execution(
+    tool_name: str,
+    params,
+    duration_seconds: float,
+    result: dict | None = None,
+    *,
+    failure_code: str | None = None,
+) -> None:
+    """§13.3 best-effort execution-outcome emission for the NON-chargeable
+    bindings (research.search, asset.get), per operator decisions:
+
+    - D1″: emitted inside the binding (§13.2 pattern), never from
+      execute_capability; no generic capability-wide auditing.
+    - D2″: cost_estimate_usd is None — these capabilities are not
+      chargeable (semantically distinct from provider.generate's failure
+      cost 0.0); no cost is invented and no accounting is touched.
+    - D3″: the failure reason is the code of the binding's OWN existing
+      structured error contract ({"error": {"code": ...}}), or the
+      deterministic capability_binding_failed code the existing wrapper
+      assigns when the binding raises (the binding emits-and-reraises;
+      the wrapper's result is unchanged).
+
+    Parameter VALUES are never recorded — only the digest of the
+    validated parameters. Never raises (execution-preserving audit)."""
+    try:
+        from app.hermes.audit import record_execution_outcome
+
+        if failure_code is not None:
+            outcome, reason = "failure", failure_code
+        elif isinstance(result, dict) and "error" in result:
+            outcome, reason = "failure", str((result.get("error") or {}).get("code", ""))
+        else:
+            outcome, reason = "success", None
+        record_execution_outcome(
+            tool_name,
+            params.model_dump(),
+            outcome,
+            duration_seconds=duration_seconds,
+            cost_estimate_usd=None,
+            reason_code=reason,
+        )
+    except Exception:
+        pass  # execution-preserving, best-effort audit (§13.3)
+
+
 async def _research_search_binding(params: ResearchSearchParams) -> dict:
     """Execute the research.search capability against the existing AryaOS
     trend_sources surface (read-only exemplar binding)."""
-    service = _trend_discovery_service()
-    signals = await service.discover_trends(
-        topic_hint=params.topic,
-        limit=params.limit,
-        subreddit=params.subreddit,
-        time_filter=params.time_filter,
-    )
-    return {
-        "topic": params.topic,
-        "results": [signal.to_dict() for signal in signals],
-    }
+    started = time.monotonic()
+    try:
+        service = _trend_discovery_service()
+        signals = await service.discover_trends(
+            topic_hint=params.topic,
+            limit=params.limit,
+            subreddit=params.subreddit,
+            time_filter=params.time_filter,
+        )
+        result = {
+            "topic": params.topic,
+            "results": [signal.to_dict() for signal in signals],
+        }
+    except BaseException:
+        _audit_readonly_execution(
+            "research.search", params, time.monotonic() - started, failure_code=_BINDING_FAILURE
+        )
+        raise
+    _audit_readonly_execution("research.search", params, time.monotonic() - started, result)
+    return result
 
 
 _TREND_SERVICE = None
@@ -191,6 +250,7 @@ async def _asset_get_binding(params: AssetGetParams) -> dict:
     STRICT boundary: returns metadata/reference fields only — the file at
     storage_path is never read, opened, resolved, or dereferenced.
     """
+    started = time.monotonic()
     from app.hermes.runtime import get_active_authorization_context
 
     try:
@@ -200,7 +260,9 @@ async def _asset_get_binding(params: AssetGetParams) -> dict:
     if context is None:
         # No job-bound context can only mean an out-of-runtime invocation;
         # fail closed with the uniform not-found (no data leaves).
-        return dict(_ASSET_NOT_FOUND)
+        result = dict(_ASSET_NOT_FOUND)
+        _audit_readonly_execution("asset.get", params, time.monotonic() - started, result)
+        return result
     expected_project = context.project_id.strip()
 
     from app.models.core import WorkflowRun
@@ -212,23 +274,32 @@ async def _asset_get_binding(params: AssetGetParams) -> dict:
 
         async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
             asset = await session.get(Asset, params.asset_id)
-            if asset is None:
-                return dict(_ASSET_NOT_FOUND)
-            if params.workflow_run_id is not None and params.workflow_run_id != asset.workflow_run_id:
-                return dict(_ASSET_NOT_FOUND)
-            run = await session.get(WorkflowRun, asset.workflow_run_id)
-            if run is None or str(run.project_id) != expected_project:
-                return dict(_ASSET_NOT_FOUND)
-            return {
-                "asset_id": str(asset.id),
-                "workflow_run_id": str(asset.workflow_run_id),
-                "asset_type": asset.asset_type,
-                "provider_name": asset.provider_name,
-                "storage_path": asset.storage_path,  # reference only (decision C)
-                "created_at": asset.created_at.isoformat() if asset.created_at else None,
-            }
+            if asset is None or (
+                params.workflow_run_id is not None and params.workflow_run_id != asset.workflow_run_id
+            ):
+                result = dict(_ASSET_NOT_FOUND)
+            else:
+                run = await session.get(WorkflowRun, asset.workflow_run_id)
+                if run is None or str(run.project_id) != expected_project:
+                    result = dict(_ASSET_NOT_FOUND)
+                else:
+                    result = {
+                        "asset_id": str(asset.id),
+                        "workflow_run_id": str(asset.workflow_run_id),
+                        "asset_type": asset.asset_type,
+                        "provider_name": asset.provider_name,
+                        "storage_path": asset.storage_path,  # reference only (decision C)
+                        "created_at": asset.created_at.isoformat() if asset.created_at else None,
+                    }
+    except BaseException:
+        _audit_readonly_execution(
+            "asset.get", params, time.monotonic() - started, failure_code=_BINDING_FAILURE
+        )
+        raise
     finally:
         await engine.dispose()
+    _audit_readonly_execution("asset.get", params, time.monotonic() - started, result)
+    return result
 
 
 # §9.3 provider.generate deterministic result/error codes (value-free
