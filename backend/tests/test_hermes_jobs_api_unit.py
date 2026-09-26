@@ -96,16 +96,16 @@ def _install_runner(monkeypatch, result):
     return calls
 
 
-def _runner_result(status="completed", error_code=None, error_detail=None, final="ok"):
+def _runner_result(status="completed", error_code=None, error_detail=None, final="ok", _runtime="runtime-id"):
     from app.hermes.runtime import HermesJobResult
     from app.services.hermes_job_runner import HermesRunnerResult
 
     return HermesRunnerResult(
         hermes=HermesJobResult(
-            job_id="runtime-id", status=status, final_response=final,
+            job_id=_runtime, status=status, final_response=final,
             error_code=error_code, error_detail=error_detail,
         ),
-        job_id="runtime-id", error_code=None, error_detail=None,
+        job_id=_runtime, error_code=None, error_detail=None,
     )
 
 
@@ -324,6 +324,191 @@ async def test_unknown_job_404(client, monkeypatch, tmp_path):
         assert resp.status_code == 404
     finally:
         settings.hermes_home = real_home
+
+
+# ---------------------------------------------------------------------------
+# 9.7b. R-s1 remediation: runtime job id propagation + restart recovery
+# ---------------------------------------------------------------------------
+
+async def _submit_with_runtime_id(client, monkeypatch, status="completed", error_code=None):
+    """Submit a stubbed job; wait for terminal; return (surface_id,
+    runtime_id, final_body). The stub returns a runner result whose
+    job_id is a DISTINCT runtime id (mirroring the frozen runner)."""
+    runtime_id = f"runtime-{uuid.uuid4().hex[:8]}"
+    _install_runner(monkeypatch, _runner_result(status=status, error_code=error_code, _runtime=runtime_id))
+    submit = await client.post("/api/hermes/jobs", json=_submit_payload())
+    assert submit.status_code == 202
+    surface_id = submit.json()["job_id"]
+    assert surface_id != runtime_id  # the two ids are distinct by design
+    deadline = asyncio.get_event_loop().time() + 5.0
+    body = None
+    while asyncio.get_event_loop().time() < deadline:
+        body = (await client.get(f"/api/hermes/jobs/{surface_id}")).json()
+        if body["status"] not in ("submitted", "running"):
+            return surface_id, runtime_id, body
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"job never reached terminal state: {body}")
+
+
+async def test_runtime_id_propagation_and_backward_compat(client, monkeypatch):
+    """1/2/3: completed poll exposes runtime_job_id; surface id unchanged;
+    submit response contract untouched (no new required fields)."""
+    surface_id, runtime_id, body = await _submit_with_runtime_id(client, monkeypatch)
+    assert body["job_id"] == surface_id            # public id preserved
+    assert body["runtime_job_id"] == runtime_id    # runner id exposed
+    assert body["status"] == "completed"
+    # Submit response remains the original 4-field contract.
+    _install_runner(monkeypatch, _runner_result())
+    submit = await client.post("/api/hermes/jobs", json=_submit_payload())
+    assert set(submit.json()) == {"job_id", "workflow_run_id", "status", "submitted_at"}
+
+
+async def test_runtime_id_propagates_for_failed_and_awaiting(client, monkeypatch):
+    """4/5: failed and awaiting_approval results expose the runtime id
+    whenever the runner produced one; existing semantics preserved."""
+    _, _, failed = await _submit_with_runtime_id(
+        client, monkeypatch, status="failed", error_code="chat_timeout"
+    )
+    assert failed["runtime_job_id"] and failed["error_code"] == "chat_timeout"
+    _, _, awaiting = await _submit_with_runtime_id(
+        client, monkeypatch, status="awaiting_approval", error_code="capability_pending_approval"
+    )
+    assert awaiting["runtime_job_id"]
+    assert awaiting["status"] == "awaiting_approval"
+    assert awaiting["error_code"] == "capability_pending_approval"
+
+
+async def test_runtime_id_live_polling_by_runtime_id(client, monkeypatch):
+    """Additive lookup: while the process is alive, polling BY the runtime
+    id returns the same job (surface job_id preserved in the response)."""
+    surface_id, runtime_id, body = await _submit_with_runtime_id(client, monkeypatch)
+    by_runtime = (await client.get(f"/api/hermes/jobs/{runtime_id}")).json()
+    assert by_runtime["job_id"] == surface_id
+    assert by_runtime["runtime_job_id"] == runtime_id
+    assert by_runtime["status"] == body["status"]
+
+
+async def test_restart_recovery_via_runtime_id_and_fallback(client, monkeypatch, tmp_path):
+    """6/7: after the live entry is lost (restart simulation), the §13
+    fallback reconstructs the terminal record BY the runtime id; the
+    surface id honestly 404s exactly as designed before this slice."""
+    surface_id, runtime_id, _ = await _submit_with_runtime_id(client, monkeypatch)
+
+    # Seed the durable §13 record keyed by the runtime id (the real
+    # runtime writes these; the hermetic §9.6 pattern).
+    import app.api.routers.hermes_jobs as surface
+
+    settings = get_settings()
+    real_home = settings.hermes_home
+    settings.hermes_home = str(tmp_path)
+    try:
+        _seed_audit_file(tmp_path, runtime_id, "completed")
+        # Restart: the in-memory registry (including the runtime-id link)
+        # disappears.
+        monkeypatch.setattr(surface, "_HERMES_JOBS", {})
+        # Runtime-id polling recovers the terminal state from §13.
+        recovered = await client.get(f"/api/hermes/jobs/{runtime_id}")
+        assert recovered.status_code == 200
+        body = recovered.json()
+        assert body["status"] == "completed"
+        assert body["runtime_job_id"] == runtime_id
+        # The surface id remains honestly 404 post-restart (unchanged
+        # R-s1 behavior for the surface id itself).
+        gone = await client.get(f"/api/hermes/jobs/{surface_id}")
+        assert gone.status_code == 404
+    finally:
+        settings.hermes_home = real_home
+
+
+async def test_runtime_id_polling_still_requires_api_key(anon_client):
+    """8: runtime-id polling sits behind the same API-key dependency."""
+    resp = await anon_client.get("/api/hermes/jobs/runtime-xyz")
+    assert resp.status_code == 401
+
+
+async def test_real_runtime_smoke_exposes_real_runtime_job_id(client, monkeypatch, tmp_path):
+    """Real-runner proof (hermetic, dead endpoint): the frozen runner's
+    ACTUAL HermesRunnerResult.job_id propagates into the poll response —
+    surface id != runtime id, both live-reachable."""
+    import importlib.util
+
+    if importlib.util.find_spec("run_agent") is None:
+        pytest.fail("§16: pinned Hermes source missing — integration environment failure")
+    from app.core.config import HERMES_COMMIT_PIN, Settings
+
+    settings = Settings(
+        hermes_enabled=True,
+        hermes_commit_pin=HERMES_COMMIT_PIN,
+        hermes_plugin_path=str(
+            __import__("pathlib").Path(__file__).resolve().parents[2]
+            / "backend" / "app" / "hermes" / "plugins"
+        ),
+        hermes_home=str(tmp_path / "hermes-root"),
+        hermes_max_iterations=5,
+        hermes_max_execution_seconds=10.0,
+        hermes_max_tool_calls=10,
+        hermes_max_tool_calls_per_capability=5,
+        hermes_max_generation_budget_usd=1.0,
+        hermes_max_context_tokens=8_000,
+        hermes_max_blocked_requests=3,
+        openrouter_api_key="sk-rs1-smoke",
+    )
+    monkeypatch.setattr("app.core.config.get_settings", lambda: settings)
+    monkeypatch.setattr("app.hermes.runtime.get_settings", lambda: settings)
+    import app.services.hermes_job_runner as runner_module
+
+    monkeypatch.setattr(runner_module, "_OPENROUTER_BASE_URL", "http://127.0.0.1:9/v1")
+
+    from app.database.session import AsyncSessionLocal
+    from app.models.core import Project, WorkflowRun
+
+    async def _seed():
+        async with AsyncSessionLocal() as session:
+            project = Project(name="rs1-smoke")
+            session.add(project)
+            await session.flush()
+            run = WorkflowRun(project_id=project.id)
+            session.add(run)
+            await session.commit()
+            return project.id, run.id
+
+    async def _cleanup(project_id, run_id):
+        async with AsyncSessionLocal() as session:
+            run = await session.get(WorkflowRun, run_id)
+            if run is not None:
+                await session.delete(run)
+            project = await session.get(Project, project_id)
+            if project is not None:
+                await session.delete(project)
+            await session.commit()
+
+    project_id, run_id = await _seed()
+    try:
+        submit = await client.post("/api/hermes/jobs", json=_submit_payload(
+            workflow_run_id=str(run_id), task_message="say hi", user_id="rs1-test",
+        ))
+        assert submit.status_code == 202
+        surface_id = submit.json()["job_id"]
+        deadline = asyncio.get_event_loop().time() + 60.0
+        final = None
+        while asyncio.get_event_loop().time() < deadline:
+            poll = await client.get(f"/api/hermes/jobs/{surface_id}")
+            if poll.status_code == 200 and poll.json()["status"] not in ("submitted", "running"):
+                final = poll.json()
+                break
+            await asyncio.sleep(0.05)
+        assert final is not None
+        # The REAL frozen runner's job id, propagated and distinct.
+        assert final["runtime_job_id"]
+        assert final["runtime_job_id"] != surface_id
+        assert final["status"] == "failed"  # dead endpoint, deterministic
+
+        # Live polling by the real runtime id returns the same job.
+        by_runtime = await client.get(f"/api/hermes/jobs/{final['runtime_job_id']}")
+        assert by_runtime.status_code == 200
+        assert by_runtime.json()["job_id"] == surface_id
+    finally:
+        await _cleanup(project_id, run_id)
 
 
 # ---------------------------------------------------------------------------

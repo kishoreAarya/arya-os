@@ -100,6 +100,12 @@ class HermesJobStatusResponse(BaseModel):
     duration_seconds: float | None = None
     submitted_at: str
     completed_at: str | None = None
+    # R-s1 remediation (operator-authorized additive field): the frozen
+    # runner's runtime job id — the key §13 audit records carry. None
+    # until the runner has produced it; purely an identifier (never an
+    # authorization credential). Backward compatible: pre-existing
+    # consumers ignore it.
+    runtime_job_id: str | None = None
 
 
 def _now() -> str:
@@ -147,6 +153,10 @@ async def _run_hermes_job_background(job_id: str, call: HermesRunnerCall) -> Non
             entry["error_detail"] = hermes.error_detail
             entry["final_response"] = hermes.final_response if hermes.status == _STATUS_COMPLETED else None
             entry["completed_at"] = _now()
+            # R-s1: preserve the frozen runner's runtime job id — the key
+            # §13 records carry — so the caller can recover the terminal
+            # record across a process restart via runtime-id polling.
+            entry["runner_job_id"] = result.job_id
 
 
 @router.post("", response_model=HermesJobSubmitResponse, status_code=202)
@@ -221,6 +231,7 @@ def _reconstruct_from_audit(job_id: str) -> HermesJobStatusResponse | None:
             duration_seconds=None,
             submitted_at=submitted_at,
             completed_at=None,
+            runtime_job_id=job_id,  # the fallback is runtime-id keyed (R-s1)
         )
     status = end.outcome if end.outcome in (_STATUS_COMPLETED, _STATUS_FAILED, _STATUS_AWAITING) else _STATUS_FAILED
     return HermesJobStatusResponse(
@@ -233,14 +244,24 @@ def _reconstruct_from_audit(job_id: str) -> HermesJobStatusResponse | None:
         duration_seconds=end.duration_seconds,
         submitted_at=submitted_at,
         completed_at=end.occurred_at,
+        runtime_job_id=job_id,  # the fallback is runtime-id keyed (R-s1)
     )
 
 
 @router.get("/{job_id}", response_model=HermesJobStatusResponse)
 async def get_hermes_job_status(job_id: str) -> HermesJobStatusResponse:
-    """Poll one Hermes job: live in-memory state, else §13 audit fallback."""
+    """Poll one Hermes job: live in-memory state (by surface id, or by the
+    R-s1 runtime id once the runner has produced one), else §13 audit
+    fallback (runtime-id keyed). Both lookups are behind the same
+    API-key dependency; the runtime id is an identifier only."""
     with _HERMES_JOBS_LOCK:
         entry = _HERMES_JOBS.get(job_id)
+        if entry is None:
+            # R-s1 additive lookup: the caller may poll by the runtime id.
+            entry = next(
+                (e for e in _HERMES_JOBS.values() if e.get("runner_job_id") == job_id),
+                None,
+            )
         snapshot = dict(entry) if entry is not None else None
     if snapshot is not None:
         return HermesJobStatusResponse(
@@ -253,6 +274,7 @@ async def get_hermes_job_status(job_id: str) -> HermesJobStatusResponse:
             duration_seconds=snapshot.get("duration_seconds"),
             submitted_at=snapshot["submitted_at"],
             completed_at=snapshot.get("completed_at"),
+            runtime_job_id=snapshot.get("runner_job_id"),
         )
     from fastapi import HTTPException
     from starlette import status as http_status
