@@ -403,6 +403,118 @@ def test_real_construction_only_job(tmp_path):
     # Runtime env cleared.
     assert "HERMES_HOME" not in os.environ
     assert "HERMES_BUNDLED_PLUGINS" not in os.environ
+
+
+# ---------------------------------------------------------------------------
+# 8b. §9.7 test hardening: T8 listener/process, T9 fs snapshot, T10 canary,
+#     T15 memory-file absence — all against REAL construction-only jobs.
+# ---------------------------------------------------------------------------
+
+def _hermes_home_tree(root: Path) -> set[str]:
+    """Relative paths of every file/dir under the given root."""
+    return sorted(str(p.relative_to(root)) for p in root.rglob("*"))
+
+
+def test_real_job_binds_no_listener_and_spawns_no_process(tmp_path):
+    """T8 hardening: through a REAL job, this process binds no new TCP
+    listener (a gateway/API-server activation would bind one) and leaves
+    no persistent child process running at job end.
+
+    Known sanctioned transient: AIAgent construction warms Hermes'
+    environment probe (agent/agent_init.py:1379 -> tools/env_probe.py),
+    which runs short LOCAL diagnostic subprocesses (python/pip
+    fingerprints, stdin=DEVNULL, bounded timeouts, no network). Those
+    exit immediately; the assertion below therefore requires every
+    spawned child to be gone-or-exited once the job returns — a gateway
+    child process would be RUNNING and fail this test."""
+    if not HERMES_AVAILABLE:
+        pytest.fail("§16: pinned Hermes source missing — integration environment failure")
+    import time as _time
+
+    import psutil
+
+    proc = psutil.Process()
+    listeners_before = {
+        c.laddr.port for c in proc.net_connections("tcp") if c.status == "LISTEN"
+    }
+    children_before = {p.pid for p in proc.children(recursive=False)}
+    settings = _valid_settings(tmp_path)
+    result = run_hermes_job(_request(job_id="t8-1", task_message=None), settings=settings)
+    assert result.status == "completed", (result.error_code, result.error_detail)
+    listeners_after = {
+        c.laddr.port for c in proc.net_connections("tcp") if c.status == "LISTEN"
+    }
+    assert listeners_after == listeners_before, "embedded job must not bind any new listener"
+    # No NEW child process may still be executing (or unreaped) once the
+    # job has returned; bounded grace for the probe thread's reap.
+    deadline = _time.monotonic() + 5.0
+    while _time.monotonic() < deadline:
+        new_children = [p for p in proc.children(recursive=False) if p.pid not in children_before]
+        if not new_children:
+            break
+        _time.sleep(0.1)
+    new_children = [p for p in proc.children(recursive=False) if p.pid not in children_before]
+    assert new_children == [], f"persistent child process after job: {[p.pid for p in new_children]}"
+
+
+def test_real_job_filesystem_snapshot_and_memory_absence(tmp_path):
+    """T9 + T15 hardening: after a REAL job, the Hermes base home contains
+    EXACTLY the persistent audit store (job home deleted, no stray files,
+    no .env) and NO memory/session artifacts exist anywhere under it
+    (skip_memory=True per §6)."""
+    if not HERMES_AVAILABLE:
+        pytest.fail("§16: pinned Hermes source missing — integration environment failure")
+    settings = _valid_settings(tmp_path)
+    result = run_hermes_job(_request(job_id="t9-1", task_message=None), settings=settings)
+    assert result.status == "completed", (result.error_code, result.error_detail)
+
+    home = Path(settings.hermes_home)
+    tree = _hermes_home_tree(home)
+    # Sanctioned survivors: the §13 persistent audit store plus the empty
+    # `jobs/` root the runtime creates (only the per-job dir is deleted).
+    assert tree == ["audit", "audit/hermes_policy_audit.jsonl", "jobs"], tree
+    assert list((home / "jobs").iterdir()) == []  # job home deleted (§6), root empty
+    assert not (home / "jobs" / "t9-1").exists()
+    assert not list(home.rglob(".env"))
+    # T15: no memory/session artifacts (skip_memory/skip flags, §6) —
+    # no file or directory with a memory/session-ish name exists.
+    forbidden = [
+        p for p in home.rglob("*")
+        if any(token in p.name.lower() for token in ("memory", "session", "recall"))
+    ]
+    assert forbidden == [], forbidden
+
+
+def test_real_job_canary_paths_outside_hermes_home_untouched(tmp_path):
+    """T10 hardening: with no filesystem capability granted (the exact
+    tool-surface test above proves none is exposed), canary files in
+    AryaOS-data locations OUTSIDE the Hermes home are byte-identical and
+    un-deleted after a REAL job."""
+    if not HERMES_AVAILABLE:
+        pytest.fail("§16: pinned Hermes source missing — integration environment failure")
+    canary_dir = tmp_path / "aryaos-data-outside-hermes-home"
+    canary_dir.mkdir()
+    canaries = {}
+    for name, payload in (
+        ("credentials.env", "ARYA_SECRET=canary\n"),
+        ("project-state.json", '{"project": "canary"}\n'),
+        ("nested/artifact.txt", "binary-ish canary"),
+    ):
+        target = canary_dir / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(payload)
+        canaries[target] = payload
+
+    settings = _valid_settings(tmp_path)
+    result = run_hermes_job(_request(job_id="t10-1", task_message=None), settings=settings)
+    assert result.status == "completed", (result.error_code, result.error_detail)
+
+    assert _hermes_home_tree(canary_dir) == [
+        "credentials.env", "nested", "nested/artifact.txt", "project-state.json",
+    ]
+    for target, payload in canaries.items():
+        assert target.read_text() == payload, target
+        assert target.exists()
     # Hermes was actually imported (the boundary ran).
     assert "run_agent" in sys.modules
 

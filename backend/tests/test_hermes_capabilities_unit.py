@@ -2340,6 +2340,139 @@ def test_publishing_approval_scoping(tmp_path, monkeypatch, seeded_run):
         asyncio.run(_cleanup_checkpoints(run_id, other_run))
 
 
+def test_watchdog_timeout_during_pending_reports_failed_not_awaiting(tmp_path, monkeypatch, seeded_run):
+    """§9.7 approval edge gap: a job that requests approval and THEN hangs
+    past the wall-clock watchdog ends FAILED with chat_timeout — never
+    awaiting_approval. Precedence: the watchdog raises inside the runtime
+    try (failed) before the post-chat pending branch can convert the
+    terminal state (§12/watchdog > awaiting, mirroring the §12 row)."""
+    if not HERMES_AVAILABLE:
+        pytest.fail("§16: pinned Hermes source missing — integration environment failure")
+    import time
+
+    from app.core.config import Settings
+    from app.hermes import runtime as hermes_runtime
+
+    (project_id, run_id), _ = seeded_run
+
+    class _PendingThenHangingAgent:
+        enabled_toolsets = ("todo",)
+        valid_tool_names = frozenset({"todo_list"})
+        api_key = "aryaos-explicit-test-key"
+        base_url = "http://127.0.0.1:9/v1"
+
+        def chat(self, _message):
+            import model_tools
+
+            # 1) Request approval: sets the pending signal mid-job.
+            model_tools.handle_function_call("story.create", {"content": "draft"}, "t1")
+            # 2) Then hang: the AryaOS watchdog (not the pending signal)
+            #    must determine the terminal state.
+            time.sleep(30)
+            return "never"
+
+        def close(self):
+            pass
+
+    settings = Settings(
+        hermes_enabled=True,
+        hermes_commit_pin=HERMES_COMMIT_PIN,
+        hermes_plugin_path=str(PLUGIN_PATH),
+        hermes_home=str(tmp_path / "hermes-root"),
+        hermes_max_iterations=5,
+        hermes_max_execution_seconds=0.5,
+        hermes_max_tool_calls=10,
+        hermes_max_tool_calls_per_capability=5,
+        hermes_max_generation_budget_usd=1.0,
+        hermes_max_context_tokens=8_000,
+        hermes_max_blocked_requests=3,
+    )
+    original_construct = hermes_runtime._construct_agent
+    hermes_runtime._construct_agent = lambda request, config, baseline_threads: _PendingThenHangingAgent()
+    try:
+        result = run_hermes_job(
+            HermesJobRequest(
+                job_id="approval-wd-1",
+                task_message="request then hang",
+                authorization_context=_run_context(project_id, run_id),
+                provider="openai",
+                base_url="http://127.0.0.1:9/v1",
+                api_key="aryaos-explicit-test-key",
+                model="aryaos-test-model",
+            ),
+            settings=settings,
+        )
+    finally:
+        hermes_runtime._construct_agent = original_construct
+
+    assert result.status == "failed"
+    assert result.error_code == "chat_timeout"
+    assert result.status != "awaiting_approval"
+    # The pending checkpoint from step 1 still exists durably — the caller
+    # can approve and resume via a new job despite the watchdog failure.
+    import asyncio
+
+    assert asyncio.run(_count_checkpoints(run_id, "script")) == 1
+    asyncio.run(_cleanup_checkpoints(run_id))
+    asyncio.run(_cleanup_scripts(run_id))
+
+
+def test_approved_stage_never_grants_other_stage(seeded_run):
+    """§9.7 approval edge gap (adversarial cross-stage negative): an
+    APPROVED checkpoint for one stage never authorizes a DIFFERENT gated
+    capability's stage — script approval does not grant publishing
+    (thumbnail), and thumbnail approval does not grant story.create
+    (script). The gate's lookup is (workflow_run_id, stage)-scoped."""
+    import asyncio
+
+    from app.hermes.runtime import (
+        _clear_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), (other_project, other_run) = seeded_run
+    try:
+        # Direction 1 (run A): approved SCRIPT checkpoint must NOT grant
+        # the THUMBNAIL gate.
+        asyncio.run(_seed_checkpoint(run_id, "script", "approve"))
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            publishing = asyncio.run(execute_capability(
+                "publishing.request", {"artifact_id": "550e8400-e29b-41d4-a716-446655440000"}
+            ))
+        finally:
+            set_active_authorization_context(None)
+        assert publishing["pending_approval"]["stage"] == "thumbnail"  # NOT granted
+        assert asyncio.run(_count_checkpoints(run_id, "thumbnail")) == 1  # its own pending cp
+
+        # Direction 2 (run B — clean, no script approval): approved
+        # THUMBNAIL checkpoint must NOT grant the SCRIPT gate.
+        asyncio.run(_seed_checkpoint(other_run, "thumbnail", "approve"))
+        set_active_authorization_context(_run_context(other_project, other_run))
+        try:
+            story = asyncio.run(execute_capability("story.create", {"content": "draft"}))
+        finally:
+            set_active_authorization_context(None)
+        assert story["pending_approval"]["stage"] == "script"  # NOT granted
+        assert asyncio.run(_count_scripts(other_run)) == 0  # nothing executed
+
+        # Control (run B): now approve the script stage too — the gate
+        # passes, proving the negatives above are stage-scoping, not a
+        # broken gate.
+        pending_id = uuid.UUID(story["pending_approval"]["checkpoint_id"])
+        asyncio.run(_approve_checkpoint(pending_id))
+        set_active_authorization_context(_run_context(other_project, other_run))
+        try:
+            granted = asyncio.run(execute_capability("story.create", {"content": "d"}))
+        finally:
+            set_active_authorization_context(None)
+        assert granted["script_id"]  # script approval now grants script
+    finally:
+        _clear_active_approval_pending()
+        asyncio.run(_cleanup_checkpoints(run_id, other_run))
+        asyncio.run(_cleanup_scripts(run_id, other_run))
+
+
 def test_real_job_awaiting_approval_end_to_end(tmp_path, monkeypatch, seeded_run):
     """§5.4/§11 end-to-end through the REAL runtime: a job whose chat invokes
     the gated capability ends in status "awaiting_approval" (never failed),
