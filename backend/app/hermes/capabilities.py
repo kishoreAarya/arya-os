@@ -84,6 +84,20 @@ _PENDING_APPROVAL = "capability_pending_approval"
 _APPROVAL_GRANTED = "capability_approval_granted"
 _APPROVAL_RUN_UNAVAILABLE = "approval_run_unavailable"
 
+# §9.5 publishing.request (operator decisions D1-D5). D2: the destination is
+# intentionally ARYAOS-CONTROLLED — the existing publishing router defaults
+# (platform "postiz", social platform "youtube") plus the existing
+# postiz_default_integration_id Settings value the adapter itself falls back
+# to. NONE of it is model input; the frozen artifact_id-only schema cannot
+# carry platform/social/integration/credential/destination fields.
+_PUBLISH_PLATFORM = "postiz"
+_PUBLISH_SOCIAL_PLATFORM = "youtube"
+# D3 (Shape B): dry-run only; deterministic value-free failure codes.
+_PUBLISH_ARTIFACT_UNAVAILABLE = "publishing_artifact_unavailable"
+_PUBLISH_NOT_PUBLISHABLE = "publishing_artifact_not_publishable"
+_PUBLISH_STORAGE_UNAVAILABLE = "publishing_artifact_storage_unavailable"
+_PUBLISH_VALIDATION_FAILED = "publishing_validation_failed"
+
 _REDDIT_TIME_FILTERS = ("all", "day", "hour", "month", "week", "year")
 
 
@@ -700,10 +714,128 @@ async def _story_create_binding(params: StoryCreateParams) -> dict:
     )
 
 
+async def _dry_run_publishing(session, run_uuid: uuid.UUID, params) -> dict:
+    """§9.5 (operator decisions D1-D5): the approved publishing.request
+    operation — a DRY-RUN PUBLISHING VALIDATION, never a publication.
+
+    - D1: artifact_id resolves exclusively to Video, owned by the verified
+      workflow run (the gate already verified run/project); uniform
+      deterministic failure for missing/foreign videos (no oracle);
+      read-only artifact resolution.
+    - D3 (Shape B): DIRECT adapter dry-run invocation only. No
+      PublishingAgent, no authenticate(), no credentials (dry-run paths
+      return before any api_key use — verified postiz.py:129/:222), no
+      HTTP, no remote asset download (a non-local storage path fails
+      closed via the adapter's own isfile contract), no Video write-back,
+      no SystemLog, no real publication. is_dry_run=True is set HERE and
+      is never model-controlled.
+    - D4: every metadata field is derived from the authoritative
+      Video/Thumbnail rows (comma-tags per the existing convention);
+      nullable metadata stays nullable; the only default is the existing
+      publishing default aspect_ratio "16:9". Missing storage_path fails
+      closed (not publishable).
+    - D5: §13.3 execution outcome via the existing best-effort mechanism,
+      cost_estimate_usd None; the result is explicitly
+      publish_type="dry_run" / simulated=true and never claims a real
+      publication. Real publishing is a deferred future contract
+      (external-attempt persistence, idempotency, external IDs).
+    """
+    started = time.monotonic()
+    from app.models.media import Thumbnail, Video
+
+    def _fail(code: str, detail: str) -> dict:
+        result = {"error": {"code": code, "detail": detail}}
+        _audit_readonly_execution("publishing.request", params, time.monotonic() - started, result)
+        return result
+
+    video = await session.get(Video, params.artifact_id)
+    if video is None or video.workflow_run_id != run_uuid:
+        return _fail(_PUBLISH_ARTIFACT_UNAVAILABLE, "no such video artifact in this workflow run")
+    if not (video.storage_path or "").strip():
+        return _fail(_PUBLISH_NOT_PUBLISHABLE, "video artifact has no storage path; not publishable")
+
+    title = video.title
+    description = video.description
+    tags_raw = video.tags
+    tags = [t.strip() for t in tags_raw.split(",")] if tags_raw else []
+    aspect_ratio = video.aspect_ratio or "16:9"  # the existing publishing default
+    thumbnail_storage_path = None
+    if video.thumbnail_id is not None:
+        thumbnail = await session.get(Thumbnail, video.thumbnail_id)
+        if thumbnail is not None and thumbnail.workflow_run_id == run_uuid:
+            thumbnail_storage_path = thumbnail.storage_path
+
+    from app.platforms.registry import get_platform_adapter
+
+    adapter = get_platform_adapter(_PUBLISH_PLATFORM, session)  # reads settings only
+    upload = await adapter.upload_content(
+        file_path=video.storage_path,
+        title=title,
+        description=description,
+        tags=tags or None,
+        credentials=None,
+        is_dry_run=True,
+    )
+    if not upload.success:
+        # Local-file contract unmet (or storage unreachable): fail closed —
+        # no remote download is ever attempted from the Hermes path.
+        return _fail(_PUBLISH_STORAGE_UNAVAILABLE, "video storage not locally available for validation; no download attempted")
+
+    thumbnail_result = None
+    if thumbnail_storage_path:
+        thumb = await adapter.upload_thumbnail(
+            video_content_id=upload.content_id,
+            thumbnail_path=thumbnail_storage_path,
+            credentials=None,
+            is_dry_run=True,
+        )
+        thumbnail_result = (
+            {"simulated_content_id": thumb.content_id} if thumb.success else {"simulated": False}
+        )
+
+    publish = await adapter.publish(
+        content_id=upload.content_id,
+        credentials=None,
+        title=title,
+        description=description,
+        tags=tags or None,
+        integration_id=None,  # the adapter falls back to postiz_default_integration_id
+        platform_type=_PUBLISH_SOCIAL_PLATFORM,
+        publish_type="draft",
+        is_dry_run=True,
+    )
+    if not publish.success:
+        return _fail(_PUBLISH_VALIDATION_FAILED, "adapter dry-run validation failed")
+
+    result = {
+        "artifact_id": str(params.artifact_id),
+        "workflow_run_id": str(run_uuid),
+        "video_id": str(video.id),
+        "platform": _PUBLISH_PLATFORM,
+        "social_platform": _PUBLISH_SOCIAL_PLATFORM,
+        "publish_type": "dry_run",
+        "simulated": True,
+        "upload": {"simulated_content_id": upload.content_id},
+        "publish": {
+            "simulated_post_id": publish.published_content_id,
+            "publish_status": publish.publish_status,
+        },
+        "thumbnail": thumbnail_result,
+        "aspect_ratio": aspect_ratio,
+        "detail": "dry-run validation only; no external publication occurred",
+    }
+    _audit_readonly_execution("publishing.request", params, time.monotonic() - started, result)
+    return result
+
+
 async def _publishing_request_binding(params: PublishingRequestParams) -> dict:
     """Execute the §5.4-gated publishing.request capability: publishing an
-    AryaOS-owned artifact requires the terminal pre-publish approval."""
-    return await _approval_gated_binding("publishing.request", params)
+    AryaOS-owned artifact requires the terminal pre-publish approval
+    (§9.5: the approved operation is a DRY-RUN validation via the existing
+    Postiz adapter's safe dry-run methods — never a real publication)."""
+    return await _approval_gated_binding(
+        "publishing.request", params, granted_operation=_dry_run_publishing
+    )
 
 
 _REGISTRY: dict[str, CapabilitySpec] = {

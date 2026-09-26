@@ -1461,6 +1461,149 @@ async def _approve_checkpoint(checkpoint_id) -> None:
         await session.commit()
 
 
+async def _seed_video(
+    run_id,
+    *,
+    storage_path=None,
+    title=None,
+    description=None,
+    tags=None,
+    thumbnail_id=None,
+    aspect_ratio=None,
+):
+    from contextlib import asynccontextmanager
+
+    from app.hermes.capabilities import _make_capability_engine
+
+    @asynccontextmanager
+    async def _session():
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                yield session
+        finally:
+            await engine.dispose()
+
+    from app.models.media import Video
+
+    async with _session() as session:
+        video = Video(
+            workflow_run_id=run_id,
+            storage_path=storage_path,
+            title=title,
+            description=description,
+            tags=tags,
+            thumbnail_id=thumbnail_id,
+            aspect_ratio=aspect_ratio,
+        )
+        session.add(video)
+        await session.commit()
+        return video.id
+
+
+async def _seed_thumbnail(run_id, storage_path):
+    from contextlib import asynccontextmanager
+
+    from app.hermes.capabilities import _make_capability_engine
+
+    @asynccontextmanager
+    async def _session():
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                yield session
+        finally:
+            await engine.dispose()
+
+    from app.models.media import Thumbnail
+
+    async with _session() as session:
+        thumbnail = Thumbnail(workflow_run_id=run_id, storage_path=storage_path)
+        session.add(thumbnail)
+        await session.commit()
+        return thumbnail.id
+
+
+async def _video_state(video_id):
+    from contextlib import asynccontextmanager
+
+    from app.hermes.capabilities import _make_capability_engine
+
+    @asynccontextmanager
+    async def _session():
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                yield session
+        finally:
+            await engine.dispose()
+
+    from app.models.media import Video
+
+    async with _session() as session:
+        video = await session.get(Video, video_id)
+        return (video.publish_status.value, video.youtube_video_id, video.title, video.tags)
+
+
+async def _count_system_logs(run_id) -> int:
+    from contextlib import asynccontextmanager
+
+    from app.hermes.capabilities import _make_capability_engine
+
+    @asynccontextmanager
+    async def _session():
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                yield session
+        finally:
+            await engine.dispose()
+
+    from app.models.system import SystemLog
+    from sqlalchemy import func, select
+
+    async with _session() as session:
+        result = await session.execute(
+            select(func.count()).select_from(SystemLog).where(SystemLog.workflow_run_id == run_id)
+        )
+        return int(result.scalar() or 0)
+
+
+async def _cleanup_videos(*run_ids) -> None:
+    from contextlib import asynccontextmanager
+
+    from app.hermes.capabilities import _make_capability_engine
+
+    @asynccontextmanager
+    async def _session():
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                yield session
+        finally:
+            await engine.dispose()
+
+    from app.models.media import Thumbnail, Video
+    from sqlalchemy import delete
+
+    async with _session() as session:
+        for run_id in run_ids:
+            # Videos reference Thumbnails: delete dependents first.
+            await session.execute(delete(Video).where(Video.workflow_run_id == run_id))
+            await session.execute(delete(Thumbnail).where(Thumbnail.workflow_run_id == run_id))
+        await session.commit()
+
+
 def test_approval_designation_is_frozen():
     """D1: exactly story.create and publishing.request are gated;
     provider.generate (and everything else) is not."""
@@ -1693,8 +1836,10 @@ def test_approved_checkpoint_permits_job_n_plus_one(seeded_run):
         asyncio.run(_cleanup_checkpoints(run_id, other_run))
 
 
-def test_gated_publishing_request_follows_same_gate(seeded_run):
-    """publishing.request uses the same architecture at the thumbnail stage."""
+def test_gated_publishing_request_follows_same_gate(seeded_run, tmp_path):
+    """publishing.request uses the same architecture at the thumbnail stage;
+    the §9.5 approved operation is a DRY-RUN validation of a real Video
+    (never a placeholder 'granted' and never a real publication)."""
     import asyncio
 
     from app.hermes.runtime import (
@@ -1703,11 +1848,14 @@ def test_gated_publishing_request_follows_same_gate(seeded_run):
     )
 
     (project_id, run_id), _ = seeded_run
+    local = tmp_path / "video.mp4"
+    local.write_bytes(b"fake")
+    video_id = asyncio.run(_seed_video(run_id, storage_path=str(local), title="T", tags="a, b"))
     try:
         set_active_authorization_context(_run_context(project_id, run_id))
         try:
             result = asyncio.run(execute_capability(
-                "publishing.request", {"artifact_id": "550e8400-e29b-41d4-a716-446655440000"}
+                "publishing.request", {"artifact_id": str(video_id)}
             ))
         finally:
             set_active_authorization_context(None)
@@ -1718,11 +1866,16 @@ def test_gated_publishing_request_follows_same_gate(seeded_run):
         set_active_authorization_context(_run_context(project_id, run_id))
         try:
             result = asyncio.run(execute_capability(
-                "publishing.request", {"artifact_id": "550e8400-e29b-41d4-a716-446655440000"}
+                "publishing.request", {"artifact_id": str(video_id)}
             ))
         finally:
             set_active_authorization_context(None)
-        assert result["approval"] == "granted" and result["stage"] == "thumbnail"
+        # §9.5: the REAL dry-run operation — no placeholder.
+        assert "approval" not in result and "error" not in result
+        assert result["publish_type"] == "dry_run" and result["simulated"] is True
+        assert result["platform"] == "postiz" and result["social_platform"] == "youtube"
+        assert result["video_id"] == str(video_id)
+        assert result["publish"]["simulated_post_id"].startswith("dry_run_post_")
     finally:
         _clear_active_approval_pending()
         asyncio.run(_cleanup_checkpoints(run_id))
@@ -1912,6 +2065,279 @@ def test_multiple_gated_calls_first_wins_deterministic(seeded_run):
     finally:
         _clear_active_approval_pending()
         asyncio.run(_cleanup_checkpoints(run_id))
+
+
+# ---------------------------------------------------------------------------
+# 4e. §9.5 publishing.request dry-run operation (operator D1-D5)
+# ---------------------------------------------------------------------------
+
+def _publish_bomb(monkeypatch):
+    """Prove no authenticate(), no credential extraction, and no HTTP can
+    occur on the Hermes dry-run path: every forbidden entry point raises."""
+    import app.platforms.postiz as postiz_module
+    from app.platforms.postiz import PostizAdapter
+
+    def _forbidden(*_a, **_k):
+        raise AssertionError("forbidden entry point reached on the dry-run path")
+
+    monkeypatch.setattr(PostizAdapter, "authenticate", _forbidden)
+    monkeypatch.setattr(PostizAdapter, "_extract_api_key", _forbidden)
+    monkeypatch.setattr(postiz_module, "httpx", type("BombHttpx", (), {"AsyncClient": staticmethod(_forbidden)}))
+
+
+def test_publishing_ownership_matrix(tmp_path, monkeypatch, seeded_run):
+    """D1: artifact_id resolves exclusively to a same-run Video — valid
+    proceeds; nonexistent / other-run / other-project videos fail with ONE
+    uniform deterministic code (no oracle); storage-less video is not
+    publishable; malformed UUID is a §9 schema failure."""
+    import asyncio
+
+    from app.hermes.runtime import (
+        _clear_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), (other_project, other_run) = seeded_run
+    local = tmp_path / "v.mp4"
+    local.write_bytes(b"x")
+    own_video = asyncio.run(_seed_video(run_id, storage_path=str(local)))
+    other_video = asyncio.run(_seed_video(other_run, storage_path=str(local)))
+    asyncio.run(_seed_checkpoint(run_id, "thumbnail", "approve"))
+    try:
+        def _call(video_uuid, project=None):
+            set_active_authorization_context(AuthorizationContext(
+                user_id="u", project_id=str(project or project_id), job_id="j",
+                workflow_run_id=str(run_id), agent_id="a", lineage_id="l",
+            ))
+            try:
+                return asyncio.run(execute_capability("publishing.request", {"artifact_id": str(video_uuid)}))
+            finally:
+                set_active_authorization_context(None)
+
+        # 1. valid same-run video -> dry-run proceeds.
+        ok = _call(own_video)
+        assert ok["simulated"] is True and ok["video_id"] == str(own_video)
+
+        # 2/3. nonexistent / other-run video -> ONE uniform code+detail at
+        #     the OPERATION level (no oracle).
+        missing = _call("00000000-0000-0000-0000-000000000000")
+        foreign_video = _call(other_video)
+        for bad in (missing, foreign_video):
+            assert bad["error"]["code"] == "publishing_artifact_unavailable", bad
+        assert missing["error"]["detail"] == foreign_video["error"]["detail"]
+
+        # 4. other-PROJECT context -> the GATE's uniform run-verification
+        #    failure (also no oracle); the operation is never reached.
+        foreign_context = _call(own_video, project=other_project)
+        assert foreign_context["error"]["code"] == "approval_run_unavailable"
+
+        # storage-less video -> not publishable (distinct deterministic code).
+        no_storage = asyncio.run(_seed_video(run_id, storage_path=None))
+        bare = _call(no_storage)
+        assert bare["error"]["code"] == "publishing_artifact_not_publishable"
+
+        # 5. malformed UUID -> §9 schema rejection (never reaches the gate).
+        result = validate_capability_parameters("publishing.request", {"artifact_id": "not-a-uuid"})
+        assert not result.ok and result.reason == CAPABILITY_SCHEMA_INVALID
+    finally:
+        _clear_active_approval_pending()
+        asyncio.run(_cleanup_videos(run_id, other_run))
+        asyncio.run(_cleanup_checkpoints(run_id))
+
+
+def test_publishing_schema_rejects_destination_injection():
+    """D2: the frozen artifact_id-only schema rejects every destination /
+    credential / approval / dry-run field the model might attempt."""
+    base = {"artifact_id": "550e8400-e29b-41d4-a716-446655440000"}
+    for injected in ("platform", "social_platform", "integration_id", "dry_run",
+                     "api_key", "credentials", "approved", "checkpoint_id",
+                     "workflow_run_id", "destination", "publish_type"):
+        result = validate_capability_parameters("publishing.request", {**base, injected: "x"})
+        assert not result.ok and result.reason == CAPABILITY_SCHEMA_INVALID, injected
+
+
+def test_publishing_dry_run_safety(tmp_path, monkeypatch, seeded_run):
+    """D3 Shape B: the dry-run path never authenticates, never acquires
+    credentials, never performs HTTP, never downloads remote assets, never
+    mutates the Video row, never writes a SystemLog, and never publishes —
+    while returning publish_type=dry_run / simulated=true."""
+    import asyncio
+
+    from app.hermes.audit import InMemoryAuditSink, set_active_audit_sink
+    from app.hermes.runtime import set_active_authorization_context
+
+    (project_id, run_id), _ = seeded_run
+    local = tmp_path / "safe.mp4"
+    local.write_bytes(b"video-bytes")
+    video_id = asyncio.run(_seed_video(
+        run_id, storage_path=str(local), title="Title", tags="a,b",
+    ))
+    asyncio.run(_seed_checkpoint(run_id, "thumbnail", "approve"))
+    before_state = asyncio.run(_video_state(video_id))
+    before_logs = asyncio.run(_count_system_logs(run_id))
+    sink = InMemoryAuditSink()
+    _publish_bomb(monkeypatch)
+    try:
+        set_active_authorization_context(_run_context(project_id, run_id))
+        set_active_audit_sink(sink)
+        try:
+            result = asyncio.run(execute_capability(
+                "publishing.request", {"artifact_id": str(video_id)}
+            ))
+        finally:
+            set_active_authorization_context(None)
+            set_active_audit_sink(None)
+
+        assert result["publish_type"] == "dry_run" and result["simulated"] is True
+        assert result["publish"]["simulated_post_id"].startswith("dry_run_post_")
+        assert result["upload"]["simulated_content_id"].startswith("dry_run_upload_")
+        assert "no external publication occurred" in result["detail"]
+
+        # No mutation, no logs.
+        assert asyncio.run(_video_state(video_id)) == before_state
+        assert asyncio.run(_count_system_logs(run_id)) == before_logs
+
+        # Remote path fails closed WITHOUT download — the bombed httpx is
+        # standing proof no network call can occur. Re-bind the sink so the
+        # failure outcome is captured too.
+        remote_id = asyncio.run(_seed_video(run_id, storage_path="https://example.com/remote.mp4"))
+        set_active_authorization_context(_run_context(project_id, run_id))
+        set_active_audit_sink(sink)
+        try:
+            remote = asyncio.run(execute_capability("publishing.request", {"artifact_id": str(remote_id)}))
+        finally:
+            set_active_authorization_context(None)
+            set_active_audit_sink(None)
+        assert remote["error"]["code"] == "publishing_artifact_storage_unavailable"
+
+        # §13.3: two execution outcomes (one success, one failure), cost None.
+        executions = sink.execution_records()
+        assert [e.outcome for e in executions] == ["success", "failure"]
+        assert all(e.cost_estimate_usd is None for e in executions)
+        assert all(e.tool_name == "publishing.request" for e in executions)
+        assert executions[0].reason_code is None
+        assert executions[1].reason_code == "publishing_artifact_storage_unavailable"
+        assert "artifact_id" not in executions[0].to_dict()  # digest-only params
+    finally:
+        asyncio.run(_cleanup_videos(run_id))
+        asyncio.run(_cleanup_checkpoints(run_id))
+
+
+def test_publishing_metadata_derivation(tmp_path, monkeypatch, seeded_run):
+    """D4: metadata derives from Video/Thumbnail only — propagation,
+    comma-tags, nullable tags/thumbnail, aspect-ratio default."""
+    import asyncio
+
+    from app.hermes.runtime import set_active_authorization_context
+
+    (project_id, run_id), _ = seeded_run
+    local = tmp_path / "meta.mp4"
+    local.write_bytes(b"m")
+    thumb_file = tmp_path / "thumb.png"
+    thumb_file.write_bytes(b"t")
+    thumbnail_id = asyncio.run(_seed_thumbnail(run_id, str(thumb_file)))
+    video_id = asyncio.run(_seed_video(
+        run_id, storage_path=str(local), title="The Title",
+        description="The Description", tags="alpha, beta",
+        thumbnail_id=thumbnail_id, aspect_ratio="9:16",
+    ))
+    asyncio.run(_seed_checkpoint(run_id, "thumbnail", "approve"))
+    try:
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            rich = asyncio.run(execute_capability("publishing.request", {"artifact_id": str(video_id)}))
+        finally:
+            set_active_authorization_context(None)
+        assert rich["aspect_ratio"] == "9:16"
+        assert rich["thumbnail"] and rich["thumbnail"].get("simulated_content_id")
+
+        # Nullable everything (no title/tags/thumbnail) + default aspect.
+        bare_id = asyncio.run(_seed_video(run_id, storage_path=str(local)))
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            bare = asyncio.run(execute_capability("publishing.request", {"artifact_id": str(bare_id)}))
+        finally:
+            set_active_authorization_context(None)
+        assert bare["simulated"] is True
+        assert bare["aspect_ratio"] == "16:9"  # the existing publishing default
+        assert bare["thumbnail"] is None
+    finally:
+        asyncio.run(_cleanup_videos(run_id))
+        asyncio.run(_cleanup_checkpoints(run_id))
+
+
+def test_publishing_approval_scoping(tmp_path, monkeypatch, seeded_run):
+    """Approval semantics: pending Job N performs NO dry-run; approved
+    Job N+1 performs exactly one; another run's approval and SCRIPT-stage
+    approval never grant the THUMBNAIL stage."""
+    import asyncio
+
+    from app.hermes.audit import InMemoryAuditSink, set_active_audit_sink
+    from app.hermes.runtime import (
+        _clear_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), (_other_project, other_run) = seeded_run
+    local = tmp_path / "scoped.mp4"
+    local.write_bytes(b"s")
+    video_id = asyncio.run(_seed_video(run_id, storage_path=str(local)))
+    sink = InMemoryAuditSink()
+    try:
+        # Job N: unapproved -> pending, no dry-run, no execution record.
+        set_active_authorization_context(_run_context(project_id, run_id))
+        set_active_audit_sink(sink)
+        try:
+            job_n = asyncio.run(execute_capability("publishing.request", {"artifact_id": str(video_id)}))
+        finally:
+            set_active_authorization_context(None)
+            set_active_audit_sink(None)
+        assert job_n["pending_approval"]["stage"] == "thumbnail"
+        assert sink.execution_records() == []
+
+        # Another RUN's thumbnail approval does not grant this run.
+        asyncio.run(_seed_checkpoint(other_run, "thumbnail", "approve"))
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            still_pending = asyncio.run(execute_capability("publishing.request", {"artifact_id": str(video_id)}))
+        finally:
+            set_active_authorization_context(None)
+        assert still_pending["pending_approval"]["stage"] == "thumbnail"
+
+        # SCRIPT-stage approval does not grant the THUMBNAIL stage.
+        asyncio.run(_seed_checkpoint(run_id, "script", "approve"))
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            still_pending2 = asyncio.run(execute_capability("publishing.request", {"artifact_id": str(video_id)}))
+        finally:
+            set_active_authorization_context(None)
+        assert still_pending2["pending_approval"]["stage"] == "thumbnail"
+
+        # Approve the exact pending checkpoint -> Job N+1: exactly one dry-run.
+        pending_id = uuid.UUID(still_pending2["pending_approval"]["checkpoint_id"])
+        asyncio.run(_approve_checkpoint(pending_id))
+        set_active_authorization_context(AuthorizationContext(
+            user_id="u", project_id=str(project_id), job_id="job-n-plus-one",
+            workflow_run_id=str(run_id), agent_id="hermes-jn1", lineage_id="l9",
+        ))
+        set_active_audit_sink(sink)
+        try:
+            granted = asyncio.run(execute_capability("publishing.request", {"artifact_id": str(video_id)}))
+        finally:
+            set_active_authorization_context(None)
+            set_active_audit_sink(None)
+        assert granted["simulated"] is True
+        executions = sink.execution_records()
+        assert len(executions) == 1 and executions[0].outcome == "success"
+        assert executions[0].cost_estimate_usd is None
+        # The sink-bound pending call left its §13.1 BLOCK record; the
+        # approved call emitted the single success execution outcome.
+        trail = [(r.tool_name, r.decision, r.reason_code) for r in sink.records()]
+        assert ("publishing.request", "BLOCK", "capability_pending_approval") in trail
+    finally:
+        _clear_active_approval_pending()
+        asyncio.run(_cleanup_videos(run_id))
+        asyncio.run(_cleanup_checkpoints(run_id, other_run))
 
 
 def test_real_job_awaiting_approval_end_to_end(tmp_path, monkeypatch, seeded_run):
