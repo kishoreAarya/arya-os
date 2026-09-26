@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 from app.core.security import verify_api_key
-from app.api.routers import agents, analytics, approvals, creator, feature_flags, health, lineage, publishing, research, workflow_runs, workflows
+from app.api.routers import agents, analytics, approvals, creator, feature_flags, health, hermes_jobs, lineage, publishing, research, workflow_runs, workflows
 from app.workers.scheduler import start_scheduler, stop_scheduler
 
 settings = get_settings()
@@ -63,6 +63,7 @@ app.include_router(creator.router, dependencies=[Depends(verify_api_key)])
 app.include_router(research.router, dependencies=[Depends(verify_api_key)])
 app.include_router(publishing.router, dependencies=[Depends(verify_api_key)])
 app.include_router(analytics.router, dependencies=[Depends(verify_api_key)])
+app.include_router(hermes_jobs.router, dependencies=[Depends(verify_api_key)])
 
 # Health router includes public probes (/health, /ready) and protected diagnostics (/providers, /database, /storage, /validators)
 app.include_router(health.router)
