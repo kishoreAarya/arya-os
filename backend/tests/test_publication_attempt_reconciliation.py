@@ -1,0 +1,797 @@
+"""Publication-attempt operator reconciliation surface.
+
+Proves the operator slice against the REAL service, REAL router (via the
+real FastAPI app + ASGI transport, Bearer-authenticated), REAL Postgres,
+and the REAL PostizAdapter decision logic (only the httpx transport in
+the postiz module is scripted, using real httpx exceptions/responses):
+
+- explicit transition matrix + illegal transitions (typed refusals)
+- UNKNOWN -> SUCCEEDED requires the external post id AND fail-closed
+  in-resolve provider verification (check_processing must say "ready")
+- UNKNOWN -> FAILED requires an explicit operator attestation; the
+  original error text is preserved (no silent history overwrite)
+- PENDING/IN_PROGRESS -> FAILED requires force + attestation + the
+  active-execution staleness floor (never under a live execution)
+- CAS/concurrency: exactly one resolution wins; from-status mismatch
+  refuses; immutable PublicationAttemptResolved SystemLog audit events
+- authentication (401) on all three endpoints
+- credential non-persistence across responses, attempt columns, audit
+- Postiz evidence lookup: ready / processing / not-found-no-match
+  (failed) / not-found-fallback-match (ready) / server-error (unknown)
+- end-to-end: UNKNOWN -> resolve(FAILED) -> retry admitted as n+1, and
+  UNKNOWN -> resolve(SUCCEEDED) -> duplicate guard engages with no
+  second provider publish
+"""
+import asyncio
+import json
+import tempfile
+import uuid
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+
+from app.agents.publishing import PublishingAgent
+from app.core.config import get_settings
+from app.main import app
+from app.models.enums import PublicationAttemptStatus
+from app.models.publication import PublicationAttempt  # noqa: F401 — registers the table
+from app.models.system import SystemLog
+from app.platforms.postiz import PostizAdapter
+from app.services import publication_attempt_reconciliation as recon
+from app.services.publication_attempts import (
+    admit_attempt,
+    mark_failed,
+    mark_in_progress,
+    mark_succeeded,
+    mark_unknown,
+)
+
+SECRET_MARKER = "SECRET-DO-NOT-PERSIST"
+
+
+class _FakeSecrets:
+    def get(self, key, required=False):
+        return f"test-{SECRET_MARKER}" if key == "postiz_api_key" else None
+
+
+class _ScriptedPostizClient:
+    """httpx.AsyncClient stand-in installed ONLY into the postiz module's
+    `httpx` reference (the app's own httpx usage is unaffected)."""
+
+    def __init__(self, script, **kwargs):
+        self._script = script
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+    async def get(self, url, **kwargs):
+        return self._script.get(url, **kwargs)
+
+    async def post(self, url, **kwargs):
+        return self._script.post(url, **kwargs)
+
+
+class _PostizHttpxShim:
+    """Exposes real httpx exception/Response classes but a scripted
+    AsyncClient factory, so the REAL PostizAdapter logic runs."""
+
+    def __init__(self, script):
+        self.AsyncClient = lambda **kwargs: _ScriptedPostizClient(script, **kwargs)
+        for name in ("ConnectError", "ConnectTimeout", "ReadTimeout", "TimeoutException"):
+            setattr(self, name, getattr(httpx, name))
+
+
+class _PostizScript:
+    """Scripts GET /posts/{id} (check_processing), POST /upload, POST /posts."""
+
+    def __init__(self, *, check="ready", upload=("ok", "media-1"), publish=("ok", "post-1")):
+        self.check = check
+        self.upload = upload
+        self.publish = publish
+        self.posts_calls = 0
+
+    def get(self, url, **kwargs):
+        if "/public/v1/posts" not in url:
+            # integrations lookup (authenticate)
+            return httpx.Response(200, json=[{"id": "integ-1"}], request=httpx.Request("GET", url))
+        is_fallback_list = url.endswith("/public/v1/posts") or "startDate" in kwargs.get("params", {})
+        if is_fallback_list:
+            if self.check == "notfound_match":
+                return httpx.Response(
+                    200,
+                    json={"posts": [{"id": "media-1", "state": "published"}]},
+                    request=httpx.Request("GET", url),
+                )
+            return httpx.Response(200, json={"posts": []}, request=httpx.Request("GET", url))
+        # specific-post status lookup
+        if self.check == "ready":
+            return httpx.Response(200, json={"id": "x", "status": "published"}, request=httpx.Request("GET", url))
+        if self.check == "processing":
+            return httpx.Response(200, json={"status": "processing"}, request=httpx.Request("GET", url))
+        if self.check == "server_error":
+            return httpx.Response(500, text="boom", request=httpx.Request("GET", url))
+        # notfound_nomatch / notfound_match specific lookup -> 404
+        return httpx.Response(404, request=httpx.Request("GET", url))
+
+    async def aget(self, url, **kwargs):
+        return self.get(url, **kwargs)
+
+    def post(self, url, **kwargs):
+        if url.endswith("/public/v1/upload"):
+            kind, payload = self.upload
+        else:
+            self.posts_calls += 1
+            kind, payload = self.publish
+        if kind == "raise":
+            raise payload
+        if kind == "status":
+            return httpx.Response(payload, text="scripted", request=httpx.Request("POST", url))
+        return httpx.Response(200, json={"id": payload}, request=httpx.Request("POST", url))
+
+
+def _install_real_postiz(monkeypatch, script):
+    monkeypatch.setattr(
+        "app.services.publication_attempt_reconciliation.get_platform_adapter",
+        lambda platform, db, secrets=None: PostizAdapter(db=db, secrets=_FakeSecrets()),
+    )
+    monkeypatch.setattr(
+        "app.agents.publishing.get_platform_adapter",
+        lambda platform, db, secrets=None: PostizAdapter(db=db, secrets=_FakeSecrets()),
+    )
+    monkeypatch.setattr("app.platforms.postiz.httpx", _PostizHttpxShim(script))
+
+
+# ---------------------------------------------------------------------------
+# DB helpers (fresh disposable engines, same pattern as the attempt suites)
+# ---------------------------------------------------------------------------
+
+
+async def _session():
+    from app.hermes.capabilities import _make_capability_engine
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    engine = _make_capability_engine()
+    return engine, async_sessionmaker(bind=engine, expire_on_commit=False)()
+
+
+async def _attempts_for(video_uuid):
+    from sqlalchemy import select
+
+    engine, session = await _session()
+    try:
+        rows = (
+            (
+                await session.execute(
+                    select(PublicationAttempt)
+                    .where(PublicationAttempt.video_id == video_uuid)
+                    .order_by(PublicationAttempt.attempt_number)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return rows
+    finally:
+        await session.close()
+        await engine.dispose()
+
+
+async def _audit_for(attempt_id):
+    from sqlalchemy import select
+
+    engine, session = await _session()
+    try:
+        rows = (
+            (
+                await session.execute(
+                    select(SystemLog).where(
+                        SystemLog.event_type == "PublicationAttemptResolved",
+                        SystemLog.message.contains(str(attempt_id)),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return rows
+    finally:
+        await session.close()
+        await engine.dispose()
+
+
+async def _cleanup(video_uuid, attempt_ids=()):
+    from sqlalchemy import delete
+
+    engine, session = await _session()
+    try:
+        await session.execute(delete(PublicationAttempt).where(PublicationAttempt.video_id == video_uuid))
+        for aid in attempt_ids:
+            await session.execute(
+                delete(SystemLog).where(
+                    SystemLog.event_type == "PublicationAttemptResolved",
+                    SystemLog.message.contains(str(aid)),
+                )
+            )
+        await session.commit()
+    finally:
+        await session.close()
+        await engine.dispose()
+
+
+async def _make_attempt(status, *, anchor=False):
+    """Admit an attempt for a fresh video and drive it to `status` via the
+    REAL transition helpers (admission algorithm untouched)."""
+    video_uuid = uuid.uuid4()
+    engine, session = await _session()
+    try:
+        attempt, _ = await admit_attempt(
+            session,
+            video_id=video_uuid,
+            platform="postiz",
+            social_platform="youtube",
+            integration_id="integ-1",
+        )
+        if anchor:
+            attempt.external_content_id = "media-1"
+            await session.commit()
+        if status == PublicationAttemptStatus.IN_PROGRESS:
+            await mark_in_progress(session, attempt)
+        elif status == PublicationAttemptStatus.UNKNOWN:
+            if anchor:
+                attempt.external_content_id = "media-1"
+                await session.commit()
+            await mark_unknown(session, attempt, "publish exception: ReadTimeout")
+        elif status == PublicationAttemptStatus.FAILED:
+            await mark_failed(session, attempt, "publish rejected: scripted")
+        elif status == PublicationAttemptStatus.SUCCEEDED:
+            await mark_succeeded(session, attempt, external_post_id="post-1")
+        return attempt.id, video_uuid
+    finally:
+        await session.close()
+        await engine.dispose()
+
+
+async def _age_attempt(attempt_id, hours=1):
+    from sqlalchemy import update
+
+    engine, session = await _session()
+    try:
+        await session.execute(
+            update(PublicationAttempt)
+            .where(PublicationAttempt.id == attempt_id)
+            .values(updated_at=datetime.now(timezone.utc) - timedelta(hours=hours))
+        )
+        await session.commit()
+    finally:
+        await session.close()
+        await engine.dispose()
+
+
+def _svc_resolve(attempt_id, **kwargs):
+    async def _inner():
+        engine, session = await _session()
+        try:
+            return await recon.resolve_attempt(session, attempt_id, **kwargs)
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    return asyncio.run(_inner())
+
+
+def _ctx(video_id):
+    return {
+        "platform": "postiz",
+        "video_id": str(video_id),
+        "video_storage_path": _tmp_video(),
+        "title": "t",
+        "description": "d",
+        "social_platform": "youtube",
+        "integration_id": "integ-1",
+        "dry_run": False,
+    }
+
+
+def _tmp_video():
+    path = Path(tempfile.mkstemp(prefix="pub-recon-", suffix=".mp4")[1])
+    path.write_bytes(b"fake-video")
+    return str(path)
+
+
+def _run_agent(ctx):
+    async def _inner():
+        engine, session = await _session()
+        try:
+            return await PublishingAgent(db=session).run(ctx)
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    return asyncio.run(_inner())
+
+
+# ---------------------------------------------------------------------------
+# HTTP helpers (real app, ASGI transport, Bearer auth)
+# ---------------------------------------------------------------------------
+
+
+def _http(method, path, payload=None, auth=True):
+    async def _inner():
+        from httpx import ASGITransport
+        from app.database.session import engine
+
+        settings = get_settings()
+        key = settings.arya_api_key or "test-arya-api-key"
+        headers = {"Authorization": f"Bearer {key}"} if auth else {}
+        try:
+            async with app.router.lifespan_context(app):
+                async with httpx.AsyncClient(
+                    transport=ASGITransport(app=app),
+                    base_url="http://testserver",
+                    headers=headers,
+                ) as ac:
+                    r = await ac.request(method, path, json=payload)
+                    try:
+                        body = r.json()
+                    except Exception:  # noqa: BLE001 — non-JSON error bodies tolerated
+                        body = {"raw": r.text}
+                    return r.status_code, body
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(_inner())
+
+
+# ---------------------------------------------------------------------------
+# 1. Transition matrix + illegal transitions (service level, typed errors)
+# ---------------------------------------------------------------------------
+
+
+def test_illegal_transitions_refused(monkeypatch):
+    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    made = []
+    try:
+        # SUCCEEDED is terminal
+        aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.SUCCEEDED))
+        made.append((aid, vu))
+        with pytest.raises(recon.IllegalTransitionError):
+            _svc_resolve(aid, from_status=PublicationAttemptStatus.SUCCEEDED, to_status=PublicationAttemptStatus.FAILED, attestation="a", force=True)
+
+        # FAILED is not resolvable (admission already handles retry)
+        aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.FAILED))
+        made.append((aid, vu))
+        with pytest.raises(recon.IllegalTransitionError):
+            _svc_resolve(aid, from_status=PublicationAttemptStatus.FAILED, to_status=PublicationAttemptStatus.FAILED, attestation="a", force=True)
+
+        # PENDING -> SUCCEEDED is illegal
+        aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.PENDING))
+        made.append((aid, vu))
+        with pytest.raises(recon.IllegalTransitionError):
+            _svc_resolve(aid, from_status=PublicationAttemptStatus.PENDING, to_status=PublicationAttemptStatus.SUCCEEDED, external_post_id="p1")
+
+        # UNKNOWN -> SUCCEEDED without the external post id
+        aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=True))
+        made.append((aid, vu))
+        with pytest.raises(recon.IllegalTransitionError):
+            _svc_resolve(aid, from_status=PublicationAttemptStatus.UNKNOWN, to_status=PublicationAttemptStatus.SUCCEEDED)
+
+        # UNKNOWN -> FAILED without an attestation
+        with pytest.raises(recon.IllegalTransitionError):
+            _svc_resolve(aid, from_status=PublicationAttemptStatus.UNKNOWN, to_status=PublicationAttemptStatus.FAILED)
+
+        # PENDING -> FAILED without force / without attestation
+        aid2, vu2 = asyncio.run(_make_attempt(PublicationAttemptStatus.PENDING))
+        made.append((aid2, vu2))
+        asyncio.run(_age_attempt(aid2, hours=1))
+        with pytest.raises(recon.IllegalTransitionError):
+            _svc_resolve(aid2, from_status=PublicationAttemptStatus.PENDING, to_status=PublicationAttemptStatus.FAILED, attestation="a")
+        with pytest.raises(recon.IllegalTransitionError):
+            _svc_resolve(aid2, from_status=PublicationAttemptStatus.PENDING, to_status=PublicationAttemptStatus.FAILED, force=True)
+    finally:
+        for aid, vu in made:
+            asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_active_execution_floor_blocks_fresh_pending_and_in_progress(monkeypatch):
+    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    made = []
+    try:
+        for status in (PublicationAttemptStatus.PENDING, PublicationAttemptStatus.IN_PROGRESS):
+            aid, vu = asyncio.run(_make_attempt(status))
+            made.append((aid, vu))
+            with pytest.raises(recon.ActiveExecutionError):
+                _svc_resolve(
+                    aid,
+                    from_status=status,
+                    to_status=PublicationAttemptStatus.FAILED,
+                    attestation="operator verified crash",
+                    force=True,
+                )
+            # After the floor passes (row untouched for 1h) the same
+            # resolution succeeds.
+            asyncio.run(_age_attempt(aid, hours=1))
+            attempt, _audit = _svc_resolve(
+                aid,
+                from_status=status,
+                to_status=PublicationAttemptStatus.FAILED,
+                attestation="operator verified crash",
+                force=True,
+            )
+            assert attempt.status == PublicationAttemptStatus.FAILED
+            events = asyncio.run(_audit_for(aid))
+            assert len(events) == 1
+            assert json.loads(events[0].message)["to_status"] == "failed"
+    finally:
+        for aid, vu in made:
+            asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_unknown_to_failed_requires_attestation_and_preserves_error(monkeypatch):
+    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=True))
+    try:
+        attempt, audit = _svc_resolve(
+            aid,
+            from_status=PublicationAttemptStatus.UNKNOWN,
+            to_status=PublicationAttemptStatus.FAILED,
+            attestation="verified in provider console: no post exists for media-1",
+        )
+        assert attempt.status == PublicationAttemptStatus.FAILED
+        # No silent history overwrite: the UNKNOWN reason is preserved.
+        assert "ReadTimeout" in (attempt.error or "")
+        assert audit["attestation"].startswith("verified in provider console")
+        assert len(asyncio.run(_audit_for(aid))) == 1
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+# ---------------------------------------------------------------------------
+# 2. UNKNOWN -> SUCCEEDED: fail-closed provider verification
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("check_script", ["processing", "server_error", "notfound_nomatch"])
+def test_unknown_to_succeeded_fails_closed_without_ready_evidence(monkeypatch, check_script):
+    _install_real_postiz(monkeypatch, _PostizScript(check=check_script))
+    aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=True))
+    try:
+        with pytest.raises(recon.VerificationFailedError):
+            _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.UNKNOWN,
+                to_status=PublicationAttemptStatus.SUCCEEDED,
+                external_post_id="post-9",
+            )
+        rows = asyncio.run(_attempts_for(vu))
+        assert rows[0].status == PublicationAttemptStatus.UNKNOWN  # unchanged
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_unknown_to_succeeded_requires_anchor(monkeypatch):
+    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=False))
+    try:
+        with pytest.raises(recon.MissingAnchorError):
+            _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.UNKNOWN,
+                to_status=PublicationAttemptStatus.SUCCEEDED,
+                external_post_id="post-9",
+            )
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_unknown_to_succeeded_with_verified_evidence(monkeypatch):
+    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=True))
+    try:
+        attempt, audit = _svc_resolve(
+            aid,
+            from_status=PublicationAttemptStatus.UNKNOWN,
+            to_status=PublicationAttemptStatus.SUCCEEDED,
+            external_post_id="post-9",
+            public_url="https://social.example/watch/post-9",
+        )
+        assert attempt.status == PublicationAttemptStatus.SUCCEEDED
+        assert attempt.external_post_id == "post-9"
+        assert attempt.public_url == "https://social.example/watch/post-9"
+        assert audit["verification"]["provider_status"] == "ready"
+        events = asyncio.run(_audit_for(aid))
+        assert len(events) == 1
+        assert json.loads(events[0].message)["from_status"] == "unknown"
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+# ---------------------------------------------------------------------------
+# 3. CAS / concurrency
+# ---------------------------------------------------------------------------
+
+
+def test_cas_refuses_on_from_status_mismatch(monkeypatch):
+    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.FAILED))
+    try:
+        with pytest.raises(recon.ConcurrentResolutionError):
+            _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.UNKNOWN,
+                to_status=PublicationAttemptStatus.FAILED,
+                attestation="stale operator view",
+            )
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_concurrent_resolutions_exactly_one_wins(monkeypatch):
+    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=True))
+
+    async def _one():
+        engine, session = await _session()
+        try:
+            return await recon.resolve_attempt(
+                session,
+                aid,
+                from_status=PublicationAttemptStatus.UNKNOWN,
+                to_status=PublicationAttemptStatus.FAILED,
+                attestation="concurrent operator 1",
+            )
+        except recon.ConcurrentResolutionError:
+            return "lost"
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    async def _race():
+        return await asyncio.gather(_one(), _one())
+
+    try:
+        outcomes = asyncio.run(_race())
+        losers = [o for o in outcomes if o == "lost"]
+        winners = [o for o in outcomes if o != "lost"]
+        assert len(losers) == 1 and len(winners) == 1
+        assert winners[0][0].status == PublicationAttemptStatus.FAILED
+        assert len(asyncio.run(_audit_for(aid))) == 1  # exactly one audit event
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+# ---------------------------------------------------------------------------
+# 4. Authentication / authorization (HTTP)
+# ---------------------------------------------------------------------------
+
+
+def test_endpoints_require_bearer_auth():
+    for method, path in (
+        ("get", "/publishing/attempts"),
+        ("get", "/publishing/attempts/00000000-0000-0000-0000-000000000000/evidence"),
+        ("post", "/publishing/attempts/00000000-0000-0000-0000-000000000000/resolve"),
+    ):
+        status_code, _ = _http(method, path, auth=False)
+        assert status_code == 401, (method, path, status_code)
+
+
+# ---------------------------------------------------------------------------
+# 5. HTTP surface: listing, evidence, resolve
+# ---------------------------------------------------------------------------
+
+
+def test_list_attempts_filters_by_status(monkeypatch):
+    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=True))
+    try:
+        status_code, body = _http("get", "/publishing/attempts?status=unknown&limit=200")
+        assert status_code == 200
+        mine = [a for a in body if a["id"] == str(aid)]
+        assert len(mine) == 1 and mine[0]["status"] == "unknown"
+        status_code, _ = _http("get", "/publishing/attempts?status=not-a-status")
+        assert status_code == 422
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_evidence_endpoint_real_postiz_ready_processing_unknown_404(monkeypatch):
+    made = []
+    try:
+        # ready
+        _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+        aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=True))
+        made.append((aid, vu))
+        status_code, body = _http("get", f"/publishing/attempts/{aid}/evidence")
+        assert status_code == 200 and body["provider_status"] == "ready"
+        assert body["attempt_status"] == "unknown"
+
+        # processing
+        _install_real_postiz(monkeypatch, _PostizScript(check="processing"))
+        status_code, body = _http("get", f"/publishing/attempts/{aid}/evidence")
+        assert status_code == 200 and body["provider_status"] == "processing"
+
+        # server error -> provider "unknown" with error text
+        _install_real_postiz(monkeypatch, _PostizScript(check="server_error"))
+        status_code, body = _http("get", f"/publishing/attempts/{aid}/evidence")
+        assert status_code == 200 and body["provider_status"] == "unknown"
+        assert "500" in (body["provider_error"] or "")
+
+        # 404 with no fallback match -> provider "failed" (post not found)
+        _install_real_postiz(monkeypatch, _PostizScript(check="notfound_nomatch"))
+        status_code, body = _http("get", f"/publishing/attempts/{aid}/evidence")
+        assert status_code == 200 and body["provider_status"] == "failed"
+
+        # 404 with fallback match -> "ready"
+        _install_real_postiz(monkeypatch, _PostizScript(check="notfound_match"))
+        status_code, body = _http("get", f"/publishing/attempts/{aid}/evidence")
+        assert status_code == 200 and body["provider_status"] == "ready"
+
+        # missing anchor -> 409; unknown id -> 404
+        aid2, vu2 = asyncio.run(_make_attempt(PublicationAttemptStatus.PENDING))
+        made.append((aid2, vu2))
+        status_code, _ = _http("get", f"/publishing/attempts/{aid2}/evidence")
+        assert status_code == 409
+        status_code, _ = _http("get", f"/publishing/attempts/{uuid.uuid4()}/evidence")
+        assert status_code == 404
+    finally:
+        for aid, vu in made:
+            asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_resolve_endpoint_http_paths(monkeypatch):
+    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=True))
+    try:
+        # illegal transition -> 422 (missing attestation)
+        status_code, body = _http(
+            "post",
+            f"/publishing/attempts/{aid}/resolve",
+            {"from_status": "unknown", "to_status": "failed"},
+        )
+        assert status_code == 422
+
+        # verification fail-closed -> 409 (provider says processing)
+        _install_real_postiz(monkeypatch, _PostizScript(check="processing"))
+        status_code, body = _http(
+            "post",
+            f"/publishing/attempts/{aid}/resolve",
+            {"from_status": "unknown", "to_status": "succeeded", "external_post_id": "post-9"},
+        )
+        assert status_code == 409
+
+        # attested UNKNOWN -> FAILED -> 200
+        status_code, body = _http(
+            "post",
+            f"/publishing/attempts/{aid}/resolve",
+            {"from_status": "unknown", "to_status": "failed", "attestation": "verified no post"},
+        )
+        assert status_code == 200 and body["status"] == "failed"
+
+        # now FAILED -> not resolvable
+        status_code, _ = _http(
+            "post",
+            f"/publishing/attempts/{aid}/resolve",
+            {"from_status": "failed", "to_status": "failed", "attestation": "x", "force": True},
+        )
+        assert status_code == 422
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+# ---------------------------------------------------------------------------
+# 6. Credential non-persistence
+# ---------------------------------------------------------------------------
+
+
+def test_credentials_never_persist_or_leak(monkeypatch):
+    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=True))
+    try:
+        _, evidence_body = _http("get", f"/publishing/attempts/{aid}/evidence")
+        _, resolve_body = _http(
+            "post",
+            f"/publishing/attempts/{aid}/resolve",
+            {"from_status": "unknown", "to_status": "succeeded", "external_post_id": "post-9"},
+        )
+        rows = asyncio.run(_attempts_for(vu))
+        events = asyncio.run(_audit_for(aid))
+        for blob in (
+            json.dumps(evidence_body),
+            json.dumps(resolve_body),
+            json.dumps([e.message for e in events]),
+        ):
+            assert SECRET_MARKER not in blob
+        for attempt in rows:
+            for column in (
+                "platform", "social_platform", "integration_id", "intent_key",
+                "external_content_id", "external_post_id", "public_url", "error",
+            ):
+                assert SECRET_MARKER not in str(getattr(attempt, column) or "")
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+# ---------------------------------------------------------------------------
+# 7. End-to-end: UNKNOWN -> resolve -> duplicate guard / retry as n+1
+# ---------------------------------------------------------------------------
+
+
+def test_e2e_unknown_resolved_failed_then_retry_admitted_as_n_plus_1(monkeypatch):
+    script = _PostizScript(check="ready", publish=("raise", httpx.ReadTimeout("dropped after submit")))
+    _install_real_postiz(monkeypatch, script)
+    video_uuid = uuid.uuid4()
+    ctx = _ctx(video_uuid)
+    try:
+        first = _run_agent(ctx)
+        assert not first.success and "UNKNOWN" in first.error
+        assert script.posts_calls == 1
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.UNKNOWN]
+        attempt_id = rows[0].id
+
+        # Operator resolves UNKNOWN -> FAILED with attestation.
+        status_code, body = _http(
+            "post",
+            f"/publishing/attempts/{attempt_id}/resolve",
+            {"from_status": "unknown", "to_status": "failed", "attestation": "provider console shows no post"},
+        )
+        assert status_code == 200 and body["status"] == "failed"
+
+        # The retry is admitted as attempt n+1 and succeeds.
+        script.publish = ("ok", "post-42")
+        second = _run_agent(ctx)
+        assert second.success, second.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.attempt_number for r in rows] == [1, 2]
+        assert [r.status for r in rows] == [
+            PublicationAttemptStatus.FAILED,
+            PublicationAttemptStatus.SUCCEEDED,
+        ]
+        assert script.posts_calls == 2  # exactly one legitimate retry
+    finally:
+        asyncio.run(_cleanup(video_uuid))
+
+
+def test_e2e_unknown_resolved_succeeded_duplicate_guard_engages(monkeypatch):
+    script = _PostizScript(check="ready", publish=("raise", httpx.ReadTimeout("dropped after submit")))
+    _install_real_postiz(monkeypatch, script)
+    video_uuid = uuid.uuid4()
+    ctx = _ctx(video_uuid)
+    try:
+        first = _run_agent(ctx)
+        assert not first.success and "UNKNOWN" in first.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        attempt_id = rows[0].id
+        posts_after_first = script.posts_calls
+
+        # Evidence confirms the provider DID accept the post.
+        status_code, evidence = _http("get", f"/publishing/attempts/{attempt_id}/evidence")
+        assert status_code == 200 and evidence["provider_status"] == "ready"
+
+        # Operator resolves UNKNOWN -> SUCCEEDED with the external post id.
+        status_code, body = _http(
+            "post",
+            f"/publishing/attempts/{attempt_id}/resolve",
+            {
+                "from_status": "unknown",
+                "to_status": "succeeded",
+                "external_post_id": "post-77",
+                "public_url": "https://social.example/watch/post-77",
+            },
+        )
+        assert status_code == 200 and body["status"] == "succeeded"
+
+        # Re-submission of the identical intent is an idempotent duplicate:
+        # NO second provider publish, NO new attempt row.
+        second = _run_agent(ctx)
+        assert second.success and second.output.get("duplicate") is True
+        assert second.output["published_video_id"] == "post-77"
+        assert script.posts_calls == posts_after_first
+        assert len(asyncio.run(_attempts_for(video_uuid))) == 1
+    finally:
+        asyncio.run(_cleanup(video_uuid))
