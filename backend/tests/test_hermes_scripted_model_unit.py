@@ -1,4 +1,4 @@
-"""Real-runtime scripted-model tests: harness self-test + T11/T12/T16 (V2).
+"""Real-runtime scripted-model tests: harness self-test + T7/T11/T12/T13/T15/T16 (V2).
 
 The ONLY scripted component is the model/provider response (the
 operator-authorized harness, tests/hermes_scripted_model.py). Everything
@@ -549,6 +549,201 @@ def test_t15_chat_path_leaves_no_artifacts_outside_hermes_home(tmp_path, monkeyp
         assert tree == ["nested", "nested/data.txt", "state.json"]
         for target, payload in canaries.items():
             assert target.read_text() == payload
+    finally:
+        if pair:
+            _cleanup(pair)
+
+
+# ---------------------------------------------------------------------------
+# T7 — runtime activation violation branch (§9.10 test-only fault injection)
+# ---------------------------------------------------------------------------
+
+
+def test_t7_runtime_activation_violation_fails_closed(tmp_path, monkeypatch):
+    """T7 (§9.10): the frozen runtime's cron-activation guard
+    (_assert_no_runtime_activation, runtime.py) actually FAILS CLOSED.
+    Test-only fault injection: the ONLY patched thing is the vendor
+    scheduler's running-job REPORT (cron.scheduler.get_running_job_ids)
+    made to report one fake id — no cron is ever created or run, no
+    thread is spawned, no network is touched. The REAL runtime then
+    constructs the agent, hits the guard, and must return a typed
+    cron_activated failure with a complete consistent §13 lifecycle and
+    full cleanup (per-job home removed, runtime bindings unbound)."""
+    if not HERMES_AVAILABLE:
+        pytest.fail("§16: pinned Hermes source missing")
+    import threading
+
+    import cron.scheduler as cron_scheduler
+
+    original_running = cron_scheduler.get_running_job_ids
+    monkeypatch.setattr(
+        cron_scheduler, "get_running_job_ids", lambda: frozenset({"t7-fake-cron-job"})
+    )
+
+    settings = _settings(tmp_path / "home")
+    monkeypatch.setattr("app.core.config.get_settings", lambda: settings)
+    monkeypatch.setattr("app.hermes.runtime.get_settings", lambda: settings)
+
+    pair = None
+    try:
+        pair = asyncio.run(_seed_run(f"t7-{uuid.uuid4().hex[:6]}"))
+        result = run_hermes_job(_request(pair), settings=None)
+
+        # Fail closed with the exact frozen error contract (runtime.py
+        # cron_activated branch): typed code + deterministic detail built
+        # from OUR sentinel — nothing else leaks into the detail.
+        assert result.status == "failed"
+        assert result.error_code == "cron_activated"
+        assert result.error_detail == (
+            "Hermes cron jobs are running during an embedded job: ['t7-fake-cron-job']"
+        )
+        assert result.final_response is None
+
+        # The violation is observable through the §13 contract: JOB_START
+        # (pre-construction) + JOB_END carry the SAME runtime id, the failed
+        # outcome, the same error code, and no §12 violation.
+        from app.hermes.audit import FileAuditSink
+
+        audit_file = Path(settings.hermes_home) / "audit" / "hermes_policy_audit.jsonl"
+        jobs = FileAuditSink(audit_file).read_job_records()
+        assert [j.event for j in jobs] == ["JOB_START", "JOB_END"]
+        assert {j.runtime_job_id for j in jobs} == {result.job_id}
+        assert jobs[1].outcome == "failed"
+        assert jobs[1].error_code == "cron_activated"
+        assert jobs[1].violation_code is None
+
+        # Deterministic cleanup ran: the per-job home is gone and every
+        # runtime binding was unbound (fail closed, no leaked state).
+        assert not (Path(settings.hermes_home) / "jobs" / result.job_id).exists()
+        from app.hermes.runtime import (
+            _ACTIVATION_THREAD_PATTERNS,
+            get_active_audit_sink,
+            get_active_authorization_context,
+            get_active_job_ledger,
+        )
+
+        with pytest.raises(RuntimeError):
+            get_active_authorization_context()
+        assert get_active_job_ledger() is None
+        assert get_active_audit_sink() is None
+
+        # No ACTUAL runtime activation occurred: the real scheduler registry
+        # (unpatched function object) reports nothing running, and no thread
+        # matching the runtime's activation patterns survived the job.
+        assert original_running() == frozenset()
+        assert not [
+            t.name
+            for t in threading.enumerate()
+            if any(pattern in t.name.lower() for pattern in _ACTIVATION_THREAD_PATTERNS)
+        ]
+    finally:
+        if pair:
+            _cleanup(pair)
+
+
+# ---------------------------------------------------------------------------
+# T13 — AryaOS remains the system of record (§9.10 named evidence)
+# ---------------------------------------------------------------------------
+
+
+def test_t13_aryaos_remains_system_of_record(tmp_path, monkeypatch):
+    """T13 (§16, named evidence): AryaOS remains the system of record for
+    the Hermes job lifecycle and durable artifacts. One full approval arc
+    through the REAL runtime — Job N requests story.create and pends on a
+    DURABLE AryaOS ApprovalCheckpoint row; the checkpoint is decided in
+    the AryaOS DB; Job N+1 (FRESH runtime identity, same run) executes
+    the approved capability and persists the durable artifact (a real
+    Script row on the run) — while both jobs' complete §13
+    JOB_START/JOB_END lifecycles anchor to the SAME workflow-run
+    identity, and no Hermes memory/session/recall artifact survives as a
+    competing persistence authority."""
+    if not HERMES_AVAILABLE:
+        pytest.fail("§16: pinned Hermes source missing")
+    from app.hermes.audit import FileAuditSink
+
+    def _job_records(home):
+        return FileAuditSink(Path(home) / "audit" / "hermes_policy_audit.jsonl").read_job_records()
+
+    def _run_anchor(pair_):
+        from app.hermes.capabilities import _make_capability_engine
+        from app.models.core import WorkflowRun
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        async def _read():
+            engine = _make_capability_engine()
+            try:
+                async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                    run = await session.get(WorkflowRun, pair_[1])
+                    return (str(run.id), str(run.project_id)) if run is not None else None
+            finally:
+                await engine.dispose()
+
+        return asyncio.run(_read())
+
+    pair = None
+    try:
+        pair = asyncio.run(_seed_run(f"t13-{uuid.uuid4().hex[:6]}"))
+        run_id = str(pair[1])
+
+        # ---- Job N: gated request -> durable pending checkpoint ----------
+        with _Harness(
+            monkeypatch, tmp_path / "n", [tool_call("story.create", {"content": "t13 proposed draft"})]
+        ) as h:
+            result_n = h.run(_request(pair))
+            assert result_n.status == "awaiting_approval"
+            assert result_n.error_code == "capability_pending_approval"
+            jobs_n = _job_records(h.settings.hermes_home)
+            # §13 lifecycle for Job N: both boundaries, ONE runtime identity,
+            # anchored to the AryaOS workflow run, awaiting outcome verbatim.
+            assert [j.event for j in jobs_n] == ["JOB_START", "JOB_END"]
+            assert {j.runtime_job_id for j in jobs_n} == {result_n.job_id}
+            assert all(j.workflow_run_id == run_id for j in jobs_n)
+            assert jobs_n[1].outcome == "awaiting_approval"
+            assert jobs_n[1].error_code == "capability_pending_approval"
+
+        # The approval authority is a DURABLE AryaOS DB row, not any
+        # Hermes-side state; deciding it is an AryaOS act.
+        checkpoint_id = _pending_checkpoint_id(pair[1])
+        _approve_checkpoint(checkpoint_id)
+
+        # ---- Job N+1: FRESH runtime identity, same run, executes ---------
+        with _Harness(
+            monkeypatch,
+            tmp_path / "n1",
+            [
+                tool_call("story.create", {"content": "t13 proposed draft"}),
+                final_response("draft submitted"),
+            ],
+        ) as h2:
+            result_n1 = h2.run(_request(pair))
+            assert result_n1.status == "completed", (result_n1.error_code, result_n1.error_detail)
+            assert result_n1.final_response == "draft submitted"
+            # Fresh runtime identity per job: Job N+1 is a NEW job, not a resume.
+            assert result_n1.job_id != result_n.job_id
+            jobs_n1 = _job_records(h2.settings.hermes_home)
+            assert [j.event for j in jobs_n1] == ["JOB_START", "JOB_END"]
+            assert {j.runtime_job_id for j in jobs_n1} == {result_n1.job_id}
+            assert all(j.workflow_run_id == run_id for j in jobs_n1)
+            assert jobs_n1[1].outcome == "completed"
+            assert jobs_n1[1].error_code is None
+            # The durable artifact lives in ARYAOS persistence: a real Script
+            # row on the authoritative run — not in any Hermes-side store.
+            assert _script_rows(pair[1]) == 1
+            # No competing Hermes persistence authority survives the job: the
+            # home is exactly the §13 audit store + the empty jobs root, with
+            # no memory/session/recall artifact anywhere.
+            home = Path(h2.settings.hermes_home)
+            tree = sorted(str(p.relative_to(home)) for p in home.rglob("*"))
+            assert tree == ["audit", "audit/hermes_policy_audit.jsonl", "jobs"], tree
+            assert not [
+                p
+                for p in home.rglob("*")
+                if any(token in p.name.lower() for token in ("memory", "session", "recall"))
+            ]
+
+        # The AryaOS run identity itself remains the anchor after the whole
+        # arc: the WorkflowRun row is intact under its original project.
+        assert _run_anchor(pair) == (run_id, str(pair[0]))
     finally:
         if pair:
             _cleanup(pair)

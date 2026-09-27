@@ -770,12 +770,26 @@ async def test_t1_api_level_failed_job_contract(client, monkeypatch, tmp_path):
         assert final["job_id"] == job_id                      # surface identity
         assert final["workflow_run_id"] == str(run_id)        # run anchor
         assert final["status"] == "failed"                     # terminal state
-        assert final["error_code"] in ("chat_failed", "chat_timeout")  # runtime code verbatim
-        assert final["error_detail"]                           # runtime detail verbatim
+        # §9.10 exact pin (source-traced + 6/6 empirical probe): at the pinned
+        # dead endpoint with hermes_max_execution_seconds=10.0, Hermes' outer
+        # provider-unavailable retry cycle (>=17s waits) can NEVER complete
+        # inside the AryaOS watchdog, so the terminal code is deterministically
+        # chat_timeout and the detail is the runtime's deterministic
+        # settings-derived string (runtime.py chat_timeout branch) — no
+        # volatile network-library content.
+        assert final["error_code"] == "chat_timeout"
+        assert final["error_detail"] == "job exceeded hermes_max_execution_seconds=10.0"
         assert final["final_response"] is None                 # only completed jobs carry it
         assert final["runtime_job_id"]                         # R-s1 id present
         assert final["runtime_job_id"] != job_id               # and distinct by design
         assert final["completed_at"]                           # terminal timestamp
+        # §9.10: the existing timestamp contract — surface wall timestamps are
+        # ISO-8601 and the terminal one is never before submission.
+        from datetime import datetime as _datetime
+
+        assert _datetime.fromisoformat(final["submitted_at"])
+        completed_ts = _datetime.fromisoformat(final["completed_at"])
+        assert completed_ts >= _datetime.fromisoformat(final["submitted_at"])
         assert final["duration_seconds"] is None or isinstance(final["duration_seconds"], float)
 
         # §13 consistency: the same runtime identity carries JOB_START/END
