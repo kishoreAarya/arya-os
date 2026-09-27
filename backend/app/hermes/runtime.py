@@ -142,6 +142,38 @@ def _clear_active_approval_pending() -> None:
         _ACTIVE_APPROVAL_PENDING = None
 
 
+# Model B (§ approval parameter binding): terminal mismatch signal. Set by
+# the §9 approval gate when an approved NON-NULL parameter digest exists
+# and does not match the executing request; consumed after the chat loop
+# (BEFORE the pending check — a mismatch outranks a later pending request)
+# and converted into a job-level terminal failure. Mirrors the
+# approval-pending signal lifecycle: module-global, job-scoped, cleared in
+# the runtime's finally block.
+_ACTIVE_APPROVAL_MISMATCH: dict | None = None
+_ACTIVE_APPROVAL_MISMATCH_LOCK = threading.Lock()
+
+
+def set_active_approval_mismatch(error_code: str, detail: str) -> None:
+    """Record the Model-B parameter-binding failure for this job. The job
+    MUST terminate failed with this code; the gate never executes the
+    granted operation on this path."""
+    global _ACTIVE_APPROVAL_MISMATCH
+    with _ACTIVE_APPROVAL_MISMATCH_LOCK:
+        _ACTIVE_APPROVAL_MISMATCH = {"error_code": error_code, "detail": detail}
+
+
+def get_active_approval_mismatch() -> dict | None:
+    """The mismatch signal for the currently executing job, or None."""
+    with _ACTIVE_APPROVAL_MISMATCH_LOCK:
+        return dict(_ACTIVE_APPROVAL_MISMATCH) if _ACTIVE_APPROVAL_MISMATCH is not None else None
+
+
+def _clear_active_approval_mismatch() -> None:
+    global _ACTIVE_APPROVAL_MISMATCH
+    with _ACTIVE_APPROVAL_MISMATCH_LOCK:
+        _ACTIVE_APPROVAL_MISMATCH = None
+
+
 def set_active_authorization_context(context: AuthorizationContext | None) -> None:
     """Bind the per-job AuthorizationContext the policy plugin registers with."""
     global _ACTIVE_CONTEXT
@@ -612,6 +644,15 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
                 f"(counters: {ledger.counts()})",
             )
 
+        # Model B: a parameter-binding mismatch was detected by the §9
+        # approval gate (approved digest exists and does not match) — a
+        # REAL terminal job failure, never a silent model-visible error.
+        # Checked BEFORE the pending signal so a mismatch outranks any
+        # later pending request in the same job.
+        mismatch = get_active_approval_mismatch()
+        if mismatch is not None:
+            raise HermesRuntimeError(mismatch["error_code"], mismatch["detail"])
+
         # §5.4/§11: an approval-gated capability requested approval — the
         # job terminates in the explicit awaiting-approval state (D2: never
         # an ordinary failure). Checked after the violation row so §12's
@@ -694,3 +735,4 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
         if audit_sink_was_set:
             set_active_audit_sink(None)
         _clear_active_approval_pending()
+        _clear_active_approval_mismatch()

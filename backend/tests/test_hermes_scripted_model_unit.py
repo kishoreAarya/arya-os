@@ -749,6 +749,94 @@ def test_t13_aryaos_remains_system_of_record(tmp_path, monkeypatch):
             _cleanup(pair)
 
 
+# ---------------------------------------------------------------------------
+# §9.11 Approval Model B end-to-end: parameter binding through the REAL runtime
+# ---------------------------------------------------------------------------
+
+
+def test_model_b_end_to_end_mismatch_is_terminal_failure(tmp_path, monkeypatch):
+    """Model B e2e (mismatch): Job N pends (content A) -> human approves the
+    digest-bound checkpoint -> Job N+1 requests content B != A -> the REAL
+    runtime terminates the job FAILED with approval_parameter_mismatch
+    (JOB_END carries it; §13 final-outcome records the denial; nothing
+    executes) -> Job N+2 with the ORIGINAL content A executes (the
+    approved binding survives the mismatch untouched)."""
+    if not HERMES_AVAILABLE:
+        pytest.fail("§16: pinned Hermes source missing")
+    pair = None
+    try:
+        pair = asyncio.run(_seed_run(f"mb1-{uuid.uuid4().hex[:6]}"))
+
+        # Job N: request content A -> pends on a digest-bound checkpoint.
+        with _Harness(monkeypatch, tmp_path / "n", [tool_call("story.create", {"content": "alpha draft"})]) as h:
+            result_n = h.run(_request(pair))
+            assert result_n.status == "awaiting_approval"
+            checkpoint_id = _pending_checkpoint_id(pair[1])
+        _approve_checkpoint(checkpoint_id)
+
+        # Job N+1: content B != A -> REAL terminal job failure.
+        with _Harness(monkeypatch, tmp_path / "n1", [tool_call("story.create", {"content": "beta draft"})]) as h1:
+            result_n1 = h1.run(_request(pair))
+            assert result_n1.status == "failed"
+            assert result_n1.error_code == "approval_parameter_mismatch"
+            records, jobs = h1.audit()
+            assert jobs[0].event == "JOB_START" and jobs[1].event == "JOB_END"
+            assert jobs[1].outcome == "failed"
+            assert jobs[1].error_code == "approval_parameter_mismatch"
+            assert ("story.create", "ALLOW", "allowed_typed_capability") in records
+            assert ("story.create", "BLOCK", "approval_parameter_mismatch") in records
+        # Nothing executed on the mismatch path.
+        assert _script_rows(pair[1]) == 0
+
+        # Job N+2: the ORIGINAL approved snapshot still executes (replay).
+        with _Harness(
+            monkeypatch,
+            tmp_path / "n2",
+            [
+                tool_call("story.create", {"content": "alpha draft"}),
+                final_response("bound draft submitted"),
+            ],
+        ) as h2:
+            result_n2 = h2.run(_request(pair))
+            assert result_n2.status == "completed", (result_n2.error_code, result_n2.error_detail)
+            assert result_n2.final_response == "bound draft submitted"
+        assert _script_rows(pair[1]) == 1
+    finally:
+        if pair:
+            _cleanup(pair)
+
+
+def test_model_b_end_to_end_identical_replay(tmp_path, monkeypatch):
+    """Model B e2e (replay): after approval of the exact snapshot, the
+    IDENTICAL request executes repeatedly through the REAL runtime
+    (Model B is NOT once-only) — two jobs, two real Script rows."""
+    if not HERMES_AVAILABLE:
+        pytest.fail("§16: pinned Hermes source missing")
+    pair = None
+    try:
+        pair = asyncio.run(_seed_run(f"mb2-{uuid.uuid4().hex[:6]}"))
+
+        with _Harness(monkeypatch, tmp_path / "a", [tool_call("story.create", {"content": "same draft"})]) as h:
+            assert h.run(_request(pair)).status == "awaiting_approval"
+        _approve_checkpoint(_pending_checkpoint_id(pair[1]))
+
+        for i, home in enumerate(("b", "c")):
+            with _Harness(
+                monkeypatch,
+                tmp_path / home,
+                [
+                    tool_call("story.create", {"content": "same draft"}),
+                    final_response(f"run {i} done"),
+                ],
+            ) as h:
+                result = h.run(_request(pair))
+                assert result.status == "completed", (result.error_code, result.error_detail)
+        assert _script_rows(pair[1]) == 2  # identical approved replay twice
+    finally:
+        if pair:
+            _cleanup(pair)
+
+
 def test_t16_combined_budget_denial_and_approval_resume(tmp_path, monkeypatch):
     """T16 formal combined test, both halves fully model-driven through
     the REAL runtime (only the model is scripted):

@@ -50,6 +50,7 @@ Security model:
 policy.py is deliberately NOT modified: registry <-> TYPED_CAPABILITIES
 consistency is proven by test, per the slice contract.
 """
+import json
 import threading
 import time
 import types
@@ -82,6 +83,45 @@ _APPROVAL_STAGES: dict[str, str] = {
 }
 _PENDING_APPROVAL = "capability_pending_approval"
 _APPROVAL_GRANTED = "capability_approval_granted"
+# Model B: the parameter-binding failure code (terminal job failure).
+_APPROVAL_MISMATCH = "approval_parameter_mismatch"
+# Model B §6: per-value bound for the human-review preview text.
+_PREVIEW_MAX_VALUE_CHARS = 2000
+
+
+def _approval_digest(tool_name: str, params) -> str:
+    """Model B: the authorization binding digest — SHA-256 (via the
+    EXISTING compute_parameter_digest primitive, audit.py) over the
+    canonical envelope {"capability": <name>, "parameters": <validated
+    model_dump>}. Computed server-side only, from schema-validated
+    parameters; never from raw input, never including mutable
+    DB-resolved metadata or checkpoint identity. The single computation
+    point for BOTH pendency persistence and the execution comparison."""
+    from app.hermes.audit import compute_parameter_digest
+
+    return compute_parameter_digest(
+        {"capability": tool_name, "parameters": params.model_dump()}
+    )
+
+
+def _parameter_preview(params) -> str:
+    """Model B §6: bounded, server-generated human-review evidence for the
+    SAME validated parameter object the digest covers. Derived only from
+    schema-validated parameters (which structurally exclude credentials —
+    extra="forbid"); read-only; NEVER an authorization primitive (the
+    digest is authoritative). Old rows keep NULL."""
+
+    def _bound(value):
+        if isinstance(value, str) and len(value) > _PREVIEW_MAX_VALUE_CHARS:
+            kept = _PREVIEW_MAX_VALUE_CHARS
+            return value[:kept] + f"…[truncated {len(value) - kept} chars]"
+        return value
+
+    return json.dumps(
+        {key: _bound(value) for key, value in params.model_dump().items()},
+        sort_keys=True,
+        default=str,
+    )
 _APPROVAL_RUN_UNAVAILABLE = "approval_run_unavailable"
 
 # §9.5 publishing.request (operator decisions D1-D5). D2: the destination is
@@ -553,16 +593,22 @@ async def _approval_gated_binding(tool_name: str, params, granted_operation=None
       discipline); there is never DB access in the §4 gate.
     - Checkpoint key: (workflow_run_id, stage, reference_table
       "workflow_runs", reference_id workflow_run_id) — run-scoped, using
-      only existing ApprovalStage values (no migration). Duplicate
-      requests reuse the existing pending checkpoint (deterministic).
-    - No approval: create/reuse the checkpoint, signal the runtime (the
-      job ends "awaiting_approval", D2/D3), emit a §13.1-style
-      final-outcome record (non-execution), and NEVER execute the
-      capability.
-    - Approval (action=APPROVE on the key): the gate passes. The
-      capability's real operation ships in its own §9 slice; this slice
-      returns the deterministic granted result (no fake work, no fake
-      records).
+      only existing ApprovalStage values. Duplicate requests with the
+      SAME digest reuse the existing pending checkpoint (deterministic);
+      a DIFFERENT digest creates a new pending checkpoint (Model B D4
+      amendment) — pending digests are never mutated.
+    - No approval: create/reuse the checkpoint (with the request digest
+      and a bounded human-review preview), signal the runtime (the job
+      ends "awaiting_approval", D2/D3), emit a §13.1-style final-outcome
+      record (non-execution), and NEVER execute the capability.
+    - Approval (Model B): an approval authorizes this run + stage + the
+      EXACT validated parameter snapshot (_approval_digest). Locked
+      precedence: a matching non-NULL approved digest passes; any
+      non-NULL approved digest WITHOUT a match is a TERMINAL
+      approval_parameter_mismatch failure (a legacy NULL-digest approval
+      cannot override it); with no non-NULL approvals, a legacy
+      NULL-digest APPROVE retains Model A behavior. The capability's
+      real operation ships in its own §9 slice.
     """
     from app.hermes.runtime import (
         get_active_authorization_context,
@@ -590,7 +636,9 @@ async def _approval_gated_binding(tool_name: str, params, granted_operation=None
     from app.models.enums import ApprovalAction, ApprovalStage
 
     stage = ApprovalStage(_APPROVAL_STAGES[tool_name])
+    digest = _approval_digest(tool_name, params)
     engine = _make_capability_engine()
+    mismatch = False
     try:
         from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -617,12 +665,28 @@ async def _approval_gated_binding(tool_name: str, params, granted_operation=None
                 )
             ).scalars().all()
 
-            approved = next(
-                (c for c in checkpoints if c.action == ApprovalAction.APPROVE), None
+            # ---- Model B locked precedence (per run/stage key) ----------
+            # 1. matching non-NULL approved digest -> ALLOW.
+            # 2. else ANY non-NULL approved digest exists -> terminal
+            #    approval_parameter_mismatch (a legacy NULL approval can
+            #    never override an active Model-B approval).
+            # 3. else NULL-digest legacy APPROVE -> ALLOW (Model A).
+            # 4. else -> digest-scoped pending flow.
+            approved_rows = [c for c in checkpoints if c.action == ApprovalAction.APPROVE]
+            matching = next(
+                (c for c in approved_rows if c.parameter_digest == digest), None
             )
-            if approved is not None:
+            legacy = next(
+                (c for c in approved_rows if c.parameter_digest is None), None
+            )
+
+            if matching is not None or (
+                legacy is not None
+                and not any(c.parameter_digest is not None for c in approved_rows)
+            ):
                 # Job N+1 (D3): the approved checkpoint authorizes exactly
-                # this workflow run's gated capability — nothing else.
+                # this workflow run's gated capability — and, under Model
+                # B, exactly the approved parameter snapshot — nothing else.
                 if granted_operation is not None:
                     # §9.4 (Option A): the capability's REAL operation runs
                     # inside the verified session; it owns its §13.3
@@ -631,27 +695,65 @@ async def _approval_gated_binding(tool_name: str, params, granted_operation=None
                 return {
                     "approval": "granted",
                     "stage": stage.value,
-                    "checkpoint_id": str(approved.id),
+                    "checkpoint_id": str((matching or legacy).id),
                     "detail": "approval gate passed; the capability operation ships in its own §9 slice",
                 }
 
-            # No approval: create or reuse the pending checkpoint (D4) and
-            # end the job awaiting approval — the capability never executes.
-            pending = next(
-                (c for c in checkpoints if c.action is None), None
-            )
-            if pending is None:
-                pending = ApprovalCheckpoint(
-                    workflow_run_id=run_uuid,
-                    stage=stage,
-                    reference_table="workflow_runs",
-                    reference_id=run_uuid,
+            if any(c.parameter_digest is not None for c in approved_rows):
+                # Model B step 2: a non-NULL approved digest exists and none
+                # matches this request. Signal AFTER engine disposal; the
+                # granted operation is NEVER invoked on this path.
+                mismatch = True
+            else:
+                # Model B step 4 (D4 amended): digest-scoped pending flow —
+                # the same digest reuses the existing pending checkpoint;
+                # a different digest creates a NEW pending checkpoint; an
+                # existing pending digest is never mutated. The capability
+                # never executes.
+                pending = next(
+                    (
+                        c
+                        for c in checkpoints
+                        if c.action is None and c.parameter_digest == digest
+                    ),
+                    None,
                 )
-                session.add(pending)
-                await session.commit()
-            checkpoint_id = str(pending.id)
+                if pending is None:
+                    pending = ApprovalCheckpoint(
+                        workflow_run_id=run_uuid,
+                        stage=stage,
+                        reference_table="workflow_runs",
+                        reference_id=run_uuid,
+                        parameter_digest=digest,
+                        parameter_preview=_parameter_preview(params),
+                    )
+                    session.add(pending)
+                    await session.commit()
+                checkpoint_id = str(pending.id)
     finally:
         await engine.dispose()
+
+    if mismatch:
+        # Model B: REAL terminal job failure — the runtime consumes this
+        # signal after the chat loop and fails the job with the code; the
+        # binding result below is the model-visible explanation only.
+        from app.hermes.runtime import set_active_approval_mismatch
+
+        set_active_approval_mismatch(
+            _APPROVAL_MISMATCH,
+            "an approved parameter snapshot exists for this stage and does not "
+            "match this request; execution denied (approval parameter binding)",
+        )
+        try:
+            from app.hermes.audit import record_final_outcome
+
+            record_final_outcome(tool_name, params.model_dump(), _APPROVAL_MISMATCH)
+        except Exception:  # noqa: BLE001, S110 — authorization-preserving, best-effort audit (§13.1)
+            pass
+        return _err(
+            _APPROVAL_MISMATCH,
+            "approved parameters do not match this request; the job now terminates failed",
+        )
 
     set_active_approval_pending(stage.value, checkpoint_id)
     try:

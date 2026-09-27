@@ -43,6 +43,16 @@ class ApprovalCheckpoint(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     reviewer_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    # Model B (§ approval parameter binding): the digest of the EXACT
+    # validated parameter snapshot this approval authorizes — computed
+    # server-side from {"capability": <name>, "parameters": <model_dump()>}
+    # via app.hermes.audit.compute_parameter_digest. NULL = legacy Model-A
+    # approval (pre-Model-B row); never client-writable through any surface.
+    parameter_digest: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Human-review evidence ONLY (Model B §6): a bounded server-generated
+    # preview of the same validated parameter object the digest covers.
+    # Never an authorization primitive — the digest is authoritative.
+    parameter_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class GenerationAttempt(Base, UUIDPrimaryKeyMixin, TimestampMixin):

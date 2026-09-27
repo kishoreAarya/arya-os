@@ -1642,7 +1642,9 @@ def test_gated_capability_schemas_strict():
 def test_gated_capability_without_approval_pends(seeded_run):
     """No approval: the gate creates the pending checkpoint (correct run
     identity), signals the runtime, emits the §13.1 record, and the
-    capability NEVER executes. Duplicate requests reuse the checkpoint."""
+    capability NEVER executes. Model B digest-scoped pending: identical
+    requests reuse the checkpoint; different parameters create a NEW
+    pending checkpoint."""
     import asyncio
 
     from app.hermes.audit import InMemoryAuditSink, set_active_audit_sink
@@ -1704,18 +1706,30 @@ def test_gated_capability_without_approval_pends(seeded_run):
         assert sink.execution_records() == []  # nothing executed
         assert asyncio.run(_count_scripts(run_id)) == 0  # §9.4: no Script on pending
 
-        # Deterministic dedup: a second pending request reuses the checkpoint.
+        # Model B (D4 amended): an IDENTICAL request reuses the pending
+        # checkpoint (deterministic); a DIFFERENT parameter snapshot
+        # creates a NEW pending checkpoint — never mutates the old digest.
+        from app.hermes.capabilities import StoryCreateParams, _approval_digest
+        from app.hermes.runtime import _clear_active_approval_mismatch
+
         set_active_authorization_context(_run_context(project_id, run_id))
         try:
-            again = asyncio.run(execute_capability("story.create", {"content": "another"}))
+            again = asyncio.run(execute_capability("story.create", {"content": "a draft"}))
+            different = asyncio.run(execute_capability("story.create", {"content": "another"}))
         finally:
             set_active_authorization_context(None)
         assert again["pending_approval"]["checkpoint_id"] == pending_info["checkpoint_id"]
-        assert asyncio.run(_count_checkpoints(run_id, "script")) == 1
+        assert different["pending_approval"]["checkpoint_id"] != pending_info["checkpoint_id"]
+        assert asyncio.run(_count_checkpoints(run_id, "script")) == 2
+        # The digest binds the exact validated snapshot of its own request.
+        assert checkpoint.parameter_digest == _approval_digest(
+            "story.create", StoryCreateParams(content="a draft")
+        )
     finally:
-        # The runtime's finally normally clears the signal; direct-invocation
+        # The runtime's finally normally clears the signals; direct-invocation
         # tests must do it themselves so later tests start clean.
         _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
         asyncio.run(_cleanup_checkpoints(run_id))
 
 
@@ -2457,18 +2471,21 @@ def test_approved_stage_never_grants_other_stage(seeded_run):
         assert asyncio.run(_count_scripts(other_run)) == 0  # nothing executed
 
         # Control (run B): now approve the script stage too — the gate
-        # passes, proving the negatives above are stage-scoping, not a
-        # broken gate.
+        # passes for the IDENTICAL parameter snapshot (Model B binding:
+        # the approved digest must match the executing request exactly).
         pending_id = uuid.UUID(story["pending_approval"]["checkpoint_id"])
         asyncio.run(_approve_checkpoint(pending_id))
         set_active_authorization_context(_run_context(other_project, other_run))
         try:
-            granted = asyncio.run(execute_capability("story.create", {"content": "d"}))
+            granted = asyncio.run(execute_capability("story.create", {"content": "draft"}))
         finally:
             set_active_authorization_context(None)
         assert granted["script_id"]  # script approval now grants script
     finally:
+        from app.hermes.runtime import _clear_active_approval_mismatch
+
         _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
         asyncio.run(_cleanup_checkpoints(run_id, other_run))
         asyncio.run(_cleanup_scripts(run_id, other_run))
 
@@ -2559,6 +2576,300 @@ def test_real_job_awaiting_approval_end_to_end(tmp_path, monkeypatch, seeded_run
     assert asyncio.run(_count_checkpoints(run_id, "script")) == 1
     assert hermes_runtime.get_active_approval_pending() is None  # cleared in finally
     asyncio.run(_cleanup_checkpoints(run_id))
+
+
+# ---------------------------------------------------------------------------
+# §9.11 Approval Model B: parameter binding (digest + preview + precedence)
+# ---------------------------------------------------------------------------
+
+
+def _validated_params(tool_name, params_dict):
+    """Build the schema-validated parameter object for a capability."""
+    from app.hermes.capabilities import CAPABILITY_REGISTRY
+
+    return CAPABILITY_REGISTRY[tool_name].schema_model(**params_dict)
+
+
+def _seed_approved_digest(run_id, stage, tool_name, params_dict):
+    """Directly write an APPROVED Model-B checkpoint binding the EXACT
+    validated parameter snapshot (the external approval act)."""
+    import asyncio
+
+    from app.hermes.capabilities import (
+        _approval_digest,
+        _make_capability_engine,
+        _parameter_preview,
+    )
+
+    params = _validated_params(tool_name, params_dict)
+
+    async def _seed():
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                checkpoint = ApprovalCheckpoint(
+                    workflow_run_id=run_id,
+                    stage=ApprovalStage(stage),
+                    reference_table="workflow_runs",
+                    reference_id=run_id,
+                    action=ApprovalAction.APPROVE,
+                    parameter_digest=_approval_digest(tool_name, params),
+                    parameter_preview=_parameter_preview(params),
+                )
+                session.add(checkpoint)
+                await session.commit()
+                return checkpoint.id
+        finally:
+            await engine.dispose()
+
+    from app.models.approval import ApprovalCheckpoint
+    from app.models.enums import ApprovalAction, ApprovalStage
+
+    return asyncio.run(_seed())
+
+
+def _load_checkpoint(checkpoint_id):
+    import asyncio
+
+    from app.hermes.capabilities import _make_capability_engine
+    from app.models.approval import ApprovalCheckpoint
+
+    async def _load():
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                return await session.get(ApprovalCheckpoint, checkpoint_id)
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(_load())
+
+
+def test_model_b_pending_stores_digest_and_preview(seeded_run):
+    """Locked §2/§6: pendency persists the authorization digest AND the
+    bounded human-review preview, both derived from the SAME validated
+    parameter object. The digest equals the canonical Model-B envelope
+    digest; the preview exposes the content (truncated when large)."""
+    import asyncio
+
+    from app.hermes.capabilities import (
+        StoryCreateParams,
+        _approval_digest,
+        _parameter_preview,
+    )
+    from app.hermes.runtime import (
+        _clear_active_approval_mismatch,
+        _clear_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), _ = seeded_run
+    try:
+        long_content = "x" * 5_000
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            result = asyncio.run(execute_capability("story.create", {"content": long_content}))
+        finally:
+            set_active_authorization_context(None)
+        checkpoint = _load_checkpoint(uuid.UUID(result["pending_approval"]["checkpoint_id"]))
+        assert checkpoint.parameter_digest == _approval_digest(
+            "story.create", StoryCreateParams(content=long_content)
+        )
+        expected_preview = _parameter_preview(StoryCreateParams(content=long_content))
+        assert checkpoint.parameter_preview == expected_preview
+        assert "[truncated" in checkpoint.parameter_preview
+        assert len(checkpoint.parameter_preview) < len(long_content)
+        # Small values are NOT truncated: the raw content stays reviewable.
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            small = asyncio.run(execute_capability("story.create", {"content": "short draft"}))
+        finally:
+            set_active_authorization_context(None)
+        small_cp = _load_checkpoint(uuid.UUID(small["pending_approval"]["checkpoint_id"]))
+        assert "short draft" in (small_cp.parameter_preview or "")
+    finally:
+        _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
+        asyncio.run(_cleanup_checkpoints(run_id))
+
+
+def test_model_b_approved_matching_executes_and_replays(seeded_run):
+    """Locked §7: approved X executes X; identical approved parameters may
+    execute repeatedly (NOT once-only). Two identical executions create
+    two real Script rows."""
+    import asyncio
+
+    from app.hermes.runtime import (
+        _clear_active_approval_mismatch,
+        _clear_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), _ = seeded_run
+    try:
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            pending = asyncio.run(execute_capability("story.create", {"content": "approved draft"}))
+            asyncio.run(_approve_checkpoint(uuid.UUID(pending["pending_approval"]["checkpoint_id"])))
+            first = asyncio.run(execute_capability("story.create", {"content": "approved draft"}))
+            second = asyncio.run(execute_capability("story.create", {"content": "approved draft"}))
+        finally:
+            set_active_authorization_context(None)
+        assert first["script_id"] and second["script_id"]
+        assert first["script_id"] != second["script_id"]
+        assert asyncio.run(_count_scripts(run_id)) == 2
+    finally:
+        _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
+        asyncio.run(_cleanup_checkpoints(run_id))
+        asyncio.run(_cleanup_scripts(run_id))
+
+
+def test_model_b_mismatch_fails_closed(seeded_run):
+    """Locked §4 step 2 / §7-8: approved X + execution Y is a terminal
+    approval_parameter_mismatch — granted_operation is NEVER invoked (no
+    Script row), the approved checkpoint is UNCHANGED, the runtime
+    mismatch signal is set, and §13 carries the mismatch evidence. The
+    approved checkpoint still authorizes X afterwards."""
+    import asyncio
+
+    from app.hermes.audit import InMemoryAuditSink, set_active_audit_sink
+    from app.hermes.runtime import (
+        _clear_active_approval_mismatch,
+        _clear_active_approval_pending,
+        get_active_approval_mismatch,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), _ = seeded_run
+    sink = InMemoryAuditSink()
+    try:
+        set_active_authorization_context(_run_context(project_id, run_id))
+        set_active_audit_sink(sink)
+        try:
+            pending = asyncio.run(execute_capability("story.create", {"content": "the approved text"}))
+            approved_id = uuid.UUID(pending["pending_approval"]["checkpoint_id"])
+            asyncio.run(_approve_checkpoint(approved_id))
+            mismatch = asyncio.run(execute_capability("story.create", {"content": "a substituted text"}))
+        finally:
+            set_active_authorization_context(None)
+            set_active_audit_sink(None)
+        assert mismatch["error"]["code"] == "approval_parameter_mismatch"
+        # granted_operation NOT invoked: no Script row materialized.
+        assert asyncio.run(_count_scripts(run_id)) == 0
+        # The approved checkpoint is unchanged (action + digest intact).
+        unchanged = _load_checkpoint(approved_id)
+        assert unchanged.action.value == "approve"
+        assert unchanged.parameter_digest is not None and "the approved text" not in (unchanged.parameter_digest)
+        # The terminal-failure signal is set for the runtime to consume.
+        signal = get_active_approval_mismatch()
+        assert signal is not None and signal["error_code"] == "approval_parameter_mismatch"
+        # §13 evidence: the mismatch is a first-class final outcome.
+        trail = [(r.tool_name, r.decision, r.reason_code) for r in sink.records()]
+        assert ("story.create", "BLOCK", "approval_parameter_mismatch") in trail
+        # The approval still authorizes the ORIGINAL snapshot afterwards.
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            recovered = asyncio.run(execute_capability("story.create", {"content": "the approved text"}))
+        finally:
+            set_active_authorization_context(None)
+        assert recovered["script_id"]
+    finally:
+        _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
+        asyncio.run(_cleanup_checkpoints(run_id))
+        asyncio.run(_cleanup_scripts(run_id))
+
+
+def test_model_b_legacy_null_approval_executes_model_a(seeded_run):
+    """Locked §3: a NULL-digest APPROVE checkpoint retains legacy Model-A
+    behavior — any schema-valid parameters execute."""
+    import asyncio
+
+    from app.hermes.runtime import (
+        _clear_active_approval_mismatch,
+        _clear_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), _ = seeded_run
+    try:
+        asyncio.run(_seed_checkpoint(run_id, "script", "approve"))  # NULL digest
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            granted = asyncio.run(execute_capability("story.create", {"content": "any params pass"}))
+        finally:
+            set_active_authorization_context(None)
+        assert granted["script_id"]
+    finally:
+        _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
+        asyncio.run(_cleanup_checkpoints(run_id))
+        asyncio.run(_cleanup_scripts(run_id))
+
+
+def test_model_b_legacy_null_cannot_override_active_digest(seeded_run):
+    """Locked §4 precedence: when a non-NULL approved digest exists and
+    does not match, execution FAILS even though a legacy NULL approval is
+    also present — a legacy approval can never override Model B."""
+    import asyncio
+
+    from app.hermes.runtime import (
+        _clear_active_approval_mismatch,
+        _clear_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), _ = seeded_run
+    try:
+        # Model-B approval binding snapshot X, plus a legacy NULL approval.
+        _seed_approved_digest(run_id, "script", "story.create", {"content": "bound text"})
+        asyncio.run(_seed_checkpoint(run_id, "script", "approve"))
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            denied = asyncio.run(execute_capability("story.create", {"content": "different text"}))
+        finally:
+            set_active_authorization_context(None)
+        assert denied["error"]["code"] == "approval_parameter_mismatch"
+        assert asyncio.run(_count_scripts(run_id)) == 0
+    finally:
+        _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
+        asyncio.run(_cleanup_checkpoints(run_id))
+        asyncio.run(_cleanup_scripts(run_id))
+
+
+def test_model_b_publishing_mismatch_denies_before_any_execution(seeded_run):
+    """Locked §10 companion: Model B mismatch on publishing.request denies
+    BEFORE the granted operation — no adapter invocation of any kind (the
+    dry-run path itself is never reached), and no network is possible."""
+    import asyncio
+
+    from app.hermes.runtime import (
+        _clear_active_approval_mismatch,
+        _clear_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), _ = seeded_run
+    artifact_x = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
+    artifact_y = uuid.UUID("550e8400-e29b-41d4-a716-446655440001")
+    try:
+        _seed_approved_digest(run_id, "thumbnail", "publishing.request", {"artifact_id": str(artifact_x)})
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            denied = asyncio.run(execute_capability("publishing.request", {"artifact_id": str(artifact_y)}))
+        finally:
+            set_active_authorization_context(None)
+        assert denied["error"]["code"] == "approval_parameter_mismatch"
+    finally:
+        _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
+        asyncio.run(_cleanup_checkpoints(run_id))
 
 
 
