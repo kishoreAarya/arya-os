@@ -21,12 +21,18 @@ The adapter follows the standard YouTube upload flow:
   5. Get public URL (via fetch_url)
   6. Fetch analytics (via fetch_analytics)
 
-All methods return structured results (never raise raw exceptions).
+All methods return structured results for confirmed/pre-dispatch failures
+(FAILED at the operator path); ambiguous post-submission outcomes
+(transport failures mid-exchange, timeouts, HTTP 5xx) RAISE so the
+caller records UNKNOWN — never FAILED without evidence (the truthful
+failure contract shared with the Postiz adapter).
 """
 import asyncio
 import datetime
 import json
 import os
+import socket
+import uuid
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,6 +57,14 @@ YOUTUBE_URL_FORMAT = "https://www.youtube.com/watch?v={video_id}"
 
 # Maximum chunk size for resumable upload (256MB)
 MAX_RESUMABLE_CHUNK_SIZE = 256 * 1024 * 1024
+
+# Transport failures that provably happen BEFORE any request bytes are
+# sent: no external side effect is possible, so they are retryable
+# pre-dispatch failures (FAILED) rather than ambiguity (UNKNOWN).
+_PRE_DISPATCH_TRANSPORT_ERRORS = (
+    socket.gaierror,  # DNS resolution failed — request never sent
+    ConnectionRefusedError,  # TCP connect refused — request never sent
+)
 
 
 class YouTubeAdapter(PlatformAdapter):
@@ -183,15 +197,33 @@ class YouTubeAdapter(PlatformAdapter):
         description: str | None = None,
         tags: list[str] | None = None,
         credentials: Any | None = None,
+        **kwargs: Any,
     ) -> UploadResult:
         """Upload a video to YouTube via resumable upload.
 
         Uploads as "private" by default. Call publish() to make public.
+        is_dry_run=True performs validation only — ZERO Google API calls.
         """
+        is_dry_run = kwargs.get("is_dry_run", False)
+
         if not os.path.exists(file_path):
             return UploadResult(
                 success=False,
                 error=f"Video file not found: {file_path}",
+            )
+
+        if is_dry_run:
+            # Validation-only: no authenticate(), no client build, no API call.
+            simulated_id = f"dry_run_upload_{uuid.uuid4().hex[:8]}"
+            logger.info(
+                "youtube_adapter_dry_run_upload_validated",
+                file_path=file_path,
+                title=title,
+            )
+            return UploadResult(
+                success=True,
+                content_id=simulated_id,
+                storage_path=file_path,
             )
 
         # Ensure we have an authenticated client
@@ -215,6 +247,7 @@ class YouTubeAdapter(PlatformAdapter):
         }
 
         try:
+            from googleapiclient.errors import HttpError
             from googleapiclient.http import MediaFileUpload
 
             media = MediaFileUpload(
@@ -253,16 +286,36 @@ class YouTubeAdapter(PlatformAdapter):
                 url=YOUTUBE_URL_FORMAT.format(video_id=video_id),
             )
 
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "youtube_adapter_upload_failed",
-                file_path=file_path,
-                error=str(exc),
-            )
+        except HttpError as exc:
+            status_code = int(getattr(getattr(exc, "resp", None), "status", 0) or 0)
+            if 400 <= status_code < 500:
+                # Confirmed provider rejection — FAILED.
+                logger.error(
+                    "youtube_adapter_upload_rejected",
+                    status_code=status_code,
+                    error=str(exc),
+                )
+                return UploadResult(
+                    success=False,
+                    error=f"YouTube upload rejected (HTTP {status_code}): {exc}",
+                )
+            # 5xx after our submission reached the provider: the media may
+            # be held — ambiguous. Raise so the operator path records UNKNOWN.
+            logger.error("youtube_adapter_upload_ambiguous_http", status_code=status_code)
+            raise
+        except _PRE_DISPATCH_TRANSPORT_ERRORS as exc:
+            # The request was never sent: no external side effect possible —
+            # retryable pre-submission failure (FAILED).
+            logger.error("youtube_adapter_upload_unreachable", error=str(exc))
             return UploadResult(
                 success=False,
-                error=f"YouTube upload failed: {exc}",
+                error=f"YouTube unreachable before upload (request not sent): {exc}",
             )
+        except Exception as exc:  # noqa: BLE001
+            # Mid-exchange ambiguity (timeout, dropped connection, partial
+            # resumable upload): the provider may hold the media — UNKNOWN.
+            logger.error("youtube_adapter_upload_exception", error=str(exc))
+            raise
 
     async def upload_thumbnail(
         self,
@@ -270,12 +323,32 @@ class YouTubeAdapter(PlatformAdapter):
         video_content_id: str,
         thumbnail_path: str,
         credentials: Any | None = None,
+        **kwargs: Any,
     ) -> UploadResult:
-        """Upload a thumbnail for an existing YouTube video."""
+        """Upload a thumbnail for an existing YouTube video.
+
+        is_dry_run=True performs validation only — ZERO Google API calls.
+        """
+        is_dry_run = kwargs.get("is_dry_run", False)
+
         if not os.path.exists(thumbnail_path):
             return UploadResult(
                 success=False,
                 error=f"Thumbnail file not found: {thumbnail_path}",
+            )
+
+        if is_dry_run:
+            # Validation-only: no authenticate(), no client build, no API call.
+            simulated_id = f"dry_run_upload_{uuid.uuid4().hex[:8]}"
+            logger.info(
+                "youtube_adapter_dry_run_thumbnail_validated",
+                video_id=video_content_id,
+                thumbnail_path=thumbnail_path,
+            )
+            return UploadResult(
+                success=True,
+                content_id=simulated_id,
+                storage_path=thumbnail_path,
             )
 
         if self._youtube_client is None:
@@ -284,6 +357,7 @@ class YouTubeAdapter(PlatformAdapter):
                 return UploadResult(success=False, error=auth_result.error)
 
         try:
+            from googleapiclient.errors import HttpError
             from googleapiclient.http import MediaFileUpload
 
             media = MediaFileUpload(thumbnail_path, mimetype="image/jpeg")
@@ -305,16 +379,31 @@ class YouTubeAdapter(PlatformAdapter):
                 storage_path=thumbnail_path,
             )
 
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "youtube_adapter_thumbnail_upload_failed",
-                video_id=video_content_id,
-                error=str(exc),
-            )
+        except HttpError as exc:
+            status_code = int(getattr(getattr(exc, "resp", None), "status", 0) or 0)
+            if 400 <= status_code < 500:
+                logger.error(
+                    "youtube_adapter_thumbnail_rejected",
+                    status_code=status_code,
+                    error=str(exc),
+                )
+                return UploadResult(
+                    success=False,
+                    error=f"YouTube thumbnail rejected (HTTP {status_code}): {exc}",
+                )
+            logger.error("youtube_adapter_thumbnail_ambiguous_http", status_code=status_code)
+            raise
+        except _PRE_DISPATCH_TRANSPORT_ERRORS as exc:
+            logger.error("youtube_adapter_thumbnail_unreachable", error=str(exc))
             return UploadResult(
                 success=False,
-                error=f"YouTube thumbnail upload failed: {exc}",
+                error=f"YouTube unreachable before thumbnail (request not sent): {exc}",
             )
+        except Exception as exc:  # noqa: BLE001
+            # Mid-exchange ambiguity: raise (the operator path decides the
+            # attempt outcome from the publish call; thumbnails are non-fatal).
+            logger.error("youtube_adapter_thumbnail_upload_exception", error=str(exc))
+            raise
 
     async def publish(
         self,
@@ -324,13 +413,35 @@ class YouTubeAdapter(PlatformAdapter):
         privacy_status: str = "private",
         **kwargs: Any,
     ) -> PublishResult:
-        """Publish a YouTube video with configurable privacyStatus (default: 'private')."""
+        """Publish a YouTube video with configurable privacyStatus (default: 'private').
+
+        is_dry_run=True returns a simulated result — the real
+        videos().update publish operation is NEVER invoked.
+        """
+        is_dry_run = kwargs.get("is_dry_run", False)
+
+        if is_dry_run:
+            simulated_id = f"dry_run_post_{uuid.uuid4().hex[:12]}"
+            logger.info(
+                "youtube_adapter_dry_run_publish_validated",
+                content_id=content_id,
+                privacy_status=privacy_status,
+            )
+            return PublishResult(
+                success=True,
+                published_content_id=simulated_id,
+                publish_status="draft",
+                url=None,
+            )
+
         if self._youtube_client is None:
             auth_result = await self.authenticate()
             if not auth_result.success:
                 return PublishResult(success=False, error=auth_result.error)
 
         try:
+            from googleapiclient.errors import HttpError
+
             self._youtube_client.videos().update(
                 part="status",
                 body={
@@ -354,16 +465,36 @@ class YouTubeAdapter(PlatformAdapter):
                 url=YOUTUBE_URL_FORMAT.format(video_id=content_id),
             )
 
-        except Exception as exc:  # noqa: BLE001
-            logger.error(
-                "youtube_adapter_publish_failed",
-                video_id=content_id,
-                error=str(exc),
-            )
+        except HttpError as exc:
+            status_code = int(getattr(getattr(exc, "resp", None), "status", 0) or 0)
+            if 400 <= status_code < 500:
+                # Confirmed provider rejection — FAILED.
+                logger.error(
+                    "youtube_adapter_publish_rejected",
+                    status_code=status_code,
+                    error=str(exc),
+                )
+                return PublishResult(
+                    success=False,
+                    error=f"YouTube publish rejected (HTTP {status_code}): {exc}",
+                )
+            # 5xx after our submission reached the provider: the publish
+            # may have been applied — ambiguous. Raise -> UNKNOWN.
+            logger.error("youtube_adapter_publish_ambiguous_http", status_code=status_code)
+            raise
+        except _PRE_DISPATCH_TRANSPORT_ERRORS as exc:
+            # The request was never sent: no external side effect possible —
+            # retryable pre-submission failure (FAILED).
+            logger.error("youtube_adapter_publish_unreachable", error=str(exc))
             return PublishResult(
                 success=False,
-                error=f"YouTube publish failed: {exc}",
+                error=f"YouTube unreachable before publish (request not sent): {exc}",
             )
+        except Exception as exc:  # noqa: BLE001
+            # Ambiguity after possible submission (timeout, dropped
+            # connection): raise -> UNKNOWN, never FAILED without evidence.
+            logger.error("youtube_adapter_publish_exception", error=str(exc))
+            raise
 
     async def check_processing(
         self,
