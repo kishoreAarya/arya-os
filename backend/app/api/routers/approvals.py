@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
-from app.models.approval import ApprovalCheckpoint
+from app.models.approval import ApprovalCheckpoint, ApprovalDecision
 from app.models.enums import ApprovalAction, ApprovalStage
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
@@ -32,6 +32,11 @@ class CreateCheckpointRequest(BaseModel):
 class DecideCheckpointRequest(BaseModel):
     action: ApprovalAction
     reviewer_notes: str | None = None
+    # OPTIONAL caller-asserted provenance ONLY. The current authentication
+    # (shared service API key) provides no human identity and none is
+    # invented: this field is non-authoritative metadata, exactly like the
+    # jobs-surface user_id (D3). Blank is stored as NULL.
+    decided_by: str | None = None
 
 
 @router.post("/")
@@ -72,21 +77,80 @@ async def decide_checkpoint(
     db: AsyncSession = Depends(get_db),
 ):
     """The dashboard calls this when you click Approve / Reject / Retry
-    / Manual Edit / Continue. This is the ONLY place a decision gets
-    written — Telegram only notifies, per the architecture doc."""
+    / Manual Edit / Continue (and now Revoke). This is the ONLY place a
+    decision gets written — Telegram only notifies, per the architecture
+    doc.
+
+    Decision-history architecture (operator-locked): APPEND-ONLY. Each
+    call locks the checkpoint row (FOR UPDATE), allocates the next
+    per-checkpoint sequence_number under that lock, appends ONE immutable
+    ApprovalDecision event (server-generated decided_at — the future TTL
+    anchor), and refreshes the checkpoint's current-state cache from that
+    event — all in a single transaction. Previous events are NEVER
+    modified. REJECT ("request not authorized") and REVOKE ("a previously
+    existing authorization is withdrawn") are distinct, permanently
+    recorded semantics."""
+    from sqlalchemy import func
+
     result = await db.execute(
-        select(ApprovalCheckpoint).where(ApprovalCheckpoint.id == checkpoint_id)
+        select(ApprovalCheckpoint)
+        .where(ApprovalCheckpoint.id == checkpoint_id)
+        .with_for_update()
     )
     checkpoint = result.scalar_one_or_none()
     if not checkpoint:
         raise HTTPException(status_code=404, detail="Checkpoint not found")
 
+    next_sequence = (
+        await db.execute(
+            select(func.coalesce(func.max(ApprovalDecision.sequence_number), 0)).where(
+                ApprovalDecision.checkpoint_id == checkpoint_id
+            )
+        )
+    ).scalar() + 1
+
+    event = ApprovalDecision(
+        checkpoint_id=checkpoint.id,
+        sequence_number=next_sequence,
+        action=payload.action,
+        # Server-generated immutable event timestamp. Stored as naive UTC —
+        # the repository's timestamp-without-timezone convention
+        # (creator.py precedent; capabilities test helpers do the same).
+        decided_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        decided_by=(payload.decided_by.strip() or None) if payload.decided_by else None,
+        reviewer_notes=payload.reviewer_notes,
+    )
+    db.add(event)
+
+    # Current-state cache refresh — atomic with the event append; the
+    # cache always equals the latest decision event.
     checkpoint.action = payload.action
     checkpoint.reviewer_notes = payload.reviewer_notes
-    checkpoint.decided_at = datetime.now(timezone.utc)
+    checkpoint.decided_at = event.decided_at
     await db.commit()
     await db.refresh(checkpoint)
     return checkpoint
+
+
+@router.get("/{checkpoint_id}/decisions")
+async def list_decisions(
+    checkpoint_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """The complete, ordered, append-only decision history for one
+    checkpoint. Ordered by the deterministic per-checkpoint
+    sequence_number (allocated under the checkpoint row lock), never by
+    timestamps or unordered query results. The original APPROVE event
+    remains permanently observable here after any REVOKE."""
+    checkpoint = await db.get(ApprovalCheckpoint, checkpoint_id)
+    if not checkpoint:
+        raise HTTPException(status_code=404, detail="Checkpoint not found")
+    result = await db.execute(
+        select(ApprovalDecision)
+        .where(ApprovalDecision.checkpoint_id == checkpoint_id)
+        .order_by(ApprovalDecision.sequence_number)
+    )
+    return list(result.scalars().all())
 
 
 @router.get("/pending/{workflow_run_id}")

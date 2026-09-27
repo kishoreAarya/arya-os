@@ -16,7 +16,15 @@ Beginner note:
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Enum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import (
+    Enum,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -53,6 +61,50 @@ class ApprovalCheckpoint(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # preview of the same validated parameter object the digest covers.
     # Never an authorization primitive — the digest is authoritative.
     parameter_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ApprovalDecision(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Append-only approval decision history (one row per decision event).
+
+    Authorization architecture (operator-locked): ApprovalCheckpoint
+    remains the fast current-state CACHE (action/decided_at/
+    reviewer_notes = the latest event); this table is the authoritative,
+    IMMUTABLE history. Events are created ONLY by
+    POST /approvals/{id}/decide, which locks the checkpoint row (FOR
+    UPDATE), allocates the next per-checkpoint sequence_number inside
+    that lock, appends the event, and refreshes the cache — one
+    transaction. No API updates or deletes events; decided_at is a
+    server-generated immutable timestamp (the future TTL anchor).
+
+    decided_by is OPTIONAL CALLER-ASSERTED PROVENANCE ONLY: the current
+    authentication (shared service API key, security.py verify_api_key)
+    provides no human identity, and none is invented — the field is
+    non-authoritative metadata, exactly like the jobs-surface user_id
+    (D3). REJECT and REVOKE are distinct semantics and stay distinct
+    here: REJECT = request not authorized; REVOKE = a previously
+    existing authorization is withdrawn.
+    """
+
+    __tablename__ = "approval_decisions"
+    __table_args__ = (
+        UniqueConstraint("checkpoint_id", "sequence_number", name="uq_approval_decisions_checkpoint_seq"),
+    )
+
+    checkpoint_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("approval_checkpoints.id"), nullable=False
+    )
+    # Deterministic monotonic ordering within the checkpoint, allocated
+    # under the checkpoint row lock (never derived from timestamps).
+    sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    action: Mapped[ApprovalAction] = mapped_column(
+        Enum(ApprovalAction, name="approval_action"), nullable=False
+    )
+    # Server-generated at event creation; immutable thereafter.
+    decided_at: Mapped[datetime] = mapped_column(nullable=False)
+    # Caller-asserted provenance only — NOT authenticated identity.
+    decided_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Per-event notes: history-scoped, never overwritten on later events.
+    reviewer_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class GenerationAttempt(Base, UUIDPrimaryKeyMixin, TimestampMixin):

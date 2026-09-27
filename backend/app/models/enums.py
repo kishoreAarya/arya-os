@@ -108,6 +108,13 @@ class ApprovalAction(str, enum.Enum):
     RETRY = "retry"
     MANUAL_EDIT = "manual_edit"
     CONTINUE = "continue"
+    # Decision-history architecture (operator-authorized): REVOKE is a
+    # FIRST-CLASS action, explicitly distinct from REJECT — REJECT means
+    # "this request is not authorized"; REVOKE means "an authorization
+    # that previously existed is being withdrawn". Both are
+    # non-authorizing for the Model B gate; the distinction is preserved
+    # permanently in the append-only ApprovalDecision history.
+    REVOKE = "revoke"
 
 
 class LearningType(str, enum.Enum):

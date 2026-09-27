@@ -3227,3 +3227,140 @@ def test_real_provider_generate_budget_denial_fails_job(tmp_path, monkeypatch):
         assert ("provider.generate", "BLOCK", "generation_budget_exceeded") in trail
     finally:
         asyncio.run(_cleanup_runs(seeded))
+
+
+# ---------------------------------------------------------------------------
+# §9.11b Decision-history companion: REVOKE / REJECT at the Model B gate
+# ---------------------------------------------------------------------------
+
+
+def _set_cache_action(checkpoint_id, action_name):
+    """Directly set the current-state cache of a checkpoint (legitimate
+    test seeding per the authorization's §12 — production decisions go
+    through POST /approvals/{id}/decide, which appends the event and
+    refreshes exactly this cache)."""
+    import asyncio
+
+    from app.hermes.capabilities import _make_capability_engine
+
+    async def _update():
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        from app.models.approval import ApprovalCheckpoint
+
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                checkpoint = await session.get(ApprovalCheckpoint, checkpoint_id)
+                from app.models.enums import ApprovalAction
+
+                checkpoint.action = ApprovalAction(action_name)
+                await session.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_update())
+
+
+def test_revoked_approval_does_not_authorize_and_reapproval_restores(seeded_run):
+    """Decision-history §7 at the gate: APPROVE authorizes; after the
+    checkpoint's state becomes REVOKE (non-authorizing), executing the
+    SAME digest is DENIED (a fresh digest-scoped pending, nothing
+    executes); a subsequent APPROVE restores authorization for the same
+    snapshot. Model B precedence and digest semantics unchanged."""
+    import asyncio
+
+    from app.hermes.runtime import (
+        _clear_active_approval_mismatch,
+        _clear_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), _ = seeded_run
+    try:
+        content = "the revocation test draft"
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            pending = asyncio.run(execute_capability("story.create", {"content": content}))
+            approved_id = uuid.UUID(pending["pending_approval"]["checkpoint_id"])
+            asyncio.run(_approve_checkpoint(approved_id))
+            granted = asyncio.run(execute_capability("story.create", {"content": content}))
+            assert granted["script_id"]  # APPROVE authorizes
+            assert asyncio.run(_count_scripts(run_id)) == 1
+        finally:
+            set_active_authorization_context(None)
+
+        # REVOKE (cache state non-authorizing) — the SAME digest is now
+        # denied: a fresh pending checkpoint, no execution.
+        _set_cache_action(approved_id, "revoke")
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            denied = asyncio.run(execute_capability("story.create", {"content": content}))
+        finally:
+            set_active_authorization_context(None)
+        assert denied["pending_approval"]["stage"] == "script"
+        assert denied["pending_approval"]["checkpoint_id"] != str(approved_id)
+        assert asyncio.run(_count_scripts(run_id)) == 1  # nothing executed
+
+        # Re-approval (a NEW APPROVE on the fresh pending) restores the
+        # authorization for the identical snapshot.
+        reapprove_id = uuid.UUID(denied["pending_approval"]["checkpoint_id"])
+        asyncio.run(_approve_checkpoint(reapprove_id))
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            restored = asyncio.run(execute_capability("story.create", {"content": content}))
+        finally:
+            set_active_authorization_context(None)
+        assert restored["script_id"]
+        assert asyncio.run(_count_scripts(run_id)) == 2
+    finally:
+        _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
+        asyncio.run(_cleanup_checkpoints(run_id))
+        asyncio.run(_cleanup_scripts(run_id))
+
+
+def test_rejected_then_reapproved_matching_digest_executes(seeded_run):
+    """Decision-history §5 at the gate: REJECT is non-authorizing and
+    distinct from REVOKE; after REJECT, a later APPROVE of the SAME
+    digest authorizes execution (append-only re-approval semantics)."""
+    import asyncio
+
+    from app.hermes.runtime import (
+        _clear_active_approval_mismatch,
+        _clear_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), _ = seeded_run
+    try:
+        content = "rejected then reapproved"
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            pending = asyncio.run(execute_capability("story.create", {"content": content}))
+            checkpoint_id = uuid.UUID(pending["pending_approval"]["checkpoint_id"])
+        finally:
+            set_active_authorization_context(None)
+
+        _set_cache_action(checkpoint_id, "reject")
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            denied = asyncio.run(execute_capability("story.create", {"content": content}))
+        finally:
+            set_active_authorization_context(None)
+        assert denied["pending_approval"]["stage"] == "script"
+        assert asyncio.run(_count_scripts(run_id)) == 0
+
+        fresh_id = uuid.UUID(denied["pending_approval"]["checkpoint_id"])
+        asyncio.run(_approve_checkpoint(fresh_id))
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            granted = asyncio.run(execute_capability("story.create", {"content": content}))
+        finally:
+            set_active_authorization_context(None)
+        assert granted["script_id"]
+    finally:
+        _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
+        asyncio.run(_cleanup_checkpoints(run_id))
+        asyncio.run(_cleanup_scripts(run_id))
