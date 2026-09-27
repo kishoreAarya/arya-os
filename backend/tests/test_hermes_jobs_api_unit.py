@@ -327,6 +327,84 @@ async def test_unknown_job_404(client, monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# 9b. D8-F: optional workflow_run_id scope filter (both lookup paths)
+# ---------------------------------------------------------------------------
+
+
+async def test_d8f_live_lookup_run_scope_filter(client, monkeypatch):
+    """D8-F matrix (live path): omitted = today's behavior; matching =
+    success; mismatching = the ORDINARY 404 contract (same detail shape
+    as an unknown job — no run/project/existence oracle), for polling by
+    surface id AND by runtime id. The filter is a read-only scope
+    assertion: it authorizes nothing and the API key stays the boundary."""
+    surface_id, runtime_id, body = await _submit_with_runtime_id(client, monkeypatch)
+
+    # omitted: existing behavior (and blank behaves as omitted).
+    omitted = await client.get(f"/api/hermes/jobs/{surface_id}")
+    assert omitted.status_code == 200 and omitted.json() == body
+    blank = await client.get(f"/api/hermes/jobs/{surface_id}?workflow_run_id=")
+    assert blank.status_code == 200 and blank.json() == body
+    # matching: unchanged result.
+    matching = await client.get(f"/api/hermes/jobs/{surface_id}?workflow_run_id={RUN_ID}")
+    assert matching.status_code == 200 and matching.json() == body
+    # runtime-id polling honors the same scope.
+    by_runtime = await client.get(f"/api/hermes/jobs/{runtime_id}?workflow_run_id={RUN_ID}")
+    assert by_runtime.status_code == 200 and by_runtime.json()["job_id"] == surface_id
+    # mismatching (surface id and runtime id): the ordinary 404, reusing
+    # the existing not-found detail verbatim — nothing about the run,
+    # project, or the job's existence beyond "not found for you".
+    for wrong_id_target in (surface_id, runtime_id):
+        mismatch = await client.get(f"/api/hermes/jobs/{wrong_id_target}?workflow_run_id={uuid.uuid4()}")
+        assert mismatch.status_code == 404, wrong_id_target
+        assert mismatch.json() == {"detail": f"Job '{wrong_id_target}' not found"}
+
+
+async def test_d8f_scope_parameter_still_requires_api_key(anon_client):
+    """D8-F adds no authentication surface: the route (with or without the
+    new scope parameter) remains behind the API-key boundary."""
+    resp = await anon_client.get(f"/api/hermes/jobs/{uuid.uuid4()}?workflow_run_id={RUN_ID}")
+    assert resp.status_code == 401
+    assert resp.headers.get("www-authenticate") == "Bearer"
+
+
+async def test_d8f_reconstructed_lookup_run_scope_filter(client, monkeypatch, tmp_path):
+    """D8-F matrix (§13 reconstruction path): omitted = existing behavior;
+    matching = success; mismatching = the ordinary 404 — a caller who
+    asserts a run scope can no longer obtain another run's terminal (or
+    interrupted) status through the runtime-id fallback."""
+    import app.api.routers.hermes_jobs as surface
+
+    monkeypatch.setattr(surface, "_HERMES_JOBS", {})
+    settings = get_settings()
+    real_home = settings.hermes_home
+    settings.hermes_home = str(tmp_path)
+    try:
+        _seed_audit_file(tmp_path, "runtime-d8f", "completed")
+        # omitted: existing behavior.
+        resp = await client.get("/api/hermes/jobs/runtime-d8f")
+        assert resp.status_code == 200 and resp.json()["status"] == "completed"
+        # matching: unchanged result.
+        resp = await client.get(f"/api/hermes/jobs/runtime-d8f?workflow_run_id={RUN_ID}")
+        assert resp.status_code == 200 and resp.json()["status"] == "completed"
+        # mismatching: the ordinary 404 contract, verbatim.
+        mismatch = await client.get(f"/api/hermes/jobs/runtime-d8f?workflow_run_id={uuid.uuid4()}")
+        assert mismatch.status_code == 404
+        assert mismatch.json() == {"detail": "Job 'runtime-d8f' not found"}
+        # unknown job + any scope remains the existing 404.
+        unknown = await client.get(f"/api/hermes/jobs/{uuid.uuid4()}?workflow_run_id={RUN_ID}")
+        assert unknown.status_code == 404
+        # interrupted (JOB_START-only) records are scoped the same way.
+        _seed_audit_file(tmp_path, "runtime-d8f-i", "completed", with_end=False)
+        ok_i = await client.get(f"/api/hermes/jobs/runtime-d8f-i?workflow_run_id={RUN_ID}")
+        assert ok_i.status_code == 200 and ok_i.json()["error_code"] == "surface_job_interrupted"
+        bad_i = await client.get(f"/api/hermes/jobs/runtime-d8f-i?workflow_run_id={uuid.uuid4()}")
+        assert bad_i.status_code == 404
+        assert bad_i.json() == {"detail": "Job 'runtime-d8f-i' not found"}
+    finally:
+        settings.hermes_home = real_home
+
+
+# ---------------------------------------------------------------------------
 # 9.7b. R-s1 remediation: runtime job id propagation + restart recovery
 # ---------------------------------------------------------------------------
 

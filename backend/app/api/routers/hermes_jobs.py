@@ -112,6 +112,18 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _run_scope_mismatch(actual: str | None, asserted: str | None) -> bool:
+    """D8-F: explicit read-only run-scope assertion for job polling. True
+    only when the caller SUPPLIED a scope and it does not match the
+    record's workflow run. An omitted/blank assertion never filters
+    (backward compatible). The check authorizes nothing — the API key
+    remains the authentication boundary — and a mismatch is reported as
+    an ordinary not-found (no oracle)."""
+    if asserted is None or not asserted.strip():
+        return False
+    return (actual or "").strip().lower() != asserted.strip().lower()
+
+
 async def _run_hermes_job_background(job_id: str, call: HermesRunnerCall) -> None:
     """D2: execute the blocking runner OFF the event loop via the existing
     Starlette threadpool primitive; convert the runner result verbatim."""
@@ -194,9 +206,14 @@ async def submit_hermes_job(payload: HermesJobSubmitRequest) -> HermesJobSubmitR
     )
 
 
-def _reconstruct_from_audit(job_id: str) -> HermesJobStatusResponse | None:
+def _reconstruct_from_audit(
+    job_id: str, workflow_run_id: str | None = None
+) -> HermesJobStatusResponse | None:
     """D8 §13 fallback: rebuild the terminal state of a surface job from
-    the existing persistent audit records (runtime_job_id == job_id)."""
+    the existing persistent audit records (runtime_job_id == job_id).
+    D8-F: an asserted workflow_run_id additionally scopes the lookup — a
+    mismatching run returns None (the caller sees the ordinary 404),
+    indistinguishable from an absent job."""
     try:
         from pathlib import Path
 
@@ -207,13 +224,15 @@ def _reconstruct_from_audit(job_id: str) -> HermesJobStatusResponse | None:
         if not audit_file.is_file():
             return None
         records = [r for r in FileAuditSink(audit_file).read_job_records() if r.runtime_job_id == job_id]
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort fallback: any failure is not-found
         return None
     if not records:
         return None
     start = next((r for r in records if r.event == "JOB_START"), None)
     end = next((r for r in records if r.event == "JOB_END"), None)
     if start is None:
+        return None
+    if _run_scope_mismatch(start.workflow_run_id, workflow_run_id):
         return None
     workflow_run_id = start.workflow_run_id
     submitted_at = start.occurred_at
@@ -249,11 +268,19 @@ def _reconstruct_from_audit(job_id: str) -> HermesJobStatusResponse | None:
 
 
 @router.get("/{job_id}", response_model=HermesJobStatusResponse)
-async def get_hermes_job_status(job_id: str) -> HermesJobStatusResponse:
+async def get_hermes_job_status(job_id: str, workflow_run_id: str | None = None) -> HermesJobStatusResponse:
     """Poll one Hermes job: live in-memory state (by surface id, or by the
     R-s1 runtime id once the runner has produced one), else §13 audit
     fallback (runtime-id keyed). Both lookups are behind the same
-    API-key dependency; the runtime id is an identifier only."""
+    API-key dependency; the runtime id is an identifier only.
+    D8-F: an OPTIONAL workflow_run_id query parameter asserts a run
+    scope on BOTH lookups — supplied and mismatching, the poll is the
+    ordinary 404 (no oracle). It is a read-only scope assertion only:
+    it authorizes nothing and the API key remains the authentication
+    boundary."""
+    from fastapi import HTTPException
+    from starlette import status as http_status
+
     with _HERMES_JOBS_LOCK:
         entry = _HERMES_JOBS.get(job_id)
         if entry is None:
@@ -264,6 +291,11 @@ async def get_hermes_job_status(job_id: str) -> HermesJobStatusResponse:
             )
         snapshot = dict(entry) if entry is not None else None
     if snapshot is not None:
+        # D8-F: a mismatching run scope is reported exactly like an
+        # unknown job — never another run's status, never fall-through to
+        # the audit fallback for the same id.
+        if _run_scope_mismatch(snapshot.get("workflow_run_id"), workflow_run_id):
+            raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=f"Job '{job_id}' not found")
         return HermesJobStatusResponse(
             job_id=snapshot["job_id"],
             workflow_run_id=snapshot["workflow_run_id"],
@@ -276,10 +308,8 @@ async def get_hermes_job_status(job_id: str) -> HermesJobStatusResponse:
             completed_at=snapshot.get("completed_at"),
             runtime_job_id=snapshot.get("runner_job_id"),
         )
-    from fastapi import HTTPException
-    from starlette import status as http_status
 
-    reconstructed = _reconstruct_from_audit(job_id)
+    reconstructed = _reconstruct_from_audit(job_id, workflow_run_id=workflow_run_id)
     if reconstructed is None:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail=f"Job '{job_id}' not found")
     return reconstructed
