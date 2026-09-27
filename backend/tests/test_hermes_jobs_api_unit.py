@@ -676,3 +676,216 @@ async def test_real_runtime_smoke_end_to_end(client, monkeypatch, tmp_path):
         assert jobs[1].outcome == "failed"
     finally:
         await _cleanup(project_id, run_id)
+
+
+# ---------------------------------------------------------------------------
+# 13. §9.9 test hardening: T1 failed-job API contract, R-s3 exception path
+# ---------------------------------------------------------------------------
+
+
+async def test_t1_api_level_failed_job_contract(client, monkeypatch, tmp_path):
+    """§9.9 T1: formalize the COMPLETE externally observable contract of a
+    real failed job through the HTTP surface (chat against the pinned dead
+    endpoint — deterministic, hermetic). Pins: submit contract preserved
+    (202 shape), failed poll semantics (status/error_code/error_detail/
+    final_response=None), surface+runtime job identity, timestamps, and
+    consistency with §13 JOB_START/JOB_END semantics."""
+    import importlib.util
+    from pathlib import Path
+
+    if importlib.util.find_spec("run_agent") is None:
+        pytest.fail("§16: pinned Hermes source missing — integration environment failure")
+    from app.core.config import HERMES_COMMIT_PIN, Settings
+
+    settings = Settings(
+        hermes_enabled=True,
+        hermes_commit_pin=HERMES_COMMIT_PIN,
+        hermes_plugin_path=str(
+            Path(__file__).resolve().parents[2] / "backend" / "app" / "hermes" / "plugins"
+        ),
+        hermes_home=str(tmp_path / "hermes-root"),
+        hermes_max_iterations=5,
+        hermes_max_execution_seconds=10.0,
+        hermes_max_tool_calls=10,
+        hermes_max_tool_calls_per_capability=5,
+        hermes_max_generation_budget_usd=1.0,
+        hermes_max_context_tokens=8_000,
+        hermes_max_blocked_requests=3,
+        openrouter_api_key="sk-t1-surface",
+    )
+    monkeypatch.setattr("app.core.config.get_settings", lambda: settings)
+    monkeypatch.setattr("app.hermes.runtime.get_settings", lambda: settings)
+    import app.services.hermes_job_runner as runner_module
+
+    monkeypatch.setattr(runner_module, "_OPENROUTER_BASE_URL", "http://127.0.0.1:9/v1")
+
+    from app.database.session import AsyncSessionLocal
+    from app.models.core import Project, WorkflowRun
+
+    async def _seed():
+        async with AsyncSessionLocal() as session:
+            project = Project(name="t1-failed-contract")
+            session.add(project)
+            await session.flush()
+            run = WorkflowRun(project_id=project.id)
+            session.add(run)
+            await session.commit()
+            return project.id, run.id
+
+    async def _cleanup(project_id, run_id):
+        async with AsyncSessionLocal() as session:
+            run = await session.get(WorkflowRun, run_id)
+            if run is not None:
+                await session.delete(run)
+            project = await session.get(Project, project_id)
+            if project is not None:
+                await session.delete(project)
+            await session.commit()
+
+    project_id, run_id = await _seed()
+    try:
+        # Submit contract preserved: exactly the frozen four fields, 202.
+        submit = await client.post("/api/hermes/jobs", json=_submit_payload(
+            workflow_run_id=str(run_id), task_message="will fail", user_id="t1-test",
+        ))
+        assert submit.status_code == 202
+        assert set(submit.json()) == {"job_id", "workflow_run_id", "status", "submitted_at"}
+        assert submit.json()["status"] == "submitted"
+        assert submit.json()["workflow_run_id"] == str(run_id)
+        job_id = submit.json()["job_id"]
+
+        # Poll to terminal failure (bounded).
+        deadline = asyncio.get_event_loop().time() + 60.0
+        final = None
+        while asyncio.get_event_loop().time() < deadline:
+            poll = await client.get(f"/api/hermes/jobs/{job_id}")
+            assert poll.status_code == 200
+            if poll.json()["status"] not in ("submitted", "running"):
+                final = poll.json()
+                break
+            await asyncio.sleep(0.05)
+        assert final is not None
+
+        # FAILED-JOB CONTRACT (the formalization this test pins):
+        assert final["job_id"] == job_id                      # surface identity
+        assert final["workflow_run_id"] == str(run_id)        # run anchor
+        assert final["status"] == "failed"                     # terminal state
+        assert final["error_code"] in ("chat_failed", "chat_timeout")  # runtime code verbatim
+        assert final["error_detail"]                           # runtime detail verbatim
+        assert final["final_response"] is None                 # only completed jobs carry it
+        assert final["runtime_job_id"]                         # R-s1 id present
+        assert final["runtime_job_id"] != job_id               # and distinct by design
+        assert final["completed_at"]                           # terminal timestamp
+        assert final["duration_seconds"] is None or isinstance(final["duration_seconds"], float)
+
+        # §13 consistency: the same runtime identity carries JOB_START/END
+        # with the failed outcome — the HTTP view IS the §13 view.
+        from app.hermes.audit import FileAuditSink
+
+        audit_file = Path(settings.hermes_home) / "audit" / "hermes_policy_audit.jsonl"
+        jobs = FileAuditSink(audit_file).read_job_records()
+        assert [j.event for j in jobs] == ["JOB_START", "JOB_END"]
+        assert jobs[0].runtime_job_id == final["runtime_job_id"]
+        assert jobs[1].runtime_job_id == final["runtime_job_id"]
+        assert jobs[1].outcome == "failed"
+        assert jobs[1].error_code == final["error_code"]
+        assert jobs[1].violation_code is None                  # runtime failure, not §12
+
+        # Post-restart-equivalent recovery BY the runtime id (§13 fallback).
+        import app.api.routers.hermes_jobs as surface
+
+        monkeypatch.setattr(surface, "_HERMES_JOBS", {})
+        recovered = await client.get(f"/api/hermes/jobs/{final['runtime_job_id']}")
+        assert recovered.status_code == 200
+        assert recovered.json()["status"] == "failed"
+        assert recovered.json()["error_code"] == final["error_code"]
+    finally:
+        await _cleanup(project_id, run_id)
+
+
+async def test_r3_surface_exception_path(client, monkeypatch):
+    """§9.9 R-s3: the surface-level BaseException containment branch —
+    a raising runner (monkeypatched to raise deterministically; the ONLY
+    stub, replacing an external dependency boundary) becomes the
+    structured surface_execution_error failure; the request path never
+    sees an exception; no audit mutation, no persisted job state, and
+    the surface identity remains queryable."""
+    import app.api.routers.hermes_jobs as surface
+
+    def _exploding_runner(call):
+        raise RuntimeError("runner exploded")
+
+    monkeypatch.setattr(surface, "run_aryaos_hermes_job", _exploding_runner)
+    submit = await client.post("/api/hermes/jobs", json=_submit_payload())
+    assert submit.status_code == 202
+    job_id = submit.json()["job_id"]
+    deadline = asyncio.get_event_loop().time() + 5.0
+    final = None
+    while asyncio.get_event_loop().time() < deadline:
+        poll = await client.get(f"/api/hermes/jobs/{job_id}")
+        assert poll.status_code == 200
+        if poll.json()["status"] not in ("submitted", "running"):
+            final = poll.json()
+            break
+        await asyncio.sleep(0.01)
+    assert final is not None
+    assert final["status"] == "failed"
+    assert final["error_code"] == "surface_execution_error"
+    assert final["error_detail"] == "RuntimeError"           # type name only, no message
+    assert final["final_response"] is None
+    assert final["runtime_job_id"] is None                    # runner never minted one
+    assert final["completed_at"]
+    # "runner exploded" (the exception MESSAGE) must never leak to callers.
+    assert "exploded" not in str(final)
+
+
+async def test_r3_surface_exception_no_audit_or_state_mutation(client, monkeypatch, tmp_path):
+    """R-s3 authority/state proof: the exception branch writes NO §13
+    record (no runtime job ever ran) and leaves no runner-side state; the
+    in-memory entry is the only trace and a fresh submission on the same
+    run is still admitted normally afterwards."""
+    import app.api.routers.hermes_jobs as surface
+
+    def _exploding_runner(call):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(surface, "run_aryaos_hermes_job", _exploding_runner)
+    settings = get_settings()
+    real_home = settings.hermes_home
+    settings.hermes_home = str(tmp_path)
+    try:
+        submit = await client.post("/api/hermes/jobs", json=_submit_payload())
+        job_id = submit.json()["job_id"]
+        deadline = asyncio.get_event_loop().time() + 5.0
+        while asyncio.get_event_loop().time() < deadline:
+            poll = await client.get(f"/api/hermes/jobs/{job_id}")
+            if poll.json()["status"] not in ("submitted", "running"):
+                break
+            await asyncio.sleep(0.01)
+        # No §13 audit file was created: the runtime never ran, so no
+        # JOB_START/JOB_END exists and nothing was persisted.
+        from pathlib import Path as _P
+
+        audit_file = _P(tmp_path) / "audit" / "hermes_policy_audit.jsonl"
+        assert not audit_file.exists()
+        # No partial-persisted surface job state: entry exists in memory
+        # only (queryable), and the registry admits a fresh submission.
+        verdicts = [surface._HERMES_JOBS[job_id]["status"]]
+        assert verdicts == ["failed"]
+        # A normal (stubbed-success) submission afterwards works — no lock
+        # leak, no stuck registry slot.
+        _install_runner(monkeypatch, _runner_result())
+        second = await client.post("/api/hermes/jobs", json=_submit_payload())
+        assert second.status_code == 202
+        second_id = second.json()["job_id"]
+        deadline = asyncio.get_event_loop().time() + 5.0
+        second_final = None
+        while asyncio.get_event_loop().time() < deadline:
+            poll = await client.get(f"/api/hermes/jobs/{second_id}")
+            if poll.json()["status"] not in ("submitted", "running"):
+                second_final = poll.json()
+                break
+            await asyncio.sleep(0.01)
+        assert second_final["status"] == "completed"
+    finally:
+        settings.hermes_home = real_home

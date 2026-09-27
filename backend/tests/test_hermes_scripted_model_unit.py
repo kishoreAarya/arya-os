@@ -468,8 +468,90 @@ def test_t12_iteration_cap_enforced(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# T16 — combined budget + approval through the REAL runtime
+# T15 — chat-path memory-artifact absence (§9.9; harness-driven)
 # ---------------------------------------------------------------------------
+
+
+def test_t15_chat_path_creates_no_memory_artifacts(tmp_path, monkeypatch):
+    """T15 (§9.9): the §6 memory invariant asserted on the ACTUAL chat
+    path — a scripted-model job with REAL tool rounds (model driven,
+    tools executed, final response returned) leaves no memory/session/
+    recall artifacts anywhere under the Hermes home, and the home tree is
+    exactly the §13 audit store plus the empty jobs root. The runtime
+    constructs the agent with skip_memory/skip_context_files/
+    skip_background_review=True (runtime.py:373-375) — this proves the
+    invariant survives real model turns, not just construction."""
+    if not HERMES_AVAILABLE:
+        pytest.fail("§16: pinned Hermes source missing")
+    pair = None
+    try:
+        pair = asyncio.run(_seed_run(f"t15-{uuid.uuid4().hex[:6]}"))
+        script = [
+            tool_call("todo_list", {}),          # real executed tool round
+            tool_call("research.search", {"topic": "memory-check"}),  # real capability
+            final_response("chat path complete"),
+        ]
+        with _Harness(monkeypatch, tmp_path, script) as h:
+            result = h.run(_request(pair, task_message="drive the chat path"))
+            # The chat path genuinely ran: two executed tool rounds and a
+            # real model final response.
+            assert result.status == "completed", (result.error_code, result.error_detail)
+            assert result.final_response == "chat path complete"
+            records, _ = h.audit()
+            assert ("todo_list", "ALLOW", "allowed_sanctioned_native_tool") in records
+            assert ("research.search", "ALLOW", "allowed_typed_capability") in records
+
+            home = Path(h.settings.hermes_home)
+            # Exact-tree invariant (strongest repository-supported form):
+            # ONLY the §13 audit store + the empty jobs root survive.
+            tree = sorted(str(p.relative_to(home)) for p in home.rglob("*"))
+            assert tree == ["audit", "audit/hermes_policy_audit.jsonl", "jobs"], tree
+            assert list((home / "jobs").iterdir()) == []
+            # Memory-artifact absence on the chat path (§6): no file or
+            # directory with a memory/session/recall token anywhere.
+            forbidden = [
+                p for p in home.rglob("*")
+                if any(token in p.name.lower() for token in ("memory", "session", "recall"))
+            ]
+            assert forbidden == [], forbidden
+            assert not list(home.rglob(".env"))
+    finally:
+        if pair:
+            _cleanup(pair)
+
+
+def test_t15_chat_path_leaves_no_artifacts_outside_hermes_home(tmp_path, monkeypatch):
+    """T15 companion: the chat-path job writes nothing outside the Hermes
+    home — an external canary tree in the test sandbox is byte-identical
+    after a real model-driven job with executed tool rounds."""
+    if not HERMES_AVAILABLE:
+        pytest.fail("§16: pinned Hermes source missing")
+    canary_dir = tmp_path / "outside-hermes"
+    canary_dir.mkdir()
+    canaries = {}
+    for name, payload in (
+        ("state.json", '{"canary": true}\n'),
+        ("nested/data.txt", "canary"),
+    ):
+        target = canary_dir / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(payload)
+        canaries[target] = payload
+
+    pair = None
+    try:
+        pair = asyncio.run(_seed_run(f"t15o-{uuid.uuid4().hex[:6]}"))
+        script = [tool_call("todo_list", {}), final_response("done")]
+        with _Harness(monkeypatch, tmp_path / "home", script) as h:
+            result = h.run(_request(pair))
+            assert result.status == "completed"
+        tree = sorted(str(p.relative_to(canary_dir)) for p in canary_dir.rglob("*"))
+        assert tree == ["nested", "nested/data.txt", "state.json"]
+        for target, payload in canaries.items():
+            assert target.read_text() == payload
+    finally:
+        if pair:
+            _cleanup(pair)
 
 
 def test_t16_combined_budget_denial_and_approval_resume(tmp_path, monkeypatch):
