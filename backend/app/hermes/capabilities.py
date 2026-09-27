@@ -85,8 +85,58 @@ _PENDING_APPROVAL = "capability_pending_approval"
 _APPROVAL_GRANTED = "capability_approval_granted"
 # Model B: the parameter-binding failure code (terminal job failure).
 _APPROVAL_MISMATCH = "approval_parameter_mismatch"
+# Ratified TTL: the terminal lapsed-consent code (distinct from mismatch).
+_APPROVAL_EXPIRED = "approval_expired"
+# Ratified fail-closed semantics: a timestamped approval with NO
+# configured TTL policy is never valid — terminal misconfiguration
+# failure (anchor-less legacy rows stay perpetual by their own contract).
+_APPROVAL_TTL_POLICY_MISSING = "approval_ttl_policy_missing"
 # Model B §6: per-value bound for the human-review preview text.
 _PREVIEW_MAX_VALUE_CHARS = 2000
+
+
+async def _approval_ttl_seconds(session, stage_value: str) -> int | None:
+    """Ratified TTL policy lookup: the per-stage override if present,
+    else the global default row (stage IS NULL), else None (no policy —
+    treated as perpetual, a defensive state the seeded migration makes
+    unreachable). Read inside the gate's existing session; nothing is
+    persisted on approvals or decisions."""
+    from sqlalchemy import select
+
+    from app.models.approval import ApprovalTtlPolicy
+
+    row = (
+        await session.execute(
+            select(ApprovalTtlPolicy.ttl_seconds)
+            .where(ApprovalTtlPolicy.stage == stage_value)
+            .limit(1)
+        )
+    ).scalar()
+    if row is None:
+        row = (
+            await session.execute(
+                select(ApprovalTtlPolicy.ttl_seconds)
+                .where(ApprovalTtlPolicy.stage.is_(None))
+                .limit(1)
+            )
+        ).scalar()
+    return row
+
+
+def _approval_ttl_valid(checkpoint, ttl_seconds: int | None, now) -> bool:
+    """Ratified validity predicate. An APPROVE is valid iff it has NO
+    approval timestamp (the anchor-less legacy rows — perpetual by
+    contract) or now < decided_at + ttl. FAIL-CLOSED: a timestamped
+    approval with a missing policy (ttl None) is NEVER valid. Expiry is
+    decided_at + ttl <= now (fail-closed inclusive boundary). `now` is
+    naive UTC, matching the repository timestamp convention."""
+    from datetime import timedelta
+
+    if checkpoint.decided_at is None:
+        return True  # anchor-less legacy: perpetual (ratified)
+    if ttl_seconds is None:
+        return False  # fail-closed: no policy -> no validity
+    return now < checkpoint.decided_at + timedelta(seconds=ttl_seconds)
 
 
 def _approval_digest(tool_name: str, params) -> str:
@@ -609,6 +659,18 @@ async def _approval_gated_binding(tool_name: str, params, granted_operation=None
       cannot override it); with no non-NULL approvals, a legacy
       NULL-digest APPROVE retains Model A behavior. The capability's
       real operation ships in its own §9 slice.
+    - Approval TTL (ratified): freshness is anchored to the latest
+      immutable APPROVE event's timestamp (mirrored on the cache's
+      decided_at) and evaluated at this gate — the ONLY admission point.
+      An APPROVE is VALID iff decided_at IS NULL (the anchor-less legacy
+      rows: perpetual) or now < decided_at + ttl(stage) (expiry:
+      decided_at + ttl <= now). Expired approvals never authorize and
+      never count as active non-NULL approvals for mismatch detection.
+      Same-digest multiple approvals: any-valid-wins. A lapsed matching
+      approval is TERMINAL approval_expired (never an automatic
+      pending); REVOKE/REJECT remain immediate; each new APPROVE starts
+      a fresh window. Publication-side final re-checks stay with the
+      future publication-attempt contract.
     """
     from app.hermes.runtime import (
         get_active_authorization_context,
@@ -639,6 +701,11 @@ async def _approval_gated_binding(tool_name: str, params, granted_operation=None
     digest = _approval_digest(tool_name, params)
     engine = _make_capability_engine()
     mismatch = False
+    mismatch_code = _APPROVAL_MISMATCH
+    mismatch_detail = (
+        "an approved parameter snapshot exists for this stage and does not "
+        "match this request; execution denied (approval parameter binding)"
+    )
     try:
         from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -665,24 +732,70 @@ async def _approval_gated_binding(tool_name: str, params, granted_operation=None
                 )
             ).scalars().all()
 
-            # ---- Model B locked precedence (per run/stage key) ----------
-            # 1. matching non-NULL approved digest -> ALLOW.
-            # 2. else ANY non-NULL approved digest exists -> terminal
-            #    approval_parameter_mismatch (a legacy NULL approval can
-            #    never override an active Model-B approval).
-            # 3. else NULL-digest legacy APPROVE -> ALLOW (Model A).
-            # 4. else -> digest-scoped pending flow.
+            # ---- Model B locked precedence + ratified TTL ladder --------
+            # Definitions: an APPROVE row is VALID iff its approval is
+            # within TTL (_approval_ttl_valid; decided_at NULL = the
+            # anchor-less legacy rows = perpetual; a missing policy is
+            # FAIL-CLOSED for timestamped approvals). EXPIRED rows never
+            # authorize and never count as active non-NULL approvals for
+            # mismatch detection.
+            #
+            # 0. timestamped approval exists but NO TTL policy is
+            #    configured -> terminal approval_ttl_policy_missing
+            #    (fail-closed misconfiguration; anchor-less-only
+            #    approvals fall through to rung 4).
+            # 1. VALID matching digest -> ALLOW (any-valid-wins across
+            #    multiple same-digest approvals).
+            # 2. expired matching + any VALID non-NULL approval (another
+            #    digest) -> terminal approval_expired.
+            # 3. no matching approval at all + any VALID non-NULL approval
+            #    -> terminal approval_parameter_mismatch (Model B; a
+            #    legacy NULL approval can never override it).
+            # 4. else VALID NULL-digest legacy APPROVE -> ALLOW (Model A).
+            # 5. else expired matching approval with NO valid
+            #    authorization anywhere -> terminal approval_expired
+            #    (never an automatic pending).
+            # 6. else -> digest-scoped pending flow.
+            from datetime import UTC as _utc
+            from datetime import datetime as _dt
+
+            ttl_seconds = await _approval_ttl_seconds(session, stage.value)
+            now = _dt.now(_utc).replace(tzinfo=None)
             approved_rows = [c for c in checkpoints if c.action == ApprovalAction.APPROVE]
-            matching = next(
-                (c for c in approved_rows if c.parameter_digest == digest), None
+            valid_rows = [c for c in approved_rows if _approval_ttl_valid(c, ttl_seconds, now)]
+            matching_valid = next(
+                (c for c in valid_rows if c.parameter_digest == digest), None
             )
             legacy = next(
-                (c for c in approved_rows if c.parameter_digest is None), None
+                (c for c in valid_rows if c.parameter_digest is None), None
+            )
+            has_valid_non_null = any(c.parameter_digest is not None for c in valid_rows)
+            matching_expired = next(
+                (
+                    c
+                    for c in approved_rows
+                    if c.parameter_digest == digest
+                    and not _approval_ttl_valid(c, ttl_seconds, now)
+                ),
+                None,
             )
 
-            if matching is not None or (
-                legacy is not None
-                and not any(c.parameter_digest is not None for c in approved_rows)
+            if ttl_seconds is None and any(c.decided_at is not None for c in approved_rows):
+                # Ratified fail-closed (ladder rung 0): a timestamped
+                # approval exists but NO TTL policy is configured (neither
+                # stage override nor global default). NEVER silently
+                # perpetual — terminal, distinct from expiry, surfaced
+                # through the same mechanism. (Anchor-less-only approvals
+                # never reach this rung and continue under their separate
+                # perpetual contract below.)
+                mismatch = True
+                mismatch_code = _APPROVAL_TTL_POLICY_MISSING
+                mismatch_detail = (
+                    "no approval TTL policy is configured for this stage "
+                    "(missing global default); failing closed"
+                )
+            elif matching_valid is not None or (
+                legacy is not None and not has_valid_non_null
             ):
                 # Job N+1 (D3): the approved checkpoint authorizes exactly
                 # this workflow run's gated capability — and, under Model
@@ -695,15 +808,41 @@ async def _approval_gated_binding(tool_name: str, params, granted_operation=None
                 return {
                     "approval": "granted",
                     "stage": stage.value,
-                    "checkpoint_id": str((matching or legacy).id),
+                    "checkpoint_id": str((matching_valid or legacy).id),
                     "detail": "approval gate passed; the capability operation ships in its own §9 slice",
                 }
 
-            if any(c.parameter_digest is not None for c in approved_rows):
-                # Model B step 2: a non-NULL approved digest exists and none
-                # matches this request. Signal AFTER engine disposal; the
-                # granted operation is NEVER invoked on this path.
+            if mismatch:
+                pass  # rung 0 (policy missing) already decided this request
+            elif matching_expired is not None and has_valid_non_null:
+                # Ladder rung 2: consent for THIS snapshot lapsed while an
+                # active Model-B regime exists — report the lapse, not a
+                # parameter mismatch.
                 mismatch = True
+                mismatch_code = _APPROVAL_EXPIRED
+                mismatch_detail = (
+                    "the approved parameter snapshot has expired (approval TTL); "
+                    "re-approval is required for this exact request"
+                )
+            elif has_valid_non_null:
+                # Model B step 2: a valid non-NULL approved digest exists and
+                # none matches this request. Signal AFTER engine disposal;
+                # the granted operation is NEVER invoked on this path.
+                mismatch = True
+                mismatch_code = _APPROVAL_MISMATCH
+                mismatch_detail = (
+                    "an approved parameter snapshot exists for this stage and does not "
+                    "match this request; execution denied (approval parameter binding)"
+                )
+            elif matching_expired is not None:
+                # Ladder rung 5: lapsed consent with NO valid authorization
+                # anywhere — terminal, never an automatic pending.
+                mismatch = True
+                mismatch_code = _APPROVAL_EXPIRED
+                mismatch_detail = (
+                    "the approved parameter snapshot has expired (approval TTL); "
+                    "re-approval is required for this exact request"
+                )
             else:
                 # Model B step 4 (D4 amended): digest-scoped pending flow —
                 # the same digest reuses the existing pending checkpoint;
@@ -734,25 +873,26 @@ async def _approval_gated_binding(tool_name: str, params, granted_operation=None
         await engine.dispose()
 
     if mismatch:
-        # Model B: REAL terminal job failure — the runtime consumes this
-        # signal after the chat loop and fails the job with the code; the
-        # binding result below is the model-visible explanation only.
+        # Model B / ratified TTL: REAL terminal job failure — the runtime
+        # consumes this signal after the chat loop and fails the job with
+        # the code; the binding result below is the model-visible
+        # explanation only.
         from app.hermes.runtime import set_active_approval_mismatch
 
-        set_active_approval_mismatch(
-            _APPROVAL_MISMATCH,
-            "an approved parameter snapshot exists for this stage and does not "
-            "match this request; execution denied (approval parameter binding)",
-        )
+        set_active_approval_mismatch(mismatch_code, mismatch_detail)
         try:
             from app.hermes.audit import record_final_outcome
 
-            record_final_outcome(tool_name, params.model_dump(), _APPROVAL_MISMATCH)
+            record_final_outcome(tool_name, params.model_dump(), mismatch_code)
         except Exception:  # noqa: BLE001, S110 — authorization-preserving, best-effort audit (§13.1)
             pass
         return _err(
-            _APPROVAL_MISMATCH,
-            "approved parameters do not match this request; the job now terminates failed",
+            mismatch_code,
+            (
+                "approved parameters do not match this request; the job now terminates failed"
+                if mismatch_code == _APPROVAL_MISMATCH
+                else "the approval for this request has expired; the job now terminates failed"
+            ),
         )
 
     set_active_approval_pending(stage.value, checkpoint_id)

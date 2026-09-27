@@ -17,13 +17,16 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    CheckConstraint,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -105,6 +108,36 @@ class ApprovalDecision(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     decided_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Per-event notes: history-scoped, never overwritten on later events.
     reviewer_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ApprovalTtlPolicy(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """Ratified approval-TTL policy: a GLOBAL DEFAULT row (stage IS NULL)
+    plus optional PER-STAGE overrides. Authorization freshness is derived
+    at evaluation time (approval timestamp + ttl) — never persisted on
+    the immutable decision facts and never on the checkpoint cache.
+
+    Validity semantics (gate-evaluated): an APPROVE is valid iff
+    decided_at IS NULL (anchor-less legacy rows: perpetual, ratified)
+    or now < decided_at + ttl_seconds. Expiry is decided_at + ttl <= now.
+    """
+
+    __tablename__ = "approval_ttl_policies"
+    __table_args__ = (
+        # At most one global row (stage IS NULL) and one row per stage.
+        Index(
+            "uq_approval_ttl_policies_scope",
+            text("COALESCE(stage, '')"),
+            unique=True,
+        ),
+        # Ratified: TTL durations are strictly positive — zero/negative
+        # values are invalid policy data (they would instantly expire
+        # every approval) and are rejected by the database.
+        CheckConstraint("ttl_seconds > 0", name="ck_approval_ttl_policies_positive"),
+    )
+
+    # ApprovalStage VALUE this override applies to; NULL = global default.
+    stage: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ttl_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class GenerationAttempt(Base, UUIDPrimaryKeyMixin, TimestampMixin):

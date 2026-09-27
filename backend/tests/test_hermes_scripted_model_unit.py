@@ -902,3 +902,137 @@ def test_t16_combined_budget_denial_and_approval_resume(tmp_path, monkeypatch):
             _cleanup(at_budget)
         if fresh:
             _cleanup(fresh)
+
+
+# ---------------------------------------------------------------------------
+# §9.11c Approval TTL end-to-end (ratified): gate-read evaluation, terminal
+# expiry, and replay semantics through the REAL runtime
+# ---------------------------------------------------------------------------
+
+
+def _ttl_policy(stage_value, seconds):
+    import asyncio
+
+    from app.hermes.capabilities import _make_capability_engine
+    from app.models.approval import ApprovalTtlPolicy
+    from sqlalchemy import delete
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    async def _write():
+
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                await session.execute(
+                    delete(ApprovalTtlPolicy).where(ApprovalTtlPolicy.stage == stage_value)
+                )
+                session.add(ApprovalTtlPolicy(stage=stage_value, ttl_seconds=seconds))
+                await session.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_write())
+
+
+def _age_approval(checkpoint_id, decided_at):
+    import asyncio
+
+    from app.hermes.capabilities import _make_capability_engine
+    from app.models.approval import ApprovalCheckpoint
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    async def _update():
+
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                checkpoint = await session.get(ApprovalCheckpoint, checkpoint_id)
+                checkpoint.decided_at = decided_at
+                await session.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_update())
+
+
+def _clear_ttl_policy(stage_value):
+    import asyncio
+
+    from app.hermes.capabilities import _make_capability_engine
+    from app.models.approval import ApprovalTtlPolicy
+    from sqlalchemy import delete
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    async def _delete():
+
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                await session.execute(
+                    delete(ApprovalTtlPolicy).where(ApprovalTtlPolicy.stage == stage_value)
+                )
+                await session.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_delete())
+
+
+def test_ttl_end_to_end_terminal_expiry_and_replay(tmp_path, monkeypatch):
+    """TTL e2e through the REAL runtime: a fresh approval executes and
+    replays while valid (two jobs, two Script rows); after the approval
+    ages past the window, the IDENTICAL request is a REAL terminal job
+    failure — approval_expired — with JOB_END outcome=failed carrying
+    the code, §13 final-outcome evidence, nothing executed, and no
+    automatic pending. Evaluation happens at the job's gate read (the
+    queued-job semantics: each job re-evaluates)."""
+    if not HERMES_AVAILABLE:
+        pytest.fail("§16: pinned Hermes source missing")
+    from datetime import UTC, datetime, timedelta
+
+    pair = None
+    _ttl_policy("script", 3600)
+    try:
+        pair = asyncio.run(_seed_run(f"ttl-{uuid.uuid4().hex[:6]}"))
+        content = "the ttl e2e draft"
+
+        # Job N: request -> pending (digest-bound, preview attached).
+        with _Harness(monkeypatch, tmp_path / "n", [tool_call("story.create", {"content": content})]) as h:
+            assert h.run(_request(pair)).status == "awaiting_approval"
+            checkpoint_id = _pending_checkpoint_id(pair[1])
+        _approve_checkpoint(checkpoint_id)
+
+        # Jobs N+1/N+2: replay while TTL-valid — both execute.
+        for home in ("n1", "n2"):
+            with _Harness(
+                monkeypatch,
+                tmp_path / home,
+                [
+                    tool_call("story.create", {"content": content}),
+                    final_response("ok"),
+                ],
+            ) as h:
+                result = h.run(_request(pair))
+                assert result.status == "completed", (result.error_code, result.error_detail)
+        assert _script_rows(pair[1]) == 2
+
+        # Age the approval past the window; the IDENTICAL request now
+        # terminates the job with approval_expired at its gate read.
+        _age_approval(
+            checkpoint_id,
+            datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=7200),
+        )
+        with _Harness(monkeypatch, tmp_path / "n3", [tool_call("story.create", {"content": content})]) as h3:
+            expired = h3.run(_request(pair))
+            assert expired.status == "failed"
+            assert expired.error_code == "approval_expired"
+            records, jobs = h3.audit()
+            assert jobs[0].event == "JOB_START" and jobs[1].event == "JOB_END"
+            assert jobs[1].outcome == "failed"
+            assert jobs[1].error_code == "approval_expired"
+            assert ("story.create", "BLOCK", "approval_expired") in records
+        assert _script_rows(pair[1]) == 2  # nothing executed on expiry
+    finally:
+        if pair:
+            _cleanup(pair)
+        _clear_ttl_policy("script")

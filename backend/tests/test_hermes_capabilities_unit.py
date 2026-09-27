@@ -3364,3 +3364,556 @@ def test_rejected_then_reapproved_matching_digest_executes(seeded_run):
         _clear_active_approval_mismatch()
         asyncio.run(_cleanup_checkpoints(run_id))
         asyncio.run(_cleanup_scripts(run_id))
+
+
+# ---------------------------------------------------------------------------
+# §9.11c Approval TTL (ratified): validity ladder at the gate
+# ---------------------------------------------------------------------------
+
+
+def _set_ttl_policy(stage_value, seconds):
+    """Seed/replace a per-stage TTL policy row (never the global default)."""
+    import asyncio
+
+    from app.hermes.capabilities import _make_capability_engine
+    from app.models.approval import ApprovalTtlPolicy
+    from sqlalchemy import delete
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    async def _write():
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                await session.execute(
+                    delete(ApprovalTtlPolicy).where(ApprovalTtlPolicy.stage == stage_value)
+                )
+                session.add(ApprovalTtlPolicy(stage=stage_value, ttl_seconds=seconds))
+                await session.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_write())
+
+
+def _clear_ttl_policy(stage_value):
+    import asyncio
+
+    from app.hermes.capabilities import _make_capability_engine
+    from app.models.approval import ApprovalTtlPolicy
+    from sqlalchemy import delete
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    async def _delete():
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                await session.execute(
+                    delete(ApprovalTtlPolicy).where(ApprovalTtlPolicy.stage == stage_value)
+                )
+                await session.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_delete())
+
+
+def _age_checkpoint_decided_at(checkpoint_id, decided_at):
+    """Directly age a checkpoint's cached approval timestamp (legitimate
+    test seeding — simulates the passage of the TTL window)."""
+    import asyncio
+
+    from app.hermes.capabilities import _make_capability_engine
+    from app.models.approval import ApprovalCheckpoint
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    async def _update():
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                checkpoint = await session.get(ApprovalCheckpoint, checkpoint_id)
+                checkpoint.decided_at = decided_at
+                await session.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_update())
+
+
+def test_ttl_valid_approval_executes(seeded_run):
+    """A fresh APPROVE within the window authorizes execution (the TTL
+    default behavior); identical replay while valid executes twice."""
+    import asyncio
+
+    from app.hermes.runtime import (
+        _clear_active_approval_mismatch,
+        _clear_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), _ = seeded_run
+    _set_ttl_policy("script", 3600)
+    try:
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            pending = asyncio.run(execute_capability("story.create", {"content": "fresh consent"}))
+            checkpoint_id = uuid.UUID(pending["pending_approval"]["checkpoint_id"])
+            asyncio.run(_approve_checkpoint(checkpoint_id))
+            first = asyncio.run(execute_capability("story.create", {"content": "fresh consent"}))
+            second = asyncio.run(execute_capability("story.create", {"content": "fresh consent"}))
+        finally:
+            set_active_authorization_context(None)
+        assert first["script_id"] and second["script_id"]  # replay while valid
+        assert asyncio.run(_count_scripts(run_id)) == 2
+    finally:
+        _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
+        _clear_ttl_policy("script")
+        asyncio.run(_cleanup_checkpoints(run_id))
+        asyncio.run(_cleanup_scripts(run_id))
+
+
+def test_ttl_exact_boundary_and_expiry_are_terminal(seeded_run):
+    """decided_at + ttl <= now is EXPIRED (fail-closed inclusive boundary):
+    the exact boundary instant denies, an aged approval denies terminally
+    with approval_expired, nothing executes, and NO automatic pending is
+    created (checkpoint count unchanged by the denied request)."""
+    import asyncio
+    from datetime import UTC, datetime
+
+    from app.hermes.audit import InMemoryAuditSink, set_active_audit_sink
+    from app.hermes.runtime import (
+        _clear_active_approval_mismatch,
+        _clear_active_approval_pending,
+        get_active_approval_mismatch,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), _ = seeded_run
+    _set_ttl_policy("script", 3600)
+    sink = InMemoryAuditSink()
+    try:
+        set_active_authorization_context(_run_context(project_id, run_id))
+        set_active_audit_sink(sink)
+        try:
+            pending = asyncio.run(execute_capability("story.create", {"content": "boundary"}))
+            checkpoint_id = uuid.UUID(pending["pending_approval"]["checkpoint_id"])
+            asyncio.run(_approve_checkpoint(checkpoint_id))
+            before = asyncio.run(_count_checkpoints(run_id, "script"))
+            # EXACT boundary: decided_at = now - ttl  =>  decided_at + ttl <= now.
+            from datetime import timedelta
+
+            _age_checkpoint_decided_at(
+                checkpoint_id,
+                datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=3600),
+            )
+            exact = asyncio.run(execute_capability("story.create", {"content": "boundary"}))
+            aged = None
+        finally:
+            set_active_authorization_context(None)
+            set_active_audit_sink(None)
+        assert exact["error"]["code"] == "approval_expired"
+
+        # Clearly aged: terminal expiry, no execution, NO auto-pending.
+        from datetime import timedelta
+
+        _age_checkpoint_decided_at(checkpoint_id, datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=7200))
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            aged = asyncio.run(execute_capability("story.create", {"content": "boundary"}))
+        finally:
+            set_active_authorization_context(None)
+        assert aged["error"]["code"] == "approval_expired"
+        assert asyncio.run(_count_scripts(run_id)) == 0
+        assert asyncio.run(_count_checkpoints(run_id, "script")) == before  # no new pending
+        signal = get_active_approval_mismatch()
+        assert signal is not None and signal["error_code"] == "approval_expired"
+        trail = [(r.tool_name, r.decision, r.reason_code) for r in sink.records()]
+        assert ("story.create", "BLOCK", "approval_expired") in trail
+    finally:
+        _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
+        _clear_ttl_policy("script")
+        asyncio.run(_cleanup_checkpoints(run_id))
+        asyncio.run(_cleanup_scripts(run_id))
+
+
+def test_ttl_reapprove_after_revoke_or_reject_starts_fresh_window(seeded_run):
+    """REVOKE is immediate regardless of remaining TTL; a NEW APPROVE
+    after REVOKE (and after REJECT) creates fresh consent with a fresh
+    window — any aged prior timestamp is irrelevant once superseded."""
+    import asyncio
+
+    from app.hermes.runtime import (
+        _clear_active_approval_mismatch,
+        _clear_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), _ = seeded_run
+    _set_ttl_policy("script", 3600)
+    try:
+        # Create BOTH pendings before any approval exists (Model B rung 3
+        # makes novel digests terminal-mismatch once a valid approval is
+        # present).
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            p1 = asyncio.run(execute_capability("story.create", {"content": "revive"}))
+            p2 = asyncio.run(execute_capability("story.create", {"content": "resurrect"}))
+        finally:
+            set_active_authorization_context(None)
+        cp_a = uuid.UUID(p1["pending_approval"]["checkpoint_id"])
+        cp_c = uuid.UUID(p2["pending_approval"]["checkpoint_id"])
+
+        # --- REVOKE while still within TTL: immediate invalidation ---
+        asyncio.run(_approve_checkpoint(cp_a))
+        _set_cache_action(cp_a, "revoke")  # REVOKE beats the remaining window
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            denied = asyncio.run(execute_capability("story.create", {"content": "revive"}))
+        finally:
+            set_active_authorization_context(None)
+        assert denied["pending_approval"]["stage"] == "script"  # revoked -> fresh pending
+
+        cp_b = uuid.UUID(denied["pending_approval"]["checkpoint_id"])
+        asyncio.run(_approve_checkpoint(cp_b))  # NEW APPROVE = fresh window
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            granted = asyncio.run(execute_capability("story.create", {"content": "revive"}))
+        finally:
+            set_active_authorization_context(None)
+        assert granted["script_id"]
+
+        # --- REJECT, then a fresh APPROVE with an aged prior timestamp ---
+        _set_cache_action(cp_c, "reject")
+        from datetime import UTC, datetime, timedelta
+
+        _age_checkpoint_decided_at(cp_c, datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=7200))
+        asyncio.run(_approve_checkpoint(cp_c))  # new APPROVE event: timestamp = now
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            granted2 = asyncio.run(execute_capability("story.create", {"content": "resurrect"}))
+        finally:
+            set_active_authorization_context(None)
+        assert granted2["script_id"]  # fresh window, aged prior state irrelevant
+    finally:
+        _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
+        _clear_ttl_policy("script")
+        asyncio.run(_cleanup_checkpoints(run_id))
+        asyncio.run(_cleanup_scripts(run_id))
+
+
+def test_ttl_any_valid_wins_among_same_digest_approvals(seeded_run):
+    """Two APPROVED checkpoints for the SAME digest — one expired, one
+    fresh — authorize execution (any-valid-wins). The second approved
+    row is seeded directly (a second pending cannot arise while the
+    first approval is valid: the request would execute instead)."""
+    import asyncio
+    from datetime import UTC, datetime, timedelta
+
+    from app.hermes.runtime import (
+        _clear_active_approval_mismatch,
+        _clear_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), _ = seeded_run
+    _set_ttl_policy("script", 3600)
+    content = "twin consent"
+    try:
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            first = asyncio.run(execute_capability("story.create", {"content": content}))
+        finally:
+            set_active_authorization_context(None)
+        cp_1 = uuid.UUID(first["pending_approval"]["checkpoint_id"])
+        asyncio.run(_approve_checkpoint(cp_1))
+        # Directly seed a SECOND approved checkpoint with the SAME digest,
+        # then age the first and stamp the second fresh.
+        cp_2 = _seed_approved_digest(run_id, "script", "story.create", {"content": content})
+        now = datetime.now(UTC).replace(tzinfo=None)
+        _age_checkpoint_decided_at(cp_1, now - timedelta(seconds=7200))
+        _age_checkpoint_decided_at(cp_2, now)
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            granted = asyncio.run(execute_capability("story.create", {"content": content}))
+        finally:
+            set_active_authorization_context(None)
+        assert granted["script_id"]
+    finally:
+        _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
+        _clear_ttl_policy("script")
+        asyncio.run(_cleanup_checkpoints(run_id))
+        asyncio.run(_cleanup_scripts(run_id))
+
+
+def test_ttl_expired_match_with_valid_mismatch_reports_expired(seeded_run):
+    """Rung 2: expired matching approval + a VALID non-matching approval
+    -> approval_expired (NOT approval_parameter_mismatch). And rung 3:
+    with the matching approval absent entirely, the same valid
+    non-matching approval produces the Model B mismatch. Expired-only
+    approvals never trigger mismatch: their digest's request pends."""
+    import asyncio
+    from datetime import UTC, datetime, timedelta
+
+    from app.hermes.runtime import (
+        _clear_active_approval_mismatch,
+        _clear_active_approval_pending,
+        set_active_authorization_context,
+    )
+
+    (project_id, run_id), _ = seeded_run
+    _set_ttl_policy("script", 3600)
+    aged = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=7200)
+    try:
+        # Create BOTH pendings before any approval exists (Model B rung 3).
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            px = asyncio.run(execute_capability("story.create", {"content": "snapshot X"}))
+            py = asyncio.run(execute_capability("story.create", {"content": "snapshot Y"}))
+        finally:
+            set_active_authorization_context(None)
+        asyncio.run(_approve_checkpoint(uuid.UUID(px["pending_approval"]["checkpoint_id"])))
+        asyncio.run(_approve_checkpoint(uuid.UUID(py["pending_approval"]["checkpoint_id"])))
+        _age_checkpoint_decided_at(uuid.UUID(px["pending_approval"]["checkpoint_id"]), aged)
+
+        # Request X (matching expired) with valid Y elsewhere -> approval_expired.
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            expired = asyncio.run(execute_capability("story.create", {"content": "snapshot X"}))
+        finally:
+            set_active_authorization_context(None)
+        assert expired["error"]["code"] == "approval_expired"
+
+        # No matching approval AT ALL + valid Y -> classic Model B mismatch.
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            mismatch = asyncio.run(execute_capability("story.create", {"content": "snapshot Z"}))
+        finally:
+            set_active_authorization_context(None)
+        assert mismatch["error"]["code"] == "approval_parameter_mismatch"
+
+        # Age Y too: EVERYTHING expired -> a novel digest request PENDS
+        # (expired approvals never count as active non-NULL approvals).
+        _age_checkpoint_decided_at(uuid.UUID(py["pending_approval"]["checkpoint_id"]), aged)
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            pends = asyncio.run(execute_capability("story.create", {"content": "novel digest"}))
+        finally:
+            set_active_authorization_context(None)
+        assert pends["pending_approval"]["stage"] == "script"
+        assert asyncio.run(_count_scripts(run_id)) == 0
+    finally:
+        _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
+        _clear_ttl_policy("script")
+        asyncio.run(_cleanup_checkpoints(run_id))
+        asyncio.run(_cleanup_scripts(run_id))
+
+
+def test_ttl_legacy_rows_perpetual_and_policy_defaults(seeded_run):
+    """Ratified legacy semantics: a NULL-digest APPROVE with NO timestamp
+    is perpetual (executes under any policy); a NULL-digest APPROVE WITH
+    a timestamp participates in TTL (aged -> the request pends). Policy
+    table: the global default exists (604800) and a per-stage override
+    takes precedence; the six anchor-less legacy rows remain untouched,
+    APPROVE, and are perpetual under the predicate."""
+    import asyncio
+    from datetime import UTC, datetime, timedelta
+
+    from app.hermes.capabilities import _approval_ttl_valid, _make_capability_engine
+    from app.hermes.runtime import (
+        _clear_active_approval_mismatch,
+        _clear_active_approval_pending,
+        set_active_authorization_context,
+    )
+    from sqlalchemy import select as _select
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    (project_id, run_id), _ = seeded_run
+    _set_ttl_policy("script", 3600)
+    try:
+        # Anchor-less legacy row (decided_at NULL): perpetual.
+        asyncio.run(_seed_checkpoint(run_id, "script", "approve"))
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            granted = asyncio.run(execute_capability("story.create", {"content": "any params"}))
+        finally:
+            set_active_authorization_context(None)
+        assert granted["script_id"]
+
+        # NULL-digest approval WITH an aged timestamp: participates -> pends.
+        asyncio.run(_cleanup_checkpoints(run_id))
+        asyncio.run(_cleanup_scripts(run_id))
+        aged_legacy_id = asyncio.run(_seed_checkpoint(run_id, "script", "approve"))
+        _age_checkpoint_decided_at(aged_legacy_id, datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=7200))
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            pends = asyncio.run(execute_capability("story.create", {"content": "any params"}))
+        finally:
+            set_active_authorization_context(None)
+        assert pends["pending_approval"]["stage"] == "script"
+
+        # Policy table: global default exists; override wins; absent stage falls back.
+        async def _policies():
+            engine = _make_capability_engine()
+            try:
+                async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                    from app.models.approval import ApprovalTtlPolicy
+
+                    rows = (
+                        await session.execute(_select(ApprovalTtlPolicy.stage, ApprovalTtlPolicy.ttl_seconds))
+                    ).all()
+                    return rows
+            finally:
+                await engine.dispose()
+
+        rows = asyncio.run(_policies())
+        by_stage = {stage: ttl for stage, ttl in rows}
+        # The RATIFIED initial operational default (policy data, not logic):
+        # exactly one global row, 7 days, and every configured ttl > 0.
+        assert by_stage.get(None) == 604800
+        assert by_stage.get("script") == 3600  # per-stage override wins
+        assert all(ttl > 0 for ttl in by_stage.values())
+        # The six anchor-less legacy rows: untouched, APPROVE, perpetual.
+        async def _six():
+            engine = _make_capability_engine()
+            try:
+                async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                    from app.models.approval import ApprovalCheckpoint
+
+                    rows = (
+                        await session.execute(
+                            _select(ApprovalCheckpoint).where(
+                                ApprovalCheckpoint.decided_at.is_(None),
+                                ApprovalCheckpoint.action.is_not(None),
+                            )
+                        )
+                    ).scalars().all()
+                    return rows
+            finally:
+                await engine.dispose()
+
+        six = asyncio.run(_six())
+        assert len(six) == 6
+        assert all(c.action.value == "approve" for c in six)
+        assert all(_approval_ttl_valid(c, 1, datetime.now(UTC).replace(tzinfo=None)) for c in six)
+    finally:
+        _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
+        _clear_ttl_policy("script")
+        asyncio.run(_cleanup_checkpoints(run_id))
+        asyncio.run(_cleanup_scripts(run_id))
+
+
+def test_ttl_missing_policy_fails_closed(seeded_run):
+    """Ratified fail-closed: with NO TTL policy configured (neither
+    stage override nor global default), a TIMESTAMPED approval never
+    authorizes — the request terminates with approval_ttl_policy_missing
+    (never silently perpetual, never auto-pending). Anchor-less-only
+    approvals stay perpetual under the same condition, and the global
+    row is restored verbatim afterwards."""
+    import asyncio
+
+    from app.hermes.capabilities import _make_capability_engine
+    from app.hermes.runtime import (
+        _clear_active_approval_mismatch,
+        _clear_active_approval_pending,
+        get_active_approval_mismatch,
+        set_active_authorization_context,
+    )
+    from app.models.approval import ApprovalTtlPolicy
+    from sqlalchemy import delete, select
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    (project_id, run_id), _ = seeded_run
+
+    async def _snapshot_and_drop_global():
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                global_ttl = (
+                    await session.execute(
+                        select(ApprovalTtlPolicy.ttl_seconds).where(
+                            ApprovalTtlPolicy.stage.is_(None)
+                        )
+                    )
+                ).scalar()
+                await session.execute(delete(ApprovalTtlPolicy))
+                await session.commit()
+                return global_ttl
+        finally:
+            await engine.dispose()
+
+    async def _restore_global(ttl_seconds):
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                session.add(ApprovalTtlPolicy(stage=None, ttl_seconds=ttl_seconds))
+                await session.commit()
+        finally:
+            await engine.dispose()
+
+    global_ttl = asyncio.run(_snapshot_and_drop_global())
+    assert global_ttl is not None  # precondition: the seeded global exists
+    try:
+        # Timestamped approval + missing policy -> terminal, fail-closed.
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            pending = asyncio.run(execute_capability("story.create", {"content": "unpoliced"}))
+            checkpoint_id = uuid.UUID(pending["pending_approval"]["checkpoint_id"])
+        finally:
+            set_active_authorization_context(None)
+        asyncio.run(_approve_checkpoint(checkpoint_id))  # fresh decided_at
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            denied = asyncio.run(execute_capability("story.create", {"content": "unpoliced"}))
+        finally:
+            set_active_authorization_context(None)
+        assert denied["error"]["code"] == "approval_ttl_policy_missing"
+        assert asyncio.run(_count_scripts(run_id)) == 0
+        signal = get_active_approval_mismatch()
+        assert signal is not None and signal["error_code"] == "approval_ttl_policy_missing"
+
+        # Anchor-less-only approvals remain perpetual even with no policy.
+        asyncio.run(_cleanup_checkpoints(run_id))
+        asyncio.run(_seed_checkpoint(run_id, "script", "approve"))  # decided_at NULL
+        set_active_authorization_context(_run_context(project_id, run_id))
+        try:
+            granted = asyncio.run(execute_capability("story.create", {"content": "anchorless"}))
+        finally:
+            set_active_authorization_context(None)
+        assert granted["script_id"]
+    finally:
+        _clear_active_approval_pending()
+        _clear_active_approval_mismatch()
+        asyncio.run(_restore_global(global_ttl))
+        asyncio.run(_cleanup_checkpoints(run_id))
+        asyncio.run(_cleanup_scripts(run_id))
+
+
+def test_ttl_policy_rejects_non_positive_durations():
+    """Ratified: zero/negative ttl_seconds are invalid policy data — the
+    database CHECK constraint rejects them."""
+    import asyncio
+
+    from app.hermes.capabilities import _make_capability_engine
+    from app.models.approval import ApprovalTtlPolicy
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    async def _insert(seconds):
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                session.add(ApprovalTtlPolicy(stage="probe-stage", ttl_seconds=seconds))
+                await session.commit()
+        finally:
+            await engine.dispose()
+
+    for bad in (0, -5):
+        try:
+            asyncio.run(_insert(bad))
+        except Exception:  # noqa: BLE001, S112 — the CHECK rejection IS the assertion
+            continue  # rejected by the CHECK constraint — expected
+        pytest.fail(f"ttl_seconds={bad} was accepted by the database")
