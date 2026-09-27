@@ -132,6 +132,31 @@ class PublishStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+class PublicationAttemptStatus(str, enum.Enum):
+    """Publication-attempt lifecycle (operator-authorized slice).
+
+    PENDING: admitted intent, no external call yet (the durable
+    pre-side-effect record).
+    IN_PROGRESS: persisted immediately BEFORE the first irreversible
+    external publication call.
+    SUCCEEDED: provider confirmed the publication (external ids
+    persisted).
+    FAILED: confirmed provider rejection, local validation failure, or
+    a pre-submission external read failure — evidence supports "no
+    public post was created".
+    UNKNOWN: ambiguous outcome — an exception/timeout after external
+    submission may have occurred. NEVER automatically retried; a
+    durable manual-operations state (automated reconciliation is a
+    deferred contract). Never convert to FAILED without evidence.
+    """
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
+
+
 class AspectRatio(str, enum.Enum):
     """Supported video aspect ratios."""
     PORTRAIT_9_16 = "9:16"

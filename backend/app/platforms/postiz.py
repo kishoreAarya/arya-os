@@ -8,6 +8,11 @@ Implements PlatformAdapter for multi-platform scheduling and distribution via Po
 - Connected integrations retrieval (/public/v1/integrations)
 - Post status synchronization (/public/v1/posts/{id})
 - Safe dry-run mode for pre-flight validation without public publishing
+- Truthful failure contract for the operator publishing path: confirmed
+  rejections (HTTP 4xx) and provably pre-dispatch failures (connection
+  never established) return failure results (FAILED); ambiguous
+  post-submission outcomes (transport exceptions mid-exchange, HTTP 5xx)
+  RAISE so the caller records UNKNOWN — never FAILED without evidence.
 """
 
 from __future__ import annotations
@@ -156,6 +161,14 @@ class PostizAdapter(PlatformAdapter):
                     files=files,
                 )
 
+                if resp.status_code >= 500:
+                    # Server-side failure AFTER the upload reached Postiz:
+                    # the provider may still hold the media. Not a confirmed
+                    # rejection — raise so the operator path records UNKNOWN
+                    # (ratified §2/§11).
+                    raise RuntimeError(
+                        f"Postiz media upload returned HTTP {resp.status_code}: outcome ambiguous"
+                    )
                 if resp.status_code >= 400:
                     return UploadResult(
                         success=False,
@@ -171,12 +184,22 @@ class PostizAdapter(PlatformAdapter):
                     storage_path=file_path,
                     url=url,
                 )
-        except Exception as exc:
-            logger.error("postiz_upload_exception", error=str(exc))
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            # The connection was never established: the request was not
+            # sent, so no external side effect is possible. Retryable
+            # pre-submission failure (ratified FAILED definition).
+            logger.error("postiz_upload_unreachable", error=str(exc))
             return UploadResult(
                 success=False,
-                error=f"Postiz upload exception: {exc}",
+                error=f"Postiz unreachable before upload (request not sent): {exc}",
             )
+        except Exception as exc:
+            # The request may have reached the provider (timeout
+            # mid-exchange, dropped connection, unparseable success
+            # response): outcome ambiguous. Raise so the caller records
+            # UNKNOWN — never FAILED without evidence (ratified §2/§11).
+            logger.error("postiz_upload_exception", error=str(exc))
+            raise
 
     async def upload_thumbnail(
         self,
@@ -299,6 +322,15 @@ class PostizAdapter(PlatformAdapter):
                     json=payload,
                 )
 
+                if resp.status_code >= 500:
+                    # Server-side failure AFTER the post creation reached
+                    # Postiz: the post may still have been created (e.g. a
+                    # gateway timeout after the backend committed). Not a
+                    # confirmed rejection — raise so the operator path
+                    # records UNKNOWN (ratified §2/§11).
+                    raise RuntimeError(
+                        f"Postiz post creation returned HTTP {resp.status_code}: outcome ambiguous"
+                    )
                 if resp.status_code >= 400:
                     return PublishResult(
                         success=False,
@@ -322,12 +354,22 @@ class PostizAdapter(PlatformAdapter):
                     publish_status=pub_status,
                     url=f"{self._base_url}/posts/{post_id}" if post_id else None,
                 )
-        except Exception as exc:
-            logger.error("postiz_publish_exception", error=str(exc))
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            # The connection was never established: the request was not
+            # sent, so no external side effect is possible. Retryable
+            # pre-submission failure (ratified FAILED definition).
+            logger.error("postiz_publish_unreachable", error=str(exc))
             return PublishResult(
                 success=False,
-                error=f"Postiz publish network error: {exc}",
+                error=f"Postiz unreachable before publish (request not sent): {exc}",
             )
+        except Exception as exc:
+            # The post creation may have reached the provider (timeout
+            # mid-exchange, dropped connection, unparseable success
+            # response): outcome ambiguous. Raise so the caller records
+            # UNKNOWN — never FAILED without evidence (ratified §2/§11).
+            logger.error("postiz_publish_exception", error=str(exc))
+            raise
 
     # ------------------------------------------------------------------
     # Status Synchronization & URLs

@@ -13,6 +13,7 @@ from app.models.analytics import (  # noqa: F401
     GenerationLearningEvent,
 )
 from app.models.approval import ApprovalCheckpoint, GenerationAttempt  # noqa: F401
+from app.models.publication import PublicationAttempt  # noqa: F401
 from app.models.quality import QualityScoreDetail  # noqa: F401
 from app.models.prompt_template import PromptTemplate  # noqa: F401
 from app.models.feature_flag import FeatureFlag  # noqa: F401

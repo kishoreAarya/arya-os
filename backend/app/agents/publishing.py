@@ -89,14 +89,92 @@ class PublishingAgent(BaseAgent):
             )
             return AgentResult(success=False, error=str(exc))
 
+        # Publication-attempt core (operator-authorized slice): the
+        # durable, DB-idempotent attempt record for THIS publication
+        # intent. Written BEFORE any external call. Dry-run validates
+        # only and records no attempt. Duplicate intents resolve to the
+        # existing attempt — never a second external publication.
+        is_dry_run = bool(context.get("dry_run") or context.get("is_dry_run"))
+        social_platform = context.get("social_platform") or context.get("platform_type") or "youtube"
+        attempt = None
+        if not is_dry_run:
+            from app.models.enums import PublicationAttemptStatus
+            from app.services.publication_attempts import admit_attempt
+
+            try:
+                attempt_video_uuid = UUID(str(video_id))
+            except (ValueError, TypeError, AttributeError):
+                # Non-UUID video ids are tolerated by the existing path
+                # (the Video writeback skips them the same way); they get
+                # no attempt record rather than failing the publication.
+                attempt_video_uuid = None
+            if attempt_video_uuid is not None:
+                attempt, created = await admit_attempt(
+                    self._db,
+                    video_id=attempt_video_uuid,
+                    platform=platform,
+                    social_platform=social_platform,
+                    integration_id=context.get("integration_id"),
+                    workflow_run_id=(
+                        UUID(str(context["workflow_run_id"]))
+                        if context.get("workflow_run_id")
+                        else None
+                    ),
+                    scheduled_at=context.get("scheduled_at"),
+                )
+                if not created:
+                    if attempt.status == PublicationAttemptStatus.SUCCEEDED:
+                        # Idempotent duplicate: the identical intent already
+                        # published — return the existing outcome, no second
+                        # external publication.
+                        return AgentResult(
+                            success=True,
+                            output={
+                                "publishing_result": None,
+                                "published_video_id": attempt.external_post_id,
+                                "public_url": attempt.public_url,
+                                "attempt_id": str(attempt.id),
+                                "attempt_status": attempt.status.value,
+                                "attempt_number": attempt.attempt_number,
+                                "duplicate": True,
+                            },
+                            error=None,
+                        )
+                    reason = {
+                        PublicationAttemptStatus.PENDING: "a submission of this publication "
+                        "intent is already pending",
+                        PublicationAttemptStatus.IN_PROGRESS: "a publication of this intent "
+                        "is currently in progress",
+                        PublicationAttemptStatus.UNKNOWN: "a previous publication of this "
+                        "intent has an AMBIGUOUS outcome (manual reconciliation required; "
+                        "automatic retry is blocked)",
+                    }[attempt.status]
+                    return AgentResult(
+                        success=False,
+                        error=f"Publication attempt {attempt.attempt_number} for this intent "
+                        f"is {attempt.status.value}: {reason}",
+                    )
+
         # Authenticate with the platform
-        auth_result = await adapter.authenticate()
+        from app.services.publication_attempts import mark_failed as _attempt_failed
+
+        try:
+            auth_result = await adapter.authenticate()
+        except Exception as exc:  # noqa: BLE001 — auth is a read-only call: no submission possible → FAILED
+            logger.error("publishing_agent_authentication_error", platform=platform, error=str(exc))
+            if attempt is not None:
+                await _attempt_failed(self._db, attempt, f"authentication error: {type(exc).__name__}")
+            return AgentResult(success=False, error=f"Authentication failed for '{platform}': {exc}")
         if not auth_result.success:
             logger.error(
                 "publishing_agent_authentication_failed",
                 platform=platform,
                 error=auth_result.error,
             )
+            if attempt is not None:
+                await _attempt_failed(
+                    self._db, attempt, f"authentication failed: {auth_result.error}"
+                )
             return AgentResult(
                 success=False,
                 error=f"Authentication failed for '{platform}': {auth_result.error}",
@@ -123,20 +201,40 @@ class PublishingAgent(BaseAgent):
                 video_id=video_id,
                 error=str(exc),
             )
+            if attempt is not None:
+                await _attempt_failed(self._db, attempt, f"asset resolution failed: {exc}")
             return AgentResult(
                 success=False,
                 error=f"Asset resolution failed for '{platform}': {exc}",
             )
 
-        is_dry_run = bool(context.get("dry_run") or context.get("is_dry_run"))
-        upload_result = await adapter.upload_content(
-            file_path=local_video_path, 
-            title=title,
-            description=description,
-            tags=tags or None,
-            credentials=auth_result.credentials,
-            is_dry_run=is_dry_run,
+        from app.services.publication_attempts import (
+            mark_external_content,
+            mark_failed,
+            mark_in_progress,
+            mark_succeeded,
+            mark_unknown,
         )
+
+        try:
+            upload_result = await adapter.upload_content(
+                file_path=local_video_path,
+                title=title,
+                description=description,
+                tags=tags or None,
+                credentials=auth_result.credentials,
+                is_dry_run=is_dry_run,
+            )
+        except Exception as exc:  # noqa: BLE001 — external ambiguity: provider may hold the media → UNKNOWN
+            # External submission ambiguity (the provider may hold the
+            # media): UNKNOWN — never silently FAILED.
+            logger.error("publishing_agent_upload_error", platform=platform, error=str(exc))
+            if attempt is not None:
+                await mark_unknown(self._db, attempt, f"upload exception: {type(exc).__name__}")
+            return AgentResult(
+                success=False,
+                error=f"Upload raised for '{platform}': {exc} (attempt recorded UNKNOWN)",
+            )
         if not upload_result.success:
             logger.error(
                 "publishing_agent_upload_failed",
@@ -144,10 +242,16 @@ class PublishingAgent(BaseAgent):
                 video_id=video_id,
                 error=upload_result.error,
             )
+            if attempt is not None:
+                await mark_failed(self._db, attempt, f"upload rejected: {upload_result.error}")
             return AgentResult(
                 success=False,
                 error=f"Upload failed for '{platform}': {upload_result.error}",
             )
+        if attempt is not None and upload_result.content_id:
+            # Persist the provider content id BEFORE the publish call —
+            # the crash-recovery anchor (ratified §9).
+            await mark_external_content(self._db, attempt, upload_result.content_id)
 
         # Upload thumbnail if provided
         thumbnail_path = await ensure_local_asset(
@@ -155,40 +259,67 @@ class PublishingAgent(BaseAgent):
         )
 
         if thumbnail_path and upload_result.content_id:
-            thumb_result = await adapter.upload_thumbnail(
-                video_content_id=upload_result.content_id,
-                thumbnail_path=thumbnail_path,
-                credentials=auth_result.credentials,
-                is_dry_run=is_dry_run,
-            )
-            if not thumb_result.success:
+            try:
+                thumb_result = await adapter.upload_thumbnail(
+                    video_content_id=upload_result.content_id,
+                    thumbnail_path=thumbnail_path,
+                    credentials=auth_result.credentials,
+                    is_dry_run=is_dry_run,
+                )
+                if not thumb_result.success:
+                    logger.warning(
+                        "publishing_agent_thumbnail_upload_failed",
+                        platform=platform,
+                        video_id=video_id,
+                        error=thumb_result.error,
+                    )
+                    # Non-fatal: video uploaded successfully, thumbnail failed.
+            except Exception as exc:  # noqa: BLE001 — non-fatal thumbnail ambiguity; publish below decides
+                # Non-fatal (parity with thumbnail rejection): the
+                # publication itself has not been submitted; the publish
+                # call below determines the attempt outcome.
                 logger.warning(
-                    "publishing_agent_thumbnail_upload_failed",
+                    "publishing_agent_thumbnail_upload_error",
                     platform=platform,
                     video_id=video_id,
-                    error=thumb_result.error,
+                    error=str(exc),
                 )
-                # Non-fatal: video uploaded successfully, thumbnail failed.
 
-        # Publish or schedule the video
+        # Publish or schedule the video. IN_PROGRESS is persisted
+        # immediately BEFORE this — the first irreversible external call.
         privacy_status = context.get("privacy_status") or (context.get("metadata") or {}).get("privacy_status") or "private"
         default_pub_type = "schedule" if context.get("scheduled_at") else ("draft" if is_dry_run else "now")
         publish_type = context.get("publish_type") or default_pub_type
 
-        publish_result = await adapter.publish(
-            content_id=upload_result.content_id,
-            credentials=auth_result.credentials,
-            privacy_status=privacy_status,
-            title=title,
-            description=description,
-            caption=description or title,
-            tags=tags or None,
-            integration_id=context.get("integration_id"),
-            platform_type=context.get("social_platform") or context.get("platform_type") or "youtube",
-            publish_type=publish_type,
-            scheduled_at=context.get("scheduled_at"),
-            is_dry_run=is_dry_run,
-        )
+        if attempt is not None:
+            await mark_in_progress(self._db, attempt)
+        try:
+            publish_result = await adapter.publish(
+                content_id=upload_result.content_id,
+                credentials=auth_result.credentials,
+                privacy_status=privacy_status,
+                title=title,
+                description=description,
+                caption=description or title,
+                tags=tags or None,
+                integration_id=context.get("integration_id"),
+                platform_type=context.get("social_platform") or context.get("platform_type") or "youtube",
+                publish_type=publish_type,
+                scheduled_at=context.get("scheduled_at"),
+                is_dry_run=is_dry_run,
+            )
+        except Exception as exc:  # noqa: BLE001 — ambiguity after possible submission → UNKNOWN
+            # Ambiguity after external submission may have occurred:
+            # durable UNKNOWN — never auto-retried, never FAILED without
+            # evidence (ratified §2/§11).
+            logger.error("publishing_agent_publish_error", platform=platform, error=str(exc))
+            if attempt is not None:
+                await mark_unknown(self._db, attempt, f"publish exception: {type(exc).__name__}")
+            return AgentResult(
+                success=False,
+                error=f"Publish raised for '{platform}': {exc} (attempt recorded UNKNOWN; "
+                "manual reconciliation required)",
+            )
         if not publish_result.success:
             logger.error(
                 "publishing_agent_publish_failed",
@@ -196,9 +327,20 @@ class PublishingAgent(BaseAgent):
                 video_id=video_id,
                 error=publish_result.error,
             )
+            if attempt is not None:
+                await mark_failed(self._db, attempt, f"publish rejected: {publish_result.error}")
             return AgentResult(
                 success=False,
                 error=f"Publish failed for '{platform}': {publish_result.error}",
+            )
+        if attempt is not None:
+            # External identifiers persisted immediately at confirmed
+            # success — independent of the Video writeback below.
+            await mark_succeeded(
+                self._db,
+                attempt,
+                external_post_id=publish_result.published_content_id,
+                public_url=publish_result.url,
             )
 
         # Update the existing Video row after successful publish.
@@ -284,6 +426,15 @@ class PublishingAgent(BaseAgent):
             "publishing_result": publishing_result,
             "published_video_id": publish_result.published_content_id,
         }
+        if attempt is not None:
+            # Additive: the durable attempt identity for this publication.
+            result_output["attempt_id"] = str(attempt.id)
+            result_output["attempt_status"] = attempt.status.value
+            result_output["attempt_number"] = attempt.attempt_number
+            if public_url and attempt.public_url is None:
+                from app.services.publication_attempts import _transition
+
+                await _transition(self._db, attempt, attempt.status, public_url=public_url)
 
         # Carry forward context for AnalyticsAgent
         if public_url:

@@ -54,6 +54,11 @@ class PublishResponse(BaseModel):
     url: str | None = None
     is_dry_run: bool = False
     error: str | None = None
+    # Additive (publication-attempt core): the durable attempt identity
+    # for this publication intent, when one was recorded (never for
+    # dry-run validation).
+    attempt_id: str | None = None
+    attempt_status: str | None = None
 
 
 @router.get("/status")
@@ -143,6 +148,8 @@ async def publish_asset(
         scheduled_at=payload.scheduled_at,
         url=pub_url,
         is_dry_run=payload.dry_run,
+        attempt_id=result.output.get("attempt_id"),
+        attempt_status=result.output.get("attempt_status"),
     )
 
 
