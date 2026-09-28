@@ -316,7 +316,11 @@ class ResolveAttemptRequest(BaseModel):
     attestation: str | None = Field(
         default=None,
         max_length=2000,
-        description="Operator evidence statement; required for any -> FAILED",
+        description=(
+            "Operator evidence statement; required for any -> FAILED. For SCHEDULED attempts "
+            "it must acknowledge deferred commitments verbatim: 'including scheduled posts' "
+            "(a scheduled provider-side publication may still fire at its scheduled time)."
+        ),
     )
     force: bool = Field(
         default=False,

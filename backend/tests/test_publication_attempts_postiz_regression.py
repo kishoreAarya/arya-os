@@ -20,6 +20,7 @@ import uuid
 from pathlib import Path
 
 import httpx
+import pytest
 
 from app.agents.publishing import PublishingAgent
 from app.models.enums import PublicationAttemptStatus
@@ -760,5 +761,186 @@ def test_f13a_postiz_evidence_path_inherits_sanitized_text(monkeypatch):
         assert len(provider_error) <= _PROVIDER_TEXT_LIMIT + len("… [truncated 1234 chars]") + len("HTTP 503: ")
         assert detail is not None and "… [truncated 1234 chars]" in detail
         assert "E" * 1200 not in detail  # the unbounded body never leaks
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+# ---------------------------------------------------------------------------
+# F-14a: the three-leg duplicate-dispatch scenario — without the explicit
+# deferred-commitment acknowledgement the UNKNOWN resolution is REFUSED,
+# so the retry stays blocked at admission and NO second scheduled post is
+# dispatched; with the acknowledgement the operator-gated escape proceeds.
+# ---------------------------------------------------------------------------
+
+
+class _ScheduledProviderClient(_ScriptedClient):
+    """Simulates the provider-side truth: a SCHEDULED post exists (created
+    on the first dispatch, which then timed out client-side), findable in
+    the 30-day list only by its POST id — never by the media anchor."""
+
+    def __init__(self, transport, provider_posts, **kwargs):
+        super().__init__(transport, **kwargs)
+        self._provider_posts = provider_posts
+        self._first_dispatch = True
+
+    async def get(self, url, **kwargs):
+        is_fallback = url.endswith("/public/v1/posts") or "startDate" in kwargs.get("params", {})
+        if is_fallback:
+            return httpx.Response(
+                200, json={"posts": list(self._provider_posts)},
+                request=httpx.Request("GET", url),
+            )
+        if "/public/v1/posts" in url:
+            return httpx.Response(404, request=httpx.Request("GET", url))  # media anchor ≠ post id
+        return await super().get(url, **kwargs)
+
+    async def post(self, url, **kwargs):
+        if url.endswith("/public/v1/upload"):
+            return await super().post(url, **kwargs)
+        self._transport.posts_calls += 1
+        if self._first_dispatch:
+            self._first_dispatch = False
+            self._provider_posts.append({"id": "post-sched-1", "state": "scheduled"})
+            raise httpx.ReadTimeout("dropped after the scheduled post was accepted")
+        self._provider_posts.append({"id": "post-sched-2", "state": "scheduled"})
+        return httpx.Response(200, json={"id": "post-sched-2"}, request=httpx.Request("POST", url))
+
+
+def _install_scheduled_provider(monkeypatch, provider_posts):
+    from app.services import publication_attempt_reconciliation as _recon
+
+    class _Shim:
+        ConnectError = httpx.ConnectError
+        ConnectTimeout = httpx.ConnectTimeout
+        ReadTimeout = httpx.ReadTimeout
+        TimeoutException = httpx.TimeoutException
+
+        @staticmethod
+        def AsyncClient(**kwargs):
+            return _ScheduledProviderClient(_ScriptedTransport(), provider_posts, **kwargs)
+
+    monkeypatch.setattr(
+        "app.agents.publishing.get_platform_adapter",
+        lambda platform, db, secrets=None: PostizAdapter(db=db, secrets=_FakeSecrets()),
+    )
+    monkeypatch.setattr(
+        "app.services.publication_attempt_reconciliation.get_platform_adapter",
+        lambda platform, db, secrets=None: PostizAdapter(db=db, secrets=_FakeSecrets()),
+    )
+    monkeypatch.setattr("app.platforms.postiz.httpx", _Shim)
+
+
+def test_f14a_three_leg_scenario_second_dispatch_blocked_without_ack(monkeypatch):
+    """Legs 1-3 of the F-14 audit: scheduled dispatch -> ambiguous outcome
+    -> UNKNOWN; the honest-but-unqualified attestation is REFUSED; the
+    retry therefore stays blocked at admission — exactly ONE scheduled
+    post exists at the provider."""
+    from app.services import publication_attempt_reconciliation as recon
+
+    provider_posts = []
+    _install_scheduled_provider(monkeypatch, provider_posts)
+    video_uuid = uuid.uuid4()
+    ctx = _context(
+        video_uuid, video_storage_path=_tmp_video(), scheduled_at="2030-06-01T10:00:00Z"
+    )
+    try:
+        # Leg 1: scheduled dispatch -> client timeout -> UNKNOWN.
+        first = _run(ctx)
+        assert not first.success and "UNKNOWN" in first.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert rows[0].status == PublicationAttemptStatus.UNKNOWN
+        assert len(provider_posts) == 1  # the scheduled post exists server-side
+
+        # Leg 2: honest-but-unqualified attestation -> REFUSED (F-14a).
+        with pytest.raises(recon.IllegalTransitionError) as excinfo:
+            asyncio.run(_resolve_via_http(rows[0].id))
+        assert "including scheduled posts" in str(excinfo.value)
+
+        # Leg 3: the retry is BLOCKED at admission (UNKNOWN is durable) —
+        # no second scheduled post is ever dispatched.
+        second = _run(ctx)
+        assert not second.success and "AMBIGUOUS" in second.error
+        assert len(provider_posts) == 1
+        assert len(asyncio.run(_attempts_for(video_uuid))) == 1
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+async def _resolve_rows():
+    pass
+
+
+def _resolve_via_http(attempt_id):
+    from datetime import datetime, timedelta, timezone
+
+    from app.services import publication_attempt_reconciliation as recon
+    from app.models.enums import PublicationAttemptStatus as Status
+
+    async def _inner():
+        engine, session = await _session()
+        try:
+            return await recon.resolve_attempt(
+                session,
+                attempt_id,
+                from_status=Status.UNKNOWN,
+                to_status=Status.FAILED,
+                attestation="verified in provider console: no public post exists today",
+            )
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    return asyncio.run(_inner())
+
+
+def test_f14a_operator_gated_escape_with_ack_proceeds(monkeypatch):
+    """With the explicit acknowledgement the operator-gated escape hatch
+    works exactly as ratified: resolution succeeds and the retry admits
+    n+1 (documented operator responsibility: cancel the scheduled post
+    at the provider first)."""
+    from app.services import publication_attempt_reconciliation as recon
+    from app.models.enums import PublicationAttemptStatus as Status
+
+    provider_posts = []
+    _install_scheduled_provider(monkeypatch, provider_posts)
+    video_uuid = uuid.uuid4()
+    ctx = _context(
+        video_uuid, video_storage_path=_tmp_video(), scheduled_at="2030-06-01T10:00:00Z"
+    )
+
+    async def _resolve_with_ack(attempt_id):
+        engine, session = await _session()
+        try:
+            return await recon.resolve_attempt(
+                session,
+                attempt_id,
+                from_status=Status.UNKNOWN,
+                to_status=Status.FAILED,
+                attestation=(
+                    "scheduled provider-side publication cancelled with the provider — "
+                    "including scheduled posts"
+                ),
+            )
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    def _resolve_with_ack_sync(attempt_id):
+        return asyncio.run(_resolve_with_ack(attempt_id))
+
+    try:
+        first = _run(ctx)
+        assert not first.success and "UNKNOWN" in first.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+
+        resolved, _ = _resolve_with_ack_sync(rows[0].id)
+        assert resolved.status == Status.FAILED
+
+        # Retry admitted as n+1; the provider now holds the second
+        # scheduled post (operator-gated escape, documented).
+        second = _run(ctx)
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.attempt_number for r in rows] == [1, 2]
+        assert len(provider_posts) == 2
     finally:
         asyncio.run(_cleanup_attempts(video_uuid))

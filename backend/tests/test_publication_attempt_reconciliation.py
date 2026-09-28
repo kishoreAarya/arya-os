@@ -1399,3 +1399,158 @@ def test_f02a_characterization_mechanical_guarantee_vs_external_risk(monkeypatch
     finally:
         asyncio.run(_cleanup(video_uuid, (attempt_id,)))
         asyncio.run(_cleanup(inflight_vu, (inflight_id,)))
+
+
+# ---------------------------------------------------------------------------
+# 11. F-14a: deferred-commitment-aware FAILED resolution — scheduled
+# attempts require the explicit "including scheduled posts" acknowledgement
+# ---------------------------------------------------------------------------
+
+
+def _make_scheduled_attempt(status, *, anchor=True, scheduled_at="2030-06-01T10:00:00Z"):
+    """Admit a SCHEDULED attempt for a fresh video and drive it to `status`
+    via the REAL transition helpers (F-14a harness)."""
+
+    async def _inner():
+        from app.services.publication_attempts import (
+            admit_attempt,
+            mark_in_progress,
+            mark_unknown,
+        )
+
+        video_uuid = uuid.uuid4()
+        engine, session = await _session()
+        try:
+            attempt, _ = await admit_attempt(
+                session,
+                video_id=video_uuid,
+                platform="postiz",
+                social_platform="youtube",
+                integration_id="integ-1",
+                scheduled_at=scheduled_at,
+            )
+            if anchor:
+                attempt.external_content_id = "media-1"
+                await session.commit()
+            if status == PublicationAttemptStatus.IN_PROGRESS:
+                assert await mark_in_progress(session, attempt) is True
+            elif status == PublicationAttemptStatus.UNKNOWN:
+                assert await mark_unknown(session, attempt, "publish exception: ReadTimeout") is True
+            return attempt.id, video_uuid
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    return asyncio.run(_inner())
+
+
+def test_f14a_scheduled_unknown_to_failed_without_ack_is_refused(monkeypatch):
+    _install_real_postiz(monkeypatch, _PostizScript(check="processing"))
+    aid, vu = _make_scheduled_attempt(PublicationAttemptStatus.UNKNOWN)
+    try:
+        with pytest.raises(recon.IllegalTransitionError) as excinfo:
+            _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.UNKNOWN,
+                to_status=PublicationAttemptStatus.FAILED,
+                attestation="verified in provider console: no public post exists today",
+            )
+        assert "including scheduled posts" in str(excinfo.value)
+        assert "SCHEDULED" in str(excinfo.value)
+        rows = asyncio.run(_attempts_for(vu))
+        assert rows[0].status == PublicationAttemptStatus.UNKNOWN  # unchanged
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_f14a_scheduled_unknown_to_failed_with_ack_is_allowed(monkeypatch):
+    _install_real_postiz(monkeypatch, _PostizScript(check="processing"))
+    aid, vu = _make_scheduled_attempt(PublicationAttemptStatus.UNKNOWN)
+    try:
+        attempt, audit = _svc_resolve(
+            aid,
+            from_status=PublicationAttemptStatus.UNKNOWN,
+            to_status=PublicationAttemptStatus.FAILED,
+            attestation=(
+                "verified no public post exists today and none will: the scheduled "
+                "provider-side publication was cancelled with the provider — "
+                "INCLUDING SCHEDULED POSTS"
+            ),
+        )
+        assert attempt.status == PublicationAttemptStatus.FAILED
+        assert audit["verification"]["gate"] == "failed_resolution_evidence"
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_f14a_unscheduled_unknown_to_failed_is_unchanged(monkeypatch):
+    _install_real_postiz(monkeypatch, _PostizScript(check="processing"))
+    aid, vu = _make_scheduled_attempt(
+        PublicationAttemptStatus.UNKNOWN, scheduled_at=None
+    )
+    try:
+        attempt, _ = _svc_resolve(
+            aid,
+            from_status=PublicationAttemptStatus.UNKNOWN,
+            to_status=PublicationAttemptStatus.FAILED,
+            attestation="verified no public post exists",  # no ack phrase needed
+        )
+        assert attempt.status == PublicationAttemptStatus.FAILED
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_f14a_scheduled_in_progress_force_fail_is_protected_consistently(monkeypatch):
+    _install_real_postiz(monkeypatch, _PostizScript(check="processing"))
+    made = []
+    try:
+        # Without the acknowledgement: refused (fresh or aged).
+        aid, vu = _make_scheduled_attempt(PublicationAttemptStatus.IN_PROGRESS)
+        made.append((aid, vu))
+        asyncio.run(_age_attempt(aid, hours=1))
+        with pytest.raises(recon.IllegalTransitionError) as excinfo:
+            _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.IN_PROGRESS,
+                to_status=PublicationAttemptStatus.FAILED,
+                attestation="operator verified crash: no post exists",
+                force=True,
+            )
+        assert "including scheduled posts" in str(excinfo.value)
+
+        # With the acknowledgement: the existing force/floor/attestation
+        # chain admits the resolution.
+        attempt, _ = _svc_resolve(
+            aid,
+            from_status=PublicationAttemptStatus.IN_PROGRESS,
+            to_status=PublicationAttemptStatus.FAILED,
+            attestation=(
+                "operator verified: the scheduled provider-side publication was "
+                "cancelled with the provider — including scheduled posts"
+            ),
+            force=True,
+        )
+        assert attempt.status == PublicationAttemptStatus.FAILED
+    finally:
+        for aid, vu in made:
+            asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_f14a_ready_evidence_still_refuses_failed_with_ack(monkeypatch):
+    """Requirement 5: with the acknowledgement present, evidence proving
+    the publication is publicly live still refuses FAILED exactly as
+    before (F-02a semantics preserved for scheduled attempts too)."""
+    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    aid, vu = _make_scheduled_attempt(PublicationAttemptStatus.UNKNOWN)
+    try:
+        with pytest.raises(recon.VerificationFailedError):
+            _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.UNKNOWN,
+                to_status=PublicationAttemptStatus.FAILED,
+                attestation="including scheduled posts — but evidence says live",
+            )
+        rows = asyncio.run(_attempts_for(vu))
+        assert rows[0].status == PublicationAttemptStatus.UNKNOWN
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))

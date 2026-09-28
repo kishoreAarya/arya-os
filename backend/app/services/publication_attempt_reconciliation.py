@@ -14,6 +14,12 @@ Rules (explicit transition matrix):
   "ready" fails closed (no resolution).
 - UNKNOWN -> FAILED: requires an explicit non-empty operator
   attestation (the evidence statement that no public post was created).
+  F-14a: for SCHEDULED attempts the attestation must additionally
+  acknowledge the deferred commitment verbatim ("including scheduled
+  posts") — a scheduled provider-side publication may still execute at
+  its scheduled time, so the absence of a public post today establishes
+  nothing; cancel/verify the scheduled publication with the provider
+  first.
 - PENDING / IN_PROGRESS -> FAILED: requires explicit operator force AND
   an attestation AND the active-execution floor: the attempt row must
   have been untouched for at least _ACTIVE_EXECUTION_FLOOR (every live
@@ -82,6 +88,11 @@ logger = get_logger(__name__)
 # (postiz_timeout_seconds default 30s). Generous by two orders of
 # magnitude on purpose.
 _ACTIVE_EXECUTION_FLOOR = timedelta(minutes=30)
+
+# F-14a (ratified): the mandatory attestation phrase acknowledging that a
+# provider-side SCHEDULED publication may still execute at its scheduled
+# time even though no public post exists today.
+_SCHEDULED_ACK_PHRASE = "including scheduled posts"
 
 _RESOLUTION_TARGETS = frozenset(
     {PublicationAttemptStatus.SUCCEEDED, PublicationAttemptStatus.FAILED}
@@ -178,6 +189,28 @@ async def _verify_ready_with_provider(db: AsyncSession, attempt: PublicationAtte
     }
 
 
+def _require_scheduled_commitment_acknowledgement(
+    attempt: PublicationAttempt, attestation: str | None
+) -> None:
+    """F-14a: an -> FAILED resolution of a SCHEDULED attempt requires the
+    operator attestation to explicitly acknowledge the deferred provider
+    side publication (it may still execute at its scheduled time; the
+    absence of a public post today establishes nothing). Without the
+    acknowledgement, refuse with guidance to cancel/verify the scheduled
+    publication with the provider first."""
+    if not attempt.scheduled_at:
+        return
+    if _SCHEDULED_ACK_PHRASE not in (attestation or "").lower():
+        raise IllegalTransitionError(
+            "this attempt dispatched a SCHEDULED provider-side publication "
+            "that may still execute at its scheduled time — resolving FAILED "
+            "requires cancelling/verifying that scheduled publication with "
+            "the provider first, and the attestation must explicitly "
+            f"acknowledge deferred commitments (include the phrase "
+            f"'{_SCHEDULED_ACK_PHRASE}')"
+        )
+
+
 def _require_beyond_active_execution_floor(attempt: PublicationAttempt) -> None:
     """The active-execution floor for resolutions out of PENDING /
     IN_PROGRESS: the row must have been untouched for at least
@@ -225,6 +258,15 @@ def _validate_transition(
             f"{source.value} attempts are not resolvable "
             "(FAILED already admits retry via admission; SUCCEEDED is terminal)"
         )
+    # F-14a (ratified): deferred-commitment-aware FAILED resolution. A
+    # scheduled attempt dispatched a provider-side deferred publication
+    # that may still execute at its scheduled time — the absence of a
+    # public post TODAY does not establish that none will exist. The
+    # operator must explicitly acknowledge the deferred commitment in
+    # the attestation (and cancel/verify the scheduled publication with
+    # the provider first); a generic confirmation is insufficient.
+    if to_status == PublicationAttemptStatus.FAILED:
+        _require_scheduled_commitment_acknowledgement(attempt, attestation)
     if source == PublicationAttemptStatus.UNKNOWN:
         if to_status == PublicationAttemptStatus.SUCCEEDED:
             if not (external_post_id or "").strip():
