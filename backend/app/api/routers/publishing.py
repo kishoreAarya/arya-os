@@ -25,6 +25,7 @@ from app.database.session import get_db
 from app.models.enums import PublicationAttemptStatus
 from app.platforms.registry import get_platform_adapter
 from app.services import publication_attempt_reconciliation as recon
+from app.storage import get_storage_provider
 
 logger = get_logger("arya.api.publishing")
 
@@ -53,17 +54,41 @@ class PublishRequest(BaseModel):
 _F3_INTENT_IDENTITY_NAMESPACE = uuid.UUID("99ef57ad-ddb1-4c59-9f21-6bbdf7ced191")
 
 
+def _canonical_asset_reference(asset_storage_path: str) -> str:
+    """F3 identity input for the asset reference (ratified F-01 contract).
+
+    HTTP(S) URLs keep their RAW string — URLs are their own identity
+    namespace (never equated with local paths, other URLs, or resolved
+    into temp files). Non-URL references canonicalize through the
+    storage provider's own resolution semantics (in-root alias
+    spellings collapse to one canonical storage key; out-of-root
+    references fall back to lexical normalization inside the provider).
+    No storage-security logic lives here: containment and symlink
+    handling are the provider's. If the provider itself is unavailable
+    (e.g. a misconfigured backend), the raw reference is used — identity
+    degrades to the previous behavior rather than failing the request."""
+    if asset_storage_path.startswith(("http://", "https://")):
+        return asset_storage_path
+    try:
+        return get_storage_provider().canonical_key(asset_storage_path)
+    except Exception:  # noqa: BLE001 — provider unavailable: keep the raw reference (existing workflow)
+        return asset_storage_path
+
+
 def _synthetic_video_id(payload: PublishRequest) -> str:
     """Deterministic identity for a publication request that omits
     video_id (F3): asset + publication destination via the existing
     intent family (mirrors services/publication_attempts.py
-    derive_intent_key). An identical client retry derives the identical
-    UUID, so the durable admission guard (duplicate/blocking/retry
-    semantics) applies. Mutable publication parameters (title, caption,
-    scheduled_at, publish time) never participate. Server-derived only —
-    never client-controlled. UUIDv5, not hash() (process-randomized)."""
+    derive_intent_key). The asset reference is CANONICALIZED first
+    (ratified F-01: alias spellings of the same physical storage asset
+    derive the identical UUID, so the durable admission guard applies).
+    An identical client retry derives the identical UUID. Mutable
+    publication parameters (title, caption, scheduled_at, publish time)
+    never participate. Server-derived only — never client-controlled.
+    UUIDv5, not hash() (process-randomized), under the FROZEN F3
+    namespace."""
     identity = (
-        f"{payload.asset_storage_path}|{payload.platform}"
+        f"{_canonical_asset_reference(payload.asset_storage_path)}|{payload.platform}"
         f"|{payload.social_platform}|{payload.integration_id or ''}"
     )
     return str(uuid.uuid5(_F3_INTENT_IDENTITY_NAMESPACE, identity))

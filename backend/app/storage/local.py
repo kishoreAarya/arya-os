@@ -1,5 +1,6 @@
 """Local disk storage — the default backend, no external deps."""
 import asyncio
+import posixpath
 from pathlib import Path
 
 from app.storage.base import StorageProvider
@@ -66,3 +67,31 @@ class LocalStorageProvider(StorageProvider):
         if self.public_base_url:
             return f"{self.public_base_url.rstrip('/')}/{key.lstrip('/')}"
         return str(self._resolve(key))
+
+    def canonical_key(self, key: str) -> str:
+        """Storage-root-resolved canonical key (ratified F-01 contract).
+
+        Resolves through the provider's own semantics — backslash
+        normalization, symlink following, and root containment on the
+        RESOLVED target — and expresses the result relative to the
+        storage root, so alias spellings of the same physical in-root
+        asset (`./`, `.` components, repeated separators, equivalent
+        absolute paths, in-root symlinks) collapse to one key. Case is
+        preserved and no Unicode normalization is applied (the key
+        namespace is case-sensitive and byte-preserving).
+
+        References that do not resolve inside the storage root (external
+        absolute/local files, escaping symlinks) fall back to lexical
+        normalization — the existing out-of-root workflow is preserved,
+        and no new rejection policy is introduced here. Escaping
+        symlinks therefore keep their OWN spelling's identity, never the
+        out-of-root target's."""
+        if not isinstance(key, str) or not key or "\0" in key:
+            return posixpath.normpath((key or "").replace("\\", "/"))
+        try:
+            resolved = self._resolve(key)
+            return str(resolved.relative_to(self.base_path))
+        except (ValueError, OSError):
+            # Out-of-root or unresolvable: lexical fallback (the router's
+            # `..`/null-byte rejection has already run for API input).
+            return posixpath.normpath(key.replace("\\", "/"))

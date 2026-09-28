@@ -20,6 +20,15 @@ database:
   duplicate on retry);
 - dry-run without video_id still records NO attempt;
 - different asset/destination combinations never collide.
+
+F-01 canonicalization (ratified contract): the synthetic identity input
+is the CANONICAL asset reference — in-root alias spellings (`./`,
+repeated separators, `.` components, equivalent absolute paths, in-root
+symlinks, backslash separators) collapse to ONE identity; case, URL,
+percent-encoding, and Unicode variants remain DISTINCT; URLs keep their
+raw string; out-of-root references fall back lexically (existing
+workflow preserved); the canonical spelling RETAINS its historical UUID;
+alias-spelling retries hit the existing duplicate guard end-to-end.
 """
 import asyncio
 import tempfile
@@ -28,6 +37,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from fastapi import HTTPException
 
 from app.api.routers.publishing import (
     PublishRequest,
@@ -35,8 +45,10 @@ from app.api.routers.publishing import (
     _synthetic_video_id,
     publish_asset,
 )
+from app.models.enums import PublicationAttemptStatus
 from app.models.publication import PublicationAttempt  # noqa: F401 — registers the table on Base.metadata
 from app.platforms.postiz import PostizAdapter
+from app.storage.local import LocalStorageProvider
 
 
 class _FakeSecrets:
@@ -508,3 +520,216 @@ def test_f3_distinct_assets_do_not_collide(monkeypatch):
         assert len(_attempts_sync(synthetic_b)) == 1
     finally:
         _cleanup_sync(synthetic_a, synthetic_b)
+
+
+# ---------------------------------------------------------------------------
+# F-01: storage-aware canonicalization of the synthetic identity input
+# ---------------------------------------------------------------------------
+
+
+def _make_provider_root():
+    """A LocalStorageProvider over a disposable resolved root containing
+    one in-root asset, an in-root symlink to it, and an escaping symlink
+    to an out-of-root file."""
+    root = Path(tempfile.mkdtemp(prefix="f01-root-")).resolve()
+    asset = root / "data" / "storage" / "v1.mp4"
+    asset.parent.mkdir(parents=True)
+    asset.write_bytes(b"f01-asset")
+    (root / "data" / "link.mp4").symlink_to(asset)
+    outside_dir = Path(tempfile.mkdtemp(prefix="f01-out-")).resolve()
+    outside = outside_dir / "secret.mp4"
+    outside.write_bytes(b"f01-outside")
+    (root / "data" / "escape.mp4").symlink_to(outside)
+    return LocalStorageProvider(base_path=str(root)), root, asset, outside
+
+
+def _install_provider(monkeypatch, provider):
+    """Route BOTH the router's identity boundary and the agent's lazy
+    asset resolution through the test provider."""
+    monkeypatch.setattr(
+        "app.api.routers.publishing.get_storage_provider", lambda: provider
+    )
+    monkeypatch.setattr("app.storage.get_storage_provider", lambda: provider)
+
+
+def _sid(monkeypatch, provider, asset_path, **overrides):
+    _install_provider(monkeypatch, provider)
+    return _synthetic_video_id(PublishRequest(**_payload(asset_storage_path=asset_path, **overrides)))
+
+
+def test_f01_in_root_alias_spellings_collapse_to_one_identity(monkeypatch):
+    """MUST COLLAPSE: relative vs ./, repeated separators, . components,
+    equivalent in-root absolute spelling (with junk components), in-root
+    symlink, backslash separator — all derive ONE synthetic identity —
+    and the canonical spelling RETAINS the historical UUID derived from
+    that canonical string under the frozen namespace."""
+    provider, root, asset, _ = _make_provider_root()
+    ids = {
+        _sid(monkeypatch, provider, p)
+        for p in (
+            "data/storage/v1.mp4",
+            "./data/storage/v1.mp4",
+            "data//storage/v1.mp4",
+            "data/./storage/v1.mp4",
+            str(asset),
+            f"{root}/./data//storage/v1.mp4",
+            "data/link.mp4",
+            "data\\link.mp4",
+        )
+    }
+    assert len(ids) == 1
+    # Compatibility anchor (test 7): the canonical spelling's identity is
+    # byte-identical to the pre-F-01 raw-string derivation.
+    expected = str(
+        uuid.uuid5(
+            _F3_INTENT_IDENTITY_NAMESPACE,
+            "data/storage/v1.mp4|postiz|youtube|integ-1",
+        )
+    )
+    assert ids.pop() == expected
+
+
+def test_f01_case_url_percent_unicode_and_assets_remain_distinct(monkeypatch):
+    """MUST REMAIN DISTINCT: case variants (case-sensitive backends),
+    different physical assets, URL vs local path, different URLs,
+    percent-encoding variants, NFC vs NFD Unicode variants."""
+    provider, _, _, _ = _make_provider_root()
+    _install_provider(monkeypatch, provider)
+    spellings = [
+        "data/storage/v1.mp4",
+        "data/storage/V1.MP4",  # non-existent spelling: case preserved on every platform
+        "data/storage/v2.mp4",
+        "http://example.test/data/storage/v1.mp4",
+        "http://other.test/v1.mp4",
+        "http://example.test/a b.mp4",
+        "http://example.test/a%20b.mp4",
+        "data/storage/caf\u00e9.mp4",  # NFC
+        "data/storage/cafe\u0301.mp4",  # NFD
+    ]
+    ids = [
+        _synthetic_video_id(PublishRequest(**_payload(asset_storage_path=p)))
+        for p in spellings
+    ]
+    assert len(set(ids)) == len(ids)
+
+
+def test_f01_default_key_provider_canonicalization_is_lexical_and_opaque():
+    """Object-store keys are opaque: lexical collapse of `.`/`//` only —
+    case and backslashes preserved; S3StorageProvider inherits it."""
+    from app.storage.base import StorageProvider, lexical_canonical_key
+    from app.storage.s3 import S3StorageProvider
+
+    assert lexical_canonical_key("videos//a/./b.mp4") == "videos/a/b.mp4"
+    assert lexical_canonical_key("videos\\a.mp4") == "videos\\a.mp4"
+    assert lexical_canonical_key("DATA/V1.MP4") == "DATA/V1.MP4"
+    assert S3StorageProvider.canonical_key is StorageProvider.canonical_key
+
+
+def test_f01_traversal_and_null_byte_rejection_unchanged(monkeypatch):
+    """SECURITY: the pre-existing router 403s fire before any identity
+    or provider work; the provider/agent are never reached."""
+    transport = _ScriptedTransport()
+    _install_real_postiz(monkeypatch, transport)
+    for bad in ("../etc/passwd.mp4", "data/../../etc\\passwd", "data/\0v1.mp4"):
+        with pytest.raises(HTTPException) as excinfo:
+            _publish(_payload(asset_storage_path=bad))
+        assert excinfo.value.status_code == 403
+    assert transport.posts_calls == 0
+    assert transport.upload_calls == 0
+
+
+def test_f01_escaping_symlink_keeps_own_identity_not_the_target(monkeypatch):
+    """SECURITY: provider containment refuses the escaping resolution;
+    the fallback keeps the symlink's OWN spelling identity — never the
+    out-of-root target's, never the real in-root asset's."""
+    provider, _, _, outside = _make_provider_root()
+    escape_id = _sid(monkeypatch, provider, "data/escape.mp4")
+    assert escape_id != _sid(monkeypatch, provider, str(outside))
+    assert escape_id != _sid(monkeypatch, provider, "data/storage/v1.mp4")
+    with pytest.raises(ValueError):
+        provider._resolve("data/escape.mp4")  # containment still refuses outright
+
+
+def test_f01_out_of_root_fallback_preserves_existing_workflow(monkeypatch):
+    """Out-of-root references: lexical fallback — normalized absolutes
+    keep their historical raw-derived UUID; junk components normalize."""
+    provider, _, _, outside = _make_provider_root()
+    _install_provider(monkeypatch, provider)
+    p = str(outside)
+    expected = str(uuid.uuid5(_F3_INTENT_IDENTITY_NAMESPACE, f"{p}|postiz|youtube|integ-1"))
+    assert _synthetic_video_id(PublishRequest(**_payload(asset_storage_path=p))) == expected
+    # Junk-component out-of-root spellings join the same fallback family.
+    junk = f"{outside.parent}/./sub//secret.mp4"
+    direct = f"{outside.parent}/sub/secret.mp4"
+    assert _synthetic_video_id(
+        PublishRequest(**_payload(asset_storage_path=junk))
+    ) == _synthetic_video_id(PublishRequest(**_payload(asset_storage_path=direct)))
+
+
+def test_f01_e2e_alias_retry_after_success_hits_duplicate_guard(monkeypatch):
+    """END-TO-END: canonical spelling publishes (SUCCEEDED, one provider
+    post); an ALIAS spelling retry resolves to the SAME family —
+    idempotent duplicate, NO second provider publish, one attempt row."""
+    provider, _, _, _ = _make_provider_root()
+    _install_provider(monkeypatch, provider)
+    transport = _ScriptedTransport()
+    _install_real_postiz(monkeypatch, transport)
+    canonical_kwargs = _payload(asset_storage_path="data/storage/v1.mp4")
+    alias_kwargs = _payload(asset_storage_path="./data//storage/./v1.mp4")
+    synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**canonical_kwargs)))
+    try:
+        first = _publish(canonical_kwargs)
+        assert first.success, first.error
+        assert first.attempt_status == "succeeded"
+        assert transport.posts_calls == 1
+        rows = _attempts_sync(synthetic)
+        assert len(rows) == 1 and rows[0].status == PublicationAttemptStatus.SUCCEEDED
+
+        # The alias derives the identical synthetic id ...
+        assert uuid.UUID(_synthetic_video_id(PublishRequest(**alias_kwargs))) == synthetic
+        # ... so the retry is an idempotent duplicate: no second post.
+        second = _publish(alias_kwargs)
+        assert second.success
+        assert transport.posts_calls == 1
+        assert len(_attempts_sync(synthetic)) == 1
+    finally:
+        _cleanup_sync(synthetic)
+
+
+def test_f01_e2e_alias_submission_while_pending_resolves_same_family(monkeypatch):
+    """END-TO-END: while the canonical family's attempt is PENDING, an
+    alias-spelling submission resolves to the SAME attempt (blocked) —
+    the provider publish is never invoked."""
+    provider, _, _, _ = _make_provider_root()
+    _install_provider(monkeypatch, provider)
+    transport = _ScriptedTransport()
+    _install_real_postiz(monkeypatch, transport)
+    canonical_kwargs = _payload(asset_storage_path="data/storage/v1.mp4")
+    synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**canonical_kwargs)))
+
+    async def _seed_pending():
+        from app.services.publication_attempts import admit_attempt
+
+        engine, session = await _session()
+        try:
+            attempt, created = await admit_attempt(
+                session,
+                video_id=synthetic,
+                platform="postiz",
+                social_platform="youtube",
+                integration_id="integ-1",
+            )
+            assert created is True
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    try:
+        asyncio.run(_seed_pending())
+        resp = _publish(_payload(asset_storage_path="data/link.mp4"))  # symlink alias
+        assert not resp.success
+        assert "pending" in (resp.error or "").lower()
+        assert transport.posts_calls == 0
+        assert len(_attempts_sync(synthetic)) == 1  # same family, no new row
+    finally:
+        _cleanup_sync(synthetic)
