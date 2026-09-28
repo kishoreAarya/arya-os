@@ -344,13 +344,25 @@ class PostizAdapter(PlatformAdapter):
                 elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
                     post_id = data[0].get("id") or data[0].get("postId")
 
+                if post_id is None or not str(post_id).strip():
+                    # Ambiguous success: the provider accepted the request
+                    # (2xx) but returned no parseable post id. The post may
+                    # exist — NEVER fabricate an id (a fabricated id poisons
+                    # the evidence channel and locks the duplicate guard on
+                    # an unresolvable identity). Raise so the operator path
+                    # records UNKNOWN (same contract as 5xx ambiguity).
+                    raise RuntimeError(
+                        f"Postiz post creation succeeded (HTTP {resp.status_code}) "
+                        "but the response contained no parseable post id: outcome ambiguous"
+                    )
+
                 pub_status = "published" if publish_type == "now" else "scheduled"
                 if publish_type == "draft":
                     pub_status = "draft"
 
                 return PublishResult(
                     success=True,
-                    published_content_id=str(post_id or uuid.uuid4()),
+                    published_content_id=str(post_id),
                     publish_status=pub_status,
                     url=f"{self._base_url}/posts/{post_id}" if post_id else None,
                 )
@@ -410,8 +422,22 @@ class PostizAdapter(PlatformAdapter):
                         posts_list = posts_data.get("posts", []) if isinstance(posts_data, dict) else posts_data
                         matching = next((p for p in posts_list if p.get("id") == content_id), None)
                         if matching:
-                            state = (matching.get("state") or matching.get("status") or "ready").lower()
-                            normalized_status = "ready" if state in ("published", "draft", "ready") else "processing"
+                            # Draft is NOT ready — consistent with the direct
+                            # lookup branch: a draft post has not been
+                            # published. A missing state fails closed, never
+                            # ready (evidence integrity for -> SUCCEEDED
+                            # resolutions).
+                            state = str(
+                                matching.get("state") or matching.get("status") or ""
+                            ).strip().lower()
+                            if not state:
+                                return ProcessingStatus(
+                                    status="unknown",
+                                    error="Postiz list fallback matched the post without a state field",
+                                )
+                            normalized_status = (
+                                "ready" if state in ("published", "ready") else "processing"
+                            )
                             return ProcessingStatus(
                                 status=normalized_status,
                                 progress_percent=100.0 if normalized_status == "ready" else 50.0,
@@ -424,7 +450,16 @@ class PostizAdapter(PlatformAdapter):
                     )
 
                 data = resp.json()
-                state = (data.get("status") or "ready").lower()
+                # Fail-closed evidence: a missing provider status is NEVER
+                # interpreted as ready — "ready" (the verification basis for
+                # -> SUCCEEDED resolutions) requires the provider to
+                # actually state the post is published.
+                state = str(data.get("status") or "").strip().lower()
+                if not state:
+                    return ProcessingStatus(
+                        status="unknown",
+                        error="Postiz post response contained no status field",
+                    )
                 normalized_status = "ready" if state in ("published", "ready") else "processing"
                 return ProcessingStatus(
                     status=normalized_status,
