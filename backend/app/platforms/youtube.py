@@ -35,8 +35,10 @@ import socket
 import uuid
 from typing import Any
 
+import httplib2
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.secrets import SecretsManager
 from app.platforms.base import (
@@ -58,6 +60,14 @@ YOUTUBE_URL_FORMAT = "https://www.youtube.com/watch?v={video_id}"
 # Maximum chunk size for resumable upload (256MB)
 MAX_RESUMABLE_CHUNK_SIZE = 256 * 1024 * 1024
 
+# YT-Hardening (ratified): bounded HTTP transport for all YouTube Data
+# API calls, executed OFF the event loop (asyncio.to_thread); transport
+# level auto-retry is DISABLED — non-idempotent uploads (videos.insert)
+# must never be silently re-dispatched. Timeout/transport failures keep
+# the existing truthful failure contract (pre-dispatch connect errors
+# -> FAILED; mid-exchange ambiguity -> UNKNOWN).
+_YOUTUBE_NUM_RETRIES = 0
+
 # Transport failures that provably happen BEFORE any request bytes are
 # sent: no external side effect is possible, so they are retryable
 # pre-dispatch failures (FAILED) rather than ambiguity (UNKNOWN).
@@ -77,6 +87,9 @@ class YouTubeAdapter(PlatformAdapter):
         self._secrets = secrets
         self._credentials: Any | None = None  # google.oauth2.credentials.Credentials
         self._youtube_client: Any | None = None  # googleapiclient.discovery.Resource
+        # YT-Hardening: explicit bounded HTTP timeout for the Data API
+        # transport (httplib2's default is None — unbounded).
+        self._timeout_seconds = float(get_settings().api_timeout_seconds)
 
     # ------------------------------------------------------------------
     # Internal: build authenticated API client
@@ -132,7 +145,10 @@ class YouTubeAdapter(PlatformAdapter):
         return credentials
 
     def _build_api_client(self, credentials: Any | None = None) -> Any:
-        """Build the YouTube API client."""
+        """Build the YouTube API client (YT-Hardening: the transport is an
+        EXPLICIT bounded-timeout httplib2 Http — httplib2's default is
+        None (unbounded) — and transport-level auto-retry is disabled so
+        non-idempotent uploads are never silently re-dispatched)."""
         try:
             from googleapiclient.discovery import build
         except ImportError as exc:
@@ -141,12 +157,16 @@ class YouTubeAdapter(PlatformAdapter):
                 "Add 'google-api-python-client' to dependencies."
             ) from exc
 
+        bounded_http = httplib2.Http(timeout=self._timeout_seconds)
         if credentials:
+            from google_auth_httplib2 import AuthorizedHttp
+
             return build(
                 YOUTUBE_API_SERVICE_NAME,
                 YOUTUBE_API_VERSION,
-                credentials=credentials,
+                http=AuthorizedHttp(credentials, http=bounded_http),
                 cache_discovery=False,
+                num_retries=_YOUTUBE_NUM_RETRIES,
             )
 
         # API key path (read-only)
@@ -158,7 +178,9 @@ class YouTubeAdapter(PlatformAdapter):
             YOUTUBE_API_SERVICE_NAME,
             YOUTUBE_API_VERSION,
             developerKey=api_key,
+            http=bounded_http,
             cache_discovery=False,
+            num_retries=_YOUTUBE_NUM_RETRIES,
         )
 
     # ------------------------------------------------------------------
@@ -168,8 +190,12 @@ class YouTubeAdapter(PlatformAdapter):
     async def authenticate(self) -> AuthResult:
         """Authenticate with YouTube via OAuth2 or API key."""
         try:
-            self._credentials = self._build_credentials()
-            self._youtube_client = self._build_api_client(self._credentials)
+            # YT-Hardening: token refresh and client build are synchronous
+            # network/CPU work — run them OFF the event loop.
+            self._credentials = await asyncio.to_thread(self._build_credentials)
+            self._youtube_client = await asyncio.to_thread(
+                self._build_api_client, self._credentials
+            )
 
             logger.info(
                 "youtube_adapter_authenticated",
@@ -262,10 +288,13 @@ class YouTubeAdapter(PlatformAdapter):
                 media_body=media,
             )
 
-            # Execute resumable upload with progress tracking
+            # Execute resumable upload with progress tracking (off the
+            # event loop; no transport auto-retry).
             response = None
             while response is None:
-                status, response = insert_request.next_chunk()
+                status, response = await asyncio.to_thread(
+                    insert_request.next_chunk, num_retries=_YOUTUBE_NUM_RETRIES
+                )
                 if status:
                     logger.info(
                         "youtube_adapter_upload_progress",
@@ -362,10 +391,11 @@ class YouTubeAdapter(PlatformAdapter):
 
             media = MediaFileUpload(thumbnail_path, mimetype="image/jpeg")
 
-            self._youtube_client.thumbnails().set(
+            set_request = self._youtube_client.thumbnails().set(
                 videoId=video_content_id,
                 media_body=media,
-            ).execute()
+            )
+            await asyncio.to_thread(set_request.execute, num_retries=_YOUTUBE_NUM_RETRIES)
 
             logger.info(
                 "youtube_adapter_thumbnail_upload_complete",
@@ -457,7 +487,7 @@ class YouTubeAdapter(PlatformAdapter):
         try:
             from googleapiclient.errors import HttpError
 
-            self._youtube_client.videos().update(
+            update_request = self._youtube_client.videos().update(
                 part="status",
                 body={
                     "id": content_id,
@@ -466,7 +496,8 @@ class YouTubeAdapter(PlatformAdapter):
                         "embeddable": True,
                     },
                 },
-            ).execute()
+            )
+            await asyncio.to_thread(update_request.execute, num_retries=_YOUTUBE_NUM_RETRIES)
 
             logger.info(
                 "youtube_adapter_publish_complete",
@@ -534,10 +565,11 @@ class YouTubeAdapter(PlatformAdapter):
                 return ProcessingStatus(status="failed", error=auth_result.error)
 
         try:
-            response = (
-                self._youtube_client.videos()
-                .list(part="processingDetails,status", id=content_id)
-                .execute()
+            list_request = self._youtube_client.videos().list(
+                part="processingDetails,status", id=content_id
+            )
+            response = await asyncio.to_thread(
+                list_request.execute, num_retries=_YOUTUBE_NUM_RETRIES
             )
 
             items = response.get("items", [])
@@ -640,10 +672,11 @@ class YouTubeAdapter(PlatformAdapter):
                 return {"error": auth_result.error}
 
         try:
-            response = (
-                self._youtube_client.videos()
-                .list(part="statistics", id=published_content_id)
-                .execute()
+            list_request = self._youtube_client.videos().list(
+                part="statistics", id=published_content_id
+            )
+            response = await asyncio.to_thread(
+                list_request.execute, num_retries=_YOUTUBE_NUM_RETRIES
             )
 
             items = response.get("items", [])

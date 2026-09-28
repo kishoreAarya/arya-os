@@ -48,10 +48,14 @@ def _http_error(code: int) -> HttpError:
 class _InsertRequest:
     """videos().insert(...) request with scripted next_chunk()."""
 
-    def __init__(self, behavior):
+    def __init__(self, behavior, script=None):
         self._behavior = behavior
+        self._script = script
 
-    def next_chunk(self):
+    def next_chunk(self, num_retries=None):
+        if self._script is not None:
+            # YT-Hardening wiring proof: transport auto-retry is explicit.
+            self._script.last_insert_num_retries = num_retries
         kind, payload = self._behavior
         if kind == "raise":
             raise payload
@@ -63,10 +67,13 @@ class _InsertRequest:
 class _UpdateRequest:
     """videos().update(...) request with scripted execute()."""
 
-    def __init__(self, behavior):
+    def __init__(self, behavior, script=None):
         self._behavior = behavior
+        self._script = script
 
-    def execute(self):
+    def execute(self, num_retries=None):
+        if self._script is not None:
+            self._script.last_update_num_retries = num_retries
         kind, payload = self._behavior
         if kind == "raise":
             raise payload
@@ -78,10 +85,13 @@ class _UpdateRequest:
 class _SetRequest:
     """thumbnails().set(...) request with scripted execute()."""
 
-    def __init__(self, behavior):
+    def __init__(self, behavior, script=None):
         self._behavior = behavior
+        self._script = script
 
-    def execute(self):
+    def execute(self, num_retries=None):
+        if self._script is not None:
+            self._script.last_set_num_retries = num_retries
         kind, payload = self._behavior
         if kind == "raise":
             raise payload
@@ -98,7 +108,8 @@ class _ListRequest:
     def __init__(self, script):
         self._script = script
 
-    def execute(self):
+    def execute(self, num_retries=None):
+        self._script.last_list_num_retries = num_retries
         if isinstance(self._script.list_response, Exception):
             raise self._script.list_response
         return self._script.list_response
@@ -113,13 +124,13 @@ class _Videos:
         self._counters["insert_calls"] += 1
         # F-04a: record the dispatch body (upload staging visibility).
         self._script.last_insert_body = body
-        return _InsertRequest(self._script.upload_behavior)
+        return _InsertRequest(self._script.upload_behavior, self._script)
 
     def update(self, *, part, body):
         self._counters["update_calls"] += 1
         # F-04a: record the dispatch body (publication visibility).
         self._script.last_update_body = body
-        return _UpdateRequest(self._script.publish_behavior)
+        return _UpdateRequest(self._script.publish_behavior, self._script)
 
     def list(self, *, part, id):
         # Recorded on the SCRIPT, not the counters dict (existing tests
@@ -186,6 +197,11 @@ class _Script:
         # F-04a dispatch-body recording (kept OFF the counters dict).
         self.last_insert_body = None
         self.last_update_body = None
+        # YT-Hardening wiring recording (kept OFF the counters dict).
+        self.last_insert_num_retries = None
+        self.last_update_num_retries = None
+        self.last_set_num_retries = None
+        self.last_list_num_retries = None
         self.counters = {"insert_calls": 0, "update_calls": 0, "thumbnail_calls": 0}
 
 
@@ -1048,3 +1064,131 @@ def test_f05a_unscheduled_youtube_publication_remains_unchanged(monkeypatch):
             assert "publishAt" not in script.last_update_body["status"]
         finally:
             asyncio.run(_cleanup(synthetic))
+
+
+# ---------------------------------------------------------------------------
+# YT-Hardening: bounded, off-loop YouTube client — the event loop stays
+# responsive during slow calls; transport auto-retry is explicitly disabled;
+# timeout/transport failure classification is unchanged (UNKNOWN, retry
+# blocked).
+# ---------------------------------------------------------------------------
+
+
+def test_yt_hardening_event_loop_stays_responsive_during_slow_calls(monkeypatch):
+    """A slow (0.8s) blocking videos.update — previously the synchronous
+    call FROZE the whole event loop — now runs OFF the loop: a concurrent
+    heartbeat task keeps beating throughout the publication."""
+    import time
+
+    class _SlowUpdate:
+        def execute(self, num_retries=None):
+            time.sleep(0.8)  # blocking, but now inside a worker thread
+            return {}
+
+    class _SlowVideos:
+        def insert(self, *, part, body, media_body):
+            class _IR:
+                def __init__(self):
+                    self._done = False
+
+                def next_chunk(self, num_retries=None):
+                    if self._done:
+                        return None, {"id": "yt-slow-1"}
+                    self._done = True
+                    return None, None
+
+            return _IR()
+
+        def update(self, *, part, body):
+            return _SlowUpdate()
+
+    class _SlowClient:
+        def videos(self):
+            return _SlowVideos()
+
+    client = _SlowClient()
+    monkeypatch.setattr(
+        "app.agents.publishing.get_platform_adapter",
+        lambda platform, db, secrets=None: YouTubeAdapter(db=db, secrets=_FakeSecrets()),
+    )
+    monkeypatch.setattr(YouTubeAdapter, "_build_credentials", lambda self: {"api_key": "k"})
+    monkeypatch.setattr(
+        YouTubeAdapter, "_build_api_client", lambda self, credentials=None: client
+    )
+
+    video_uuid = uuid.uuid4()
+    heartbeats = {"n": 0}
+
+    async def _inner():
+        async def heartbeat():
+            while True:
+                heartbeats["n"] += 1
+                await asyncio.sleep(0.02)
+
+        hb = asyncio.create_task(heartbeat())
+        await asyncio.sleep(0.2)
+        before = heartbeats["n"]
+        t0 = time.monotonic()
+        engine, session = await _session()
+        try:
+            result = await PublishingAgent(db=session).run(_ctx(video_uuid))
+        finally:
+            await session.close()
+            await engine.dispose()
+        elapsed = time.monotonic() - t0
+        during = heartbeats["n"] - before
+        hb.cancel()
+        return result, elapsed, during
+
+    result, elapsed, during = asyncio.run(_inner())
+    try:
+        assert result.success, result.error
+        assert elapsed >= 0.8  # the slow call really ran
+        # The loop stayed responsive throughout (the pre-hardening sync
+        # call froze it completely: zero heartbeats during the call).
+        assert during >= 15, f"heartbeats during call: {during}"
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert rows[0].status == PublicationAttemptStatus.SUCCEEDED
+    finally:
+        asyncio.run(_cleanup(video_uuid))
+
+
+def test_yt_hardening_transport_auto_retry_disabled_wiring(monkeypatch):
+    """num_retries=0 is passed EXPLICITLY at every dispatch site (insert
+    chunk upload, publish update, evidence lookup) — transport-level
+    auto-retry can never silently re-dispatch a non-idempotent upload."""
+    script = _Script()
+    _install_real_youtube(monkeypatch, script)
+    video_uuid = uuid.uuid4()
+    try:
+        result = _run_agent(_ctx(video_uuid))
+        assert result.success, result.error
+        assert script.last_insert_num_retries == 0
+        assert script.last_update_num_retries == 0
+        processing = _yt_check()
+        assert processing.status == "ready"
+        assert script.last_list_num_retries == 0
+    finally:
+        asyncio.run(_cleanup(video_uuid))
+
+
+def test_yt_hardening_timeout_classification_preserved(monkeypatch):
+    """A transport timeout on the publish call (now surfacing through
+    asyncio.to_thread) keeps the ratified classification: mid-exchange
+    ambiguity -> UNKNOWN, retry blocked, exactly one dispatch."""
+    script = _Script(publish=("raise", TimeoutError("timed out mid-update")))
+    _install_real_youtube(monkeypatch, script)
+    video_uuid = uuid.uuid4()
+    ctx = _ctx(video_uuid)
+    try:
+        first = _run_agent(ctx)
+        assert not first.success and "UNKNOWN" in first.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.UNKNOWN]
+        assert script.counters["update_calls"] == 1
+
+        second = _run_agent(ctx)
+        assert not second.success and "AMBIGUOUS" in second.error
+        assert script.counters["update_calls"] == 1  # never re-dispatched
+    finally:
+        asyncio.run(_cleanup(video_uuid))
