@@ -47,6 +47,28 @@ class PublishRequest(BaseModel):
     video_id: str | None = Field(default=None, description="Associated Video DB row ID")
 
 
+# F3 stable intent identity: fixed namespace for server-derived synthetic
+# video ids on publication requests that omit video_id. FROZEN — changing
+# this UUID fragments existing synthetic intent families.
+_F3_INTENT_IDENTITY_NAMESPACE = uuid.UUID("99ef57ad-ddb1-4c59-9f21-6bbdf7ced191")
+
+
+def _synthetic_video_id(payload: PublishRequest) -> str:
+    """Deterministic identity for a publication request that omits
+    video_id (F3): asset + publication destination via the existing
+    intent family (mirrors services/publication_attempts.py
+    derive_intent_key). An identical client retry derives the identical
+    UUID, so the durable admission guard (duplicate/blocking/retry
+    semantics) applies. Mutable publication parameters (title, caption,
+    scheduled_at, publish time) never participate. Server-derived only —
+    never client-controlled. UUIDv5, not hash() (process-randomized)."""
+    identity = (
+        f"{payload.asset_storage_path}|{payload.platform}"
+        f"|{payload.social_platform}|{payload.integration_id or ''}"
+    )
+    return str(uuid.uuid5(_F3_INTENT_IDENTITY_NAMESPACE, identity))
+
+
 class PublishResponse(BaseModel):
     success: bool
     platform: str
@@ -113,7 +135,7 @@ async def publish_asset(
     agent = PublishingAgent(db=db)
     context = {
         "platform": payload.platform,
-        "video_id": payload.video_id or str(uuid.uuid4()),
+        "video_id": payload.video_id or _synthetic_video_id(payload),
         "video_storage_path": payload.asset_storage_path,
         "title": payload.title,
         "description": payload.caption,
