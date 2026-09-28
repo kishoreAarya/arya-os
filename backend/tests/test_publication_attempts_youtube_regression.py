@@ -750,3 +750,74 @@ def test_f08_resolution_succeeds_on_verified_public_video(monkeypatch):
         assert audit["verification"]["provider_status"] == "ready"
     finally:
         asyncio.run(_cleanup(vu))
+
+
+# ---------------------------------------------------------------------------
+# F-02a: evidence-gated FAILED resolutions — anchored YouTube matrix
+# (one-sided: refuse only on verified-public "ready"; all other outcomes
+# leave the operator attestation authoritative)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "processing_status,privacy,refused",
+    [
+        ("succeeded", "public", True),    # 1. verified publicly live -> REFUSED
+        ("succeeded", "private", False),  # 2. private -> attestation authoritative
+        ("succeeded", "unlisted", False), # 3. unlisted -> allowed
+        ("processing", "public", False),  # 4. still processing -> allowed
+        ("failed", None, False),          # 5. failed/not-found -> allowed
+    ],
+)
+def test_f02a_youtube_anchored_failed_matrix(monkeypatch, processing_status, privacy, refused):
+    from app.services import publication_attempt_reconciliation as recon
+
+    script = _Script(list_response=_evidence_items(processing_status, privacy))
+    _install_real_youtube(monkeypatch, script)
+    _install_recon_youtube(monkeypatch)
+    aid, vu = _make_yt_attempt(PublicationAttemptStatus.UNKNOWN)
+    try:
+        if refused:
+            with pytest.raises(recon.VerificationFailedError) as excinfo:
+                _svc_resolve(
+                    aid,
+                    from_status=PublicationAttemptStatus.UNKNOWN,
+                    to_status=PublicationAttemptStatus.FAILED,
+                    attestation="operator believes no post exists",
+                )
+            assert "publicly live" in str(excinfo.value)
+            rows = asyncio.run(_attempts_for(vu))
+            assert rows[0].status == PublicationAttemptStatus.UNKNOWN  # unchanged
+        else:
+            attempt, audit = _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.UNKNOWN,
+                to_status=PublicationAttemptStatus.FAILED,
+                attestation="verified no public post",
+            )
+            assert attempt.status == PublicationAttemptStatus.FAILED
+            assert audit["verification"]["gate"] == "failed_resolution_evidence"
+    finally:
+        asyncio.run(_cleanup(vu))
+
+
+def test_f02a_youtube_evidence_api_error_allows_failed(monkeypatch):
+    """6. Evidence lookup raising (API/transport error) never blocks the
+    manual FAILED resolution."""
+    from app.services import publication_attempt_reconciliation as recon
+
+    script = _Script(list_response=RuntimeError("youtube api broke during lookup"))
+    _install_real_youtube(monkeypatch, script)
+    _install_recon_youtube(monkeypatch)
+    aid, vu = _make_yt_attempt(PublicationAttemptStatus.UNKNOWN)
+    try:
+        attempt, audit = _svc_resolve(
+            aid,
+            from_status=PublicationAttemptStatus.UNKNOWN,
+            to_status=PublicationAttemptStatus.FAILED,
+            attestation="verified no public post",
+        )
+        assert attempt.status == PublicationAttemptStatus.FAILED
+        assert audit["verification"]["gate"] == "failed_resolution_evidence"
+    finally:
+        asyncio.run(_cleanup(vu))

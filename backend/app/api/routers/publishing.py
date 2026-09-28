@@ -358,7 +358,10 @@ async def resolve_publication_attempt(
     in-resolve provider verification (UNKNOWN and stale IN_PROGRESS
     sources); PENDING/IN_PROGRESS -> FAILED additionally requires force
     and an attestation; every active-execution source enforces the
-    staleness floor."""
+    staleness floor. -> FAILED on an anchored attempt is refused if the
+    provider evidence lookup reports the publication publicly live
+    (contradicting the attestation); all other evidence outcomes leave
+    the attestation authoritative."""
     try:
         attempt, _audit = await recon.resolve_attempt(
             db,

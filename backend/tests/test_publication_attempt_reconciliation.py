@@ -114,6 +114,14 @@ class _PostizScript:
                     json={"posts": [{"id": "media-1", "state": "published"}]},
                     request=httpx.Request("GET", url),
                 )
+            if self.check == "notfound_draft_match":
+                # F-02a fixture: matched DRAFT post in the 30-day list —
+                # non-public evidence (processing since d719df4).
+                return httpx.Response(
+                    200,
+                    json={"posts": [{"id": "media-1", "state": "draft"}]},
+                    request=httpx.Request("GET", url),
+                )
             return httpx.Response(200, json={"posts": []}, request=httpx.Request("GET", url))
         # specific-post status lookup
         if self.check == "ready":
@@ -442,7 +450,9 @@ def test_active_execution_floor_blocks_fresh_pending_and_in_progress(monkeypatch
 
 
 def test_unknown_to_failed_requires_attestation_and_preserves_error(monkeypatch):
-    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    # F-02a: non-public fixture evidence — this test exercises the
+    # attestation contract, not evidence gating.
+    _install_real_postiz(monkeypatch, _PostizScript(check="processing"))
     aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=True))
     try:
         attempt, audit = _svc_resolve(
@@ -541,7 +551,9 @@ def test_cas_refuses_on_from_status_mismatch(monkeypatch):
 
 
 def test_concurrent_resolutions_exactly_one_wins(monkeypatch):
-    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    # F-02a: non-public fixture evidence — this test exercises the CAS
+    # arbitration, not evidence gating.
+    _install_real_postiz(monkeypatch, _PostizScript(check="processing"))
     aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=True))
 
     async def _one():
@@ -731,7 +743,11 @@ def test_credentials_never_persist_or_leak(monkeypatch):
 
 
 def test_e2e_unknown_resolved_failed_then_retry_admitted_as_n_plus_1(monkeypatch):
-    script = _PostizScript(check="ready", publish=("raise", httpx.ReadTimeout("dropped after submit")))
+    # F-02a: non-public fixture evidence — this e2e exercises the
+    # resolve(FAILED) -> retry-as-n+1 flow, not evidence gating.
+    script = _PostizScript(
+        check="processing", publish=("raise", httpx.ReadTimeout("dropped after submit"))
+    )
     _install_real_postiz(monkeypatch, script)
     video_uuid = uuid.uuid4()
     ctx = _ctx(video_uuid)
@@ -974,7 +990,9 @@ def test_race_operator_failed_resolution_survives_late_agent_success(monkeypatch
     execution then wakes up after its publish call and fires
     mark_succeeded — the CAS refuses: the FAILED resolution stands, no
     external ids are written, exactly one audit event exists."""
-    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    # F-02a: non-public fixture evidence — this test exercises the H1
+    # race guarantee, not evidence gating.
+    _install_real_postiz(monkeypatch, _PostizScript(check="processing"))
     aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.IN_PROGRESS, anchor=True))
     asyncio.run(_age_attempt(aid, hours=1))
     try:
@@ -1094,3 +1112,290 @@ def test_race_operator_force_fail_blocks_irreversible_publish_permit(monkeypatch
         assert rows[0].external_post_id is None
     finally:
         asyncio.run(_cleanup(video_uuid))
+
+
+# ---------------------------------------------------------------------------
+# 10. F-02a: evidence-gated FAILED resolutions (one-sided)
+# ---------------------------------------------------------------------------
+
+
+def test_f02a_postiz_anchored_ready_refuses_failed_resolution(monkeypatch):
+    """Matrix 7 + 11a: anchored Postiz attempt whose provider evidence is
+    'ready' (post state published) — the FAILED resolution is REFUSED
+    (the attestation is contradicted); nothing is written, no audit
+    event exists, the attempt is unchanged. Both UNKNOWN and aged
+    IN_PROGRESS sources."""
+    made = []
+    try:
+        for status, age in (
+            (PublicationAttemptStatus.UNKNOWN, False),
+            (PublicationAttemptStatus.IN_PROGRESS, True),
+        ):
+            _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+            aid, vu = asyncio.run(_make_attempt(status, anchor=True))
+            made.append((aid, vu))
+            if age:
+                asyncio.run(_age_attempt(aid, hours=1))
+            with pytest.raises(recon.VerificationFailedError) as excinfo:
+                _svc_resolve(
+                    aid,
+                    from_status=status,
+                    to_status=PublicationAttemptStatus.FAILED,
+                    attestation="operator believes no post exists",
+                    force=age,
+                )
+            assert "publicly live" in str(excinfo.value)
+            rows = asyncio.run(_attempts_for(vu))
+            assert rows[0].status == status  # unchanged
+            assert rows[0].external_post_id is None
+            assert len(asyncio.run(_audit_for(aid))) == 0  # nothing written
+    finally:
+        for aid, vu in made:
+            asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_f02a_postiz_non_public_evidence_allows_failed(monkeypatch):
+    """Matrix 8: anchored Postiz attempt with non-public evidence —
+    processing (direct), and draft via the 404/list fallback (mapped to
+    processing since d719df4) — the attestation stays authoritative."""
+    made = []
+    try:
+        # Direct lookup: processing.
+        _install_real_postiz(monkeypatch, _PostizScript(check="processing"))
+        aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=True))
+        made.append((aid, vu))
+        attempt, audit = _svc_resolve(
+            aid,
+            from_status=PublicationAttemptStatus.UNKNOWN,
+            to_status=PublicationAttemptStatus.FAILED,
+            attestation="verified no public post",
+        )
+        assert attempt.status == PublicationAttemptStatus.FAILED
+        assert audit["verification"] == {
+            "gate": "failed_resolution_evidence",
+            "provider_status": "processing",
+        }
+
+        # Fallback branch: matched DRAFT post -> processing (not ready).
+        _install_real_postiz(monkeypatch, _PostizScript(check="notfound_draft_match"))
+        aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=True))
+        made.append((aid, vu))
+        attempt, _ = _svc_resolve(
+            aid,
+            from_status=PublicationAttemptStatus.UNKNOWN,
+            to_status=PublicationAttemptStatus.FAILED,
+            attestation="verified draft was never published",
+        )
+        assert attempt.status == PublicationAttemptStatus.FAILED
+    finally:
+        for aid, vu in made:
+            asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_f02a_postiz_unavailable_or_notfound_evidence_allows_failed(monkeypatch):
+    """Matrix 9: anchored Postiz attempt where evidence is unavailable
+    (server error -> adapter 'unknown') or not-found-no-match (adapter
+    'failed', e.g. media-id addressing) — the attestation stays
+    authoritative; provider availability is never a prerequisite."""
+    made = []
+    try:
+        for check_script in ("server_error", "notfound_nomatch"):
+            _install_real_postiz(monkeypatch, _PostizScript(check=check_script))
+            aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=True))
+            made.append((aid, vu))
+            attempt, audit = _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.UNKNOWN,
+                to_status=PublicationAttemptStatus.FAILED,
+                attestation="verified no public post",
+            )
+            assert attempt.status == PublicationAttemptStatus.FAILED
+            assert audit["verification"]["gate"] == "failed_resolution_evidence"
+    finally:
+        for aid, vu in made:
+            asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_f02a_evidence_adapter_failure_allows_failed(monkeypatch):
+    """Matrix 6/9 (hard-failure variant): the evidence lookup itself
+    raising (adapter construction/transport failure) never blocks the
+    manual FAILED resolution."""
+
+    def _broken_get_platform_adapter(platform, db, secrets=None):
+        raise RuntimeError("provider adapter unavailable")
+
+    monkeypatch.setattr(
+        "app.services.publication_attempt_reconciliation.get_platform_adapter",
+        _broken_get_platform_adapter,
+    )
+    aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=True))
+    try:
+        attempt, audit = _svc_resolve(
+            aid,
+            from_status=PublicationAttemptStatus.UNKNOWN,
+            to_status=PublicationAttemptStatus.FAILED,
+            attestation="verified no public post",
+        )
+        assert attempt.status == PublicationAttemptStatus.FAILED
+        assert audit["verification"] == {
+            "gate": "failed_resolution_evidence",
+            "provider_status": None,
+        }
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_f02a_unanchored_attempt_makes_no_provider_call(monkeypatch):
+    """Matrix 10 + 11b: unanchored attempts keep today's behavior with
+    ZERO provider calls (publish was never dispatchable — the
+    attestation is mechanically sound)."""
+
+    def _forbidden_adapter(platform, db, secrets=None):
+        raise AssertionError("evidence gate must not call the provider for unanchored attempts")
+
+    monkeypatch.setattr(
+        "app.services.publication_attempt_reconciliation.get_platform_adapter",
+        _forbidden_adapter,
+    )
+    made = []
+    try:
+        for status, age in (
+            (PublicationAttemptStatus.UNKNOWN, False),
+            (PublicationAttemptStatus.PENDING, True),
+            (PublicationAttemptStatus.IN_PROGRESS, True),
+        ):
+            aid, vu = asyncio.run(_make_attempt(status, anchor=False))
+            made.append((aid, vu))
+            if age:
+                asyncio.run(_age_attempt(aid, hours=1))
+            attempt, audit = _svc_resolve(
+                aid,
+                from_status=status,
+                to_status=PublicationAttemptStatus.FAILED,
+                attestation="no post could exist (never dispatched)",
+                force=age,
+            )
+            assert attempt.status == PublicationAttemptStatus.FAILED
+            assert audit["verification"] == {}  # gate did not run
+    finally:
+        for aid, vu in made:
+            asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_f02a_aged_in_progress_non_public_evidence_allows_failed(monkeypatch):
+    """Matrix 12: anchored, aged IN_PROGRESS force-fail with non-public
+    evidence — the full existing guard chain (floor/force/attestation)
+    plus the gate's fall-through."""
+    _install_real_postiz(monkeypatch, _PostizScript(check="processing"))
+    aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.IN_PROGRESS, anchor=True))
+    try:
+        # Fresh row: the floor still refuses.
+        with pytest.raises(recon.ActiveExecutionError):
+            _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.IN_PROGRESS,
+                to_status=PublicationAttemptStatus.FAILED,
+                attestation="verified no public post",
+                force=True,
+            )
+        # Aged past the floor: non-public evidence falls through and the
+        # existing guard chain (force+attestation) admits the resolution.
+        asyncio.run(_age_attempt(aid, hours=1))
+        attempt, _ = _svc_resolve(
+            aid,
+            from_status=PublicationAttemptStatus.IN_PROGRESS,
+            to_status=PublicationAttemptStatus.FAILED,
+            attestation="verified no public post",
+            force=True,
+        )
+        assert attempt.status == PublicationAttemptStatus.FAILED
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_f02a_characterization_mechanical_guarantee_vs_external_risk(monkeypatch):
+    """F-02 characterization (design §9), deterministic (aging via
+    updated_at, no sleeps): the complete mechanical sequence and its
+    guarantee boundary — the state machine refuses every late mutation
+    and admits attempt B; whether B's dispatch duplicates an external
+    publication is OUTSIDE the state machine (the ratified F-02
+    residual)."""
+    script = _PostizScript(
+        check="processing", publish=("raise", httpx.ReadTimeout("dropped after submit"))
+    )
+    _install_real_postiz(monkeypatch, script)
+    video_uuid = uuid.uuid4()
+    ctx = _ctx(video_uuid)
+    try:
+        # A: admission -> anchor -> permit -> dispatch outcome unresolved.
+        first = _run_agent(ctx)
+        assert not first.success and "UNKNOWN" in first.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.UNKNOWN]
+        attempt_id = rows[0].id
+
+        # Immediate force-fail of a FRESH in-flight execution is refused
+        # by the floor (separate in-flight family, same evidence script).
+        inflight_vu = uuid.uuid4()
+
+        async def _make_in_progress():
+            from app.services.publication_attempts import admit_attempt, mark_in_progress
+
+            engine, session = await _session()
+            try:
+                a, _ = await admit_attempt(
+                    session,
+                    video_id=inflight_vu,
+                    platform="postiz",
+                    social_platform="youtube",
+                    integration_id="integ-1",
+                )
+                a.external_content_id = "media-1"
+                await session.commit()
+                assert await mark_in_progress(session, a) is True
+                return a.id
+            finally:
+                await session.close()
+                await engine.dispose()
+
+        inflight_id = asyncio.run(_make_in_progress())
+        with pytest.raises(recon.ActiveExecutionError):
+            _svc_resolve(
+                inflight_id,
+                from_status=PublicationAttemptStatus.IN_PROGRESS,
+                to_status=PublicationAttemptStatus.FAILED,
+                attestation="too early",
+                force=True,
+            )
+
+        # UNKNOWN -> FAILED with non-public evidence + attestation.
+        attempt, _audit = _svc_resolve(
+            attempt_id,
+            from_status=PublicationAttemptStatus.UNKNOWN,
+            to_status=PublicationAttemptStatus.FAILED,
+            attestation="operator attests: no public post was created",
+        )
+        assert attempt.status == PublicationAttemptStatus.FAILED
+
+        # Late agent terminal attempts: every mutation refused.
+        assert _late_agent_transition(attempt_id, "succeeded", external_post_id="post-late", public_url="u") is False
+        assert _late_agent_transition(attempt_id, "unknown", reason="late") is False
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.FAILED]
+        assert len(asyncio.run(_audit_for(attempt_id))) == 1
+
+        # B: admitted as n+1 — the mechanical guarantee ends here; the
+        # duplicate question is about the external world.
+        script.publish = ("ok", "post-B")
+        second = _run_agent(ctx)
+        assert second.success, second.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.attempt_number for r in rows] == [1, 2]
+        assert [r.status for r in rows] == [
+            PublicationAttemptStatus.FAILED,
+            PublicationAttemptStatus.SUCCEEDED,
+        ]
+        assert script.posts_calls == 2  # A dispatched once; B dispatched once (structurally permitted)
+    finally:
+        asyncio.run(_cleanup(video_uuid, (attempt_id,)))
+        asyncio.run(_cleanup(inflight_vu, (inflight_id,)))

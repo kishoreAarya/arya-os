@@ -20,6 +20,20 @@ Rules (explicit transition matrix):
   execution transition rewrites updated_at; provider timeouts are
   seconds). A fresh row is never resolved underneath a possibly-active
   execution.
+- F-02a — evidence-gated FAILED resolutions (one-sided): any -> FAILED
+  resolution of an ANCHORED attempt consults the existing read-only
+  provider evidence lookup (check_processing against the persisted
+  external_content_id anchor) after the guards above and before the
+  terminal CAS. If the evidence positively reports the publication
+  publicly live ("ready" — Postiz post state published/ready, or
+  YouTube processing succeeded AND public), the FAILED resolution is
+  REFUSED (the attestation is contradicted). Every other outcome —
+  processing, failed, not-found, unknown, missing evidence, provider
+  error or unavailability — leaves the operator attestation
+  authoritative. Unanchored attempts make no provider call. Ratified
+  residual: this narrows but does not eliminate the F-02 epistemic
+  race (TOCTOU between lookup and CAS; provider-side late completion;
+  unanchored-but-dispatched attempts bypass the gate).
 - IN_PROGRESS -> SUCCEEDED (H2, evidence-based): requires the external
   post id AND the same fail-closed in-resolve provider verification as
   UNKNOWN -> SUCCEEDED AND the active-execution floor — the crash
@@ -271,7 +285,11 @@ async def resolve_attempt(
     """Resolve one blocking attempt via conditional CAS update.
 
     Returns (refreshed_attempt, audit_payload). Raises the typed
-    ReconciliationError subclasses for every refusal path.
+    ReconciliationError subclasses for every refusal path. FAILED
+    resolutions of anchored attempts are evidence-gated (F-02a):
+    refused only when the provider positively reports the publication
+    publicly live; every other evidence outcome leaves the operator
+    attestation authoritative.
     """
     attempt = await _get_attempt(db, attempt_id)
     _validate_transition(
@@ -288,6 +306,51 @@ async def resolve_attempt(
         PublicationAttemptStatus.IN_PROGRESS,
     ):
         verification = await _verify_ready_with_provider(db, attempt)
+
+    # F-02a — evidence-gated FAILED resolutions (one-sided). For an
+    # ANCHORED attempt, consult the existing provider evidence lookup
+    # after all force/floor/attestation guards and BEFORE the terminal
+    # CAS: if the provider POSITIVELY reports the publication publicly
+    # live ("ready"), the FAILED resolution is refused — the operator
+    # may resolve -> SUCCEEDED on that evidence or remove the external
+    # publication first. Every other outcome (processing, failed,
+    # not-found, unknown, missing evidence, provider error or
+    # unavailability) leaves the operator attestation authoritative:
+    # the transition proceeds unchanged. The gate never converts
+    # evidence into SUCCEEDED, never runs for SUCCEEDED resolutions,
+    # makes no provider call for unanchored attempts, and does not
+    # alter the CAS below. RATIFIED RESIDUAL: the epistemic race is
+    # narrowed, not eliminated — the publication may become public
+    # between this lookup and the terminal CAS (TOCTOU), provider-side
+    # late application remains possible, and rare
+    # unanchored-but-dispatched attempts (anchor-write failure) bypass
+    # the gate entirely.
+    if to_status == PublicationAttemptStatus.FAILED and attempt.external_content_id:
+        gate_evidence = None
+        try:
+            adapter = get_platform_adapter(attempt.platform, db)
+            gate_evidence = await adapter.check_processing(
+                content_id=attempt.external_content_id
+            )
+        except Exception as exc:  # noqa: BLE001 — provider unavailable: the attestation stays authoritative
+            logger.warning(
+                "publication_attempt_failed_gate_evidence_unavailable",
+                attempt_id=str(attempt_id),
+                error=str(exc),
+            )
+        verification = {
+            "gate": "failed_resolution_evidence",
+            "provider_status": gate_evidence.status if gate_evidence else None,
+        }
+        if gate_evidence is not None and gate_evidence.status == "ready":
+            raise VerificationFailedError(
+                f"provider evidence reports the publication for anchor "
+                f"{attempt.external_content_id!r} as publicly live "
+                "(check_processing status: 'ready') — the FAILED attestation "
+                "('no public post was created') is contradicted. Resolve to "
+                "SUCCEEDED on this evidence or remove the external "
+                "publication first."
+            )
 
     values = {"status": to_status, "updated_at": datetime.now(timezone.utc)}
     if to_status == PublicationAttemptStatus.SUCCEEDED:
