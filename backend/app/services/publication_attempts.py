@@ -128,6 +128,12 @@ async def admit_attempt(
         attempt_number=next_number,
         status=PublicationAttemptStatus.PENDING,
         scheduled_at=scheduled_at,
+        # F-12a (ratified): stamp updated_at EXPLICITLY with the
+        # application clock — the same authority every execution
+        # transition, resolution, and the active-execution floor use —
+        # so the floor never compares against a DB-stamped value. The
+        # database server_default remains as a fallback only.
+        updated_at=datetime.now(timezone.utc),
     )
     db.add(attempt)
     try:

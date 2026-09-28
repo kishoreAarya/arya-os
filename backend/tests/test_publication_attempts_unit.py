@@ -1091,3 +1091,52 @@ def test_f10a_heal_failure_is_nonfatal_on_duplicate(monkeypatch):
             asyncio.run(_wipe_video_row(*made))
             asyncio.run(_cleanup_attempts(made[2]))
         asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_f12a_admission_stamp_comes_from_the_application_clock():
+    """F-12a: the admission row's updated_at is stamped EXPLICITLY with
+    the APPLICATION clock — the same authority the active-execution
+    floor compares against — instead of the database server_default.
+    Discriminator: the in-memory instance carries the stamp immediately
+    after commit (a server_default would leave it None until a refresh),
+    and the stamp lies strictly between app-clock samples taken around
+    the admission."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.services.publication_attempts import admit_attempt
+
+    video_uuid = uuid.uuid4()
+
+    async def _inner():
+        engine, session = await _session()
+        try:
+            t0 = datetime.now(timezone.utc)
+            attempt, created = await admit_attempt(
+                session,
+                video_id=video_uuid,
+                platform="postiz",
+                social_platform="youtube",
+                integration_id=None,
+            )
+            t1 = datetime.now(timezone.utc)
+            return attempt, created, t0, t1
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    attempt, created, t0, t1 = asyncio.run(_inner())
+    try:
+        assert created is True
+        # App-clock provenance: populated immediately on the instance
+        # (server_default would leave this None until a refresh).
+        assert attempt.updated_at is not None
+        assert attempt.updated_at.tzinfo is not None
+        # The stamp was taken between the two app-clock samples.
+        assert t0 - timedelta(seconds=1) <= attempt.updated_at <= t1 + timedelta(seconds=1)
+        # And it is what was PERSISTED (fresh read-back).
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert len(rows) == 1
+        assert rows[0].updated_at is not None
+        assert abs((rows[0].updated_at - attempt.updated_at).total_seconds()) < 1
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
