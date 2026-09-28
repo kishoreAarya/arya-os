@@ -21,6 +21,7 @@ import uuid
 from pathlib import Path
 
 import httplib2
+import pytest
 from googleapiclient.errors import HttpError
 
 from app.agents.publishing import PublishingAgent
@@ -88,6 +89,20 @@ class _SetRequest:
         return {}
 
 
+class _ListRequest:
+    """videos().list(...) request with scripted execute(). The scripted
+    payload is the full videos.list response dict (or an Exception
+    instance to raise)."""
+
+    def __init__(self, script):
+        self._script = script
+
+    def execute(self):
+        if isinstance(self._script.list_response, Exception):
+            raise self._script.list_response
+        return self._script.list_response
+
+
 class _Videos:
     def __init__(self, script, counters):
         self._script = script
@@ -100,6 +115,15 @@ class _Videos:
     def update(self, *, part, body):
         self._counters["update_calls"] += 1
         return _UpdateRequest(self._script.publish_behavior)
+
+    def list(self, *, part, id):
+        # Recorded on the SCRIPT, not the counters dict (existing tests
+        # assert counters by exact dict equality): proves the F-08
+        # request shape.
+        self._script.list_calls += 1
+        self._script.last_list_part = part
+        self._script.last_list_id = id
+        return _ListRequest(self._script)
 
 
 class _Thumbnails:
@@ -126,7 +150,8 @@ class _ScriptedGoogleClient:
 
 class _Script:
     """Behaviors are (kind, payload): ("ok", id) | ("http_status", code) |
-    ("raise", exception)."""
+    ("raise", exception). list_response is the scripted videos.list
+    response dict (or an Exception to raise)."""
 
     def __init__(
         self,
@@ -134,10 +159,25 @@ class _Script:
         upload=("ok", "yt-video-1"),
         publish=("ok", None),
         thumbnail=("ok", None),
+        list_response=None,
     ):
         self.upload_behavior = upload
         self.publish_behavior = publish
         self.thumbnail_behavior = thumbnail
+        if list_response is None:
+            list_response = {
+                "items": [
+                    {
+                        "processingDetails": {"processingStatus": "succeeded"},
+                        "status": {"privacyStatus": "public"},
+                    }
+                ]
+            }
+        self.list_response = list_response
+        # F-08 request-shape recording (kept OFF the counters dict).
+        self.list_calls = 0
+        self.last_list_part = None
+        self.last_list_id = None
         self.counters = {"insert_calls": 0, "update_calls": 0, "thumbnail_calls": 0}
 
 
@@ -442,3 +482,271 @@ def test_upload_timeout_is_unknown(monkeypatch):
         assert script.counters["update_calls"] == 0  # never reached publish
     finally:
         asyncio.run(_cleanup(video_uuid))
+
+
+# ---------------------------------------------------------------------------
+# F-08: publication-evidence semantics — processing completion is NOT proof
+# of public publication (check_processing fails closed without public
+# visibility evidence).
+# ---------------------------------------------------------------------------
+
+
+def _evidence_items(processing_status=None, privacy=None):
+    item = {}
+    if processing_status is not None:
+        item["processingDetails"] = {"processingStatus": processing_status}
+    if privacy is not None:
+        item["status"] = {"privacyStatus": privacy}
+    return {"items": [item]}
+
+
+def _yt_check(content_id="yt-ev-1"):
+    async def _inner():
+        adapter = YouTubeAdapter(db=None, secrets=_FakeSecrets())
+        return await adapter.check_processing(content_id=content_id)
+
+    return asyncio.run(_inner())
+
+
+def test_f08_ready_requires_succeeded_processing_and_public_privacy(monkeypatch):
+    script = _Script(list_response=_evidence_items("succeeded", "public"))
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check()
+    assert processing.status == "ready"
+    assert processing.error is None
+
+
+def test_f08_succeeded_private_is_not_ready(monkeypatch):
+    script = _Script(list_response=_evidence_items("succeeded", "private"))
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check()
+    assert processing.status == "unknown"
+    assert "private" in processing.error
+    assert "not publicly published" in processing.error
+
+
+def test_f08_succeeded_unlisted_is_not_ready(monkeypatch):
+    script = _Script(list_response=_evidence_items("succeeded", "unlisted"))
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check()
+    assert processing.status == "unknown"
+    assert "unlisted" in processing.error
+
+
+def test_f08_succeeded_missing_or_unrecognized_privacy_fails_closed(monkeypatch):
+    # No status part at all.
+    script = _Script(list_response=_evidence_items("succeeded", None))
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check()
+    assert processing.status == "unknown"
+    assert "privacyStatus unavailable" in processing.error
+
+    # Unrecognized privacy value.
+    script = _Script(list_response=_evidence_items("succeeded", "weird"))
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check()
+    assert processing.status == "unknown"
+    assert "weird" in processing.error
+
+
+def test_f08_processing_failed_terminated_and_unknown_mappings_unchanged(monkeypatch):
+    # processing -> "processing" (with progress), regardless of privacy.
+    script = _Script(
+        list_response={
+            "items": [
+                {
+                    "processingDetails": {
+                        "processingStatus": "processing",
+                        "processingProgress": {"partsProcessed": 2, "partsTotal": 8},
+                    },
+                    "status": {"privacyStatus": "public"},
+                }
+            ]
+        }
+    )
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check()
+    assert processing.status == "processing"
+    assert processing.progress_percent == 25.0
+
+    for yt_status in ("failed", "terminated"):
+        script = _Script(list_response=_evidence_items(yt_status, "public"))
+        _install_real_youtube(monkeypatch, script)
+        assert _yt_check().status == "failed"
+
+    # Unrecognized processingStatus stays fail-closed "unknown".
+    script = _Script(list_response=_evidence_items("garbage", "public"))
+    _install_real_youtube(monkeypatch, script)
+    assert _yt_check().status == "unknown"
+
+
+def test_f08_empty_items_and_exception_behavior_unchanged(monkeypatch):
+    script = _Script(list_response={"items": []})
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check()
+    assert processing.status == "failed"
+    assert "not found" in processing.error
+
+    script = _Script(list_response=RuntimeError("transport died mid-lookup"))
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check()
+    assert processing.status == "failed"
+    assert "transport died" in processing.error
+
+
+def test_f08_request_shape_includes_the_status_part(monkeypatch):
+    script = _Script(list_response=_evidence_items("succeeded", "public"))
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check(content_id="yt-shape-9")
+    assert processing.status == "ready"
+    assert script.list_calls == 1
+    assert script.last_list_part == "processingDetails,status"
+    assert script.last_list_id == "yt-shape-9"
+    # The publish/insert paths are untouched by an evidence lookup.
+    assert script.counters == {"insert_calls": 0, "update_calls": 0, "thumbnail_calls": 0}
+
+
+def _make_yt_attempt(status, *, anchor="yt-ev-1"):
+    """Admit a YouTube attempt for a fresh video and drive it to `status`
+    via the REAL transition helpers, with the upload anchor persisted."""
+
+    async def _inner():
+        from app.services.publication_attempts import (
+            admit_attempt,
+            mark_in_progress,
+            mark_unknown,
+        )
+
+        video_uuid = uuid.uuid4()
+        engine, session = await _session()
+        try:
+            attempt, _ = await admit_attempt(
+                session,
+                video_id=video_uuid,
+                platform="youtube",
+                social_platform="youtube",
+                integration_id=None,
+            )
+            attempt.external_content_id = anchor
+            await session.commit()
+            if status == PublicationAttemptStatus.IN_PROGRESS:
+                assert await mark_in_progress(session, attempt) is True
+            elif status == PublicationAttemptStatus.UNKNOWN:
+                assert await mark_unknown(session, attempt, "publish exception: ReadTimeout") is True
+            return attempt.id, video_uuid
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    return asyncio.run(_inner())
+
+
+def _age_yt_attempt(attempt_id, hours=1):
+    from datetime import datetime, timedelta, timezone
+
+    async def _inner():
+        from sqlalchemy import update
+
+        engine, session = await _session()
+        try:
+            await session.execute(
+                update(PublicationAttempt)
+                .where(PublicationAttempt.id == attempt_id)
+                .values(updated_at=datetime.now(timezone.utc) - timedelta(hours=hours))
+            )
+            await session.commit()
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    asyncio.run(_inner())
+
+
+def _svc_resolve(attempt_id, **kwargs):
+    async def _inner():
+        from app.services import publication_attempt_reconciliation as recon
+
+        engine, session = await _session()
+        try:
+            return await recon.resolve_attempt(session, attempt_id, **kwargs)
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    return asyncio.run(_inner())
+
+
+def _install_recon_youtube(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.publication_attempt_reconciliation.get_platform_adapter",
+        lambda platform, db, secrets=None: YouTubeAdapter(db=db, secrets=_FakeSecrets()),
+    )
+
+
+def test_f08_unknown_to_succeeded_resolution_fails_closed_on_private_video(monkeypatch):
+    """Operator reconciliation: UNKNOWN -> SUCCEEDED against a
+    processed-but-PRIVATE YouTube video must refuse (fail closed); the
+    attempt is unchanged."""
+    from app.services import publication_attempt_reconciliation as recon
+
+    script = _Script(list_response=_evidence_items("succeeded", "private"))
+    _install_real_youtube(monkeypatch, script)
+    _install_recon_youtube(monkeypatch)
+    aid, vu = _make_yt_attempt(PublicationAttemptStatus.UNKNOWN)
+    try:
+        with pytest.raises(recon.VerificationFailedError):
+            _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.UNKNOWN,
+                to_status=PublicationAttemptStatus.SUCCEEDED,
+                external_post_id="yt-post-9",
+            )
+        rows = asyncio.run(_attempts_for(vu))
+        assert rows[0].status == PublicationAttemptStatus.UNKNOWN  # unchanged
+    finally:
+        asyncio.run(_cleanup(vu))
+
+
+def test_f08_in_progress_to_succeeded_resolution_fails_closed_on_private_video(monkeypatch):
+    """H2: IN_PROGRESS -> SUCCEEDED against a processed-but-private
+    video must refuse (fail closed); the attempt is unchanged."""
+    from app.services import publication_attempt_reconciliation as recon
+
+    script = _Script(list_response=_evidence_items("succeeded", "private"))
+    _install_real_youtube(monkeypatch, script)
+    _install_recon_youtube(monkeypatch)
+    aid, vu = _make_yt_attempt(PublicationAttemptStatus.IN_PROGRESS)
+    _age_yt_attempt(aid, hours=1)
+    try:
+        with pytest.raises(recon.VerificationFailedError):
+            _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.IN_PROGRESS,
+                to_status=PublicationAttemptStatus.SUCCEEDED,
+                external_post_id="yt-post-9",
+            )
+        rows = asyncio.run(_attempts_for(vu))
+        assert rows[0].status == PublicationAttemptStatus.IN_PROGRESS  # unchanged
+    finally:
+        asyncio.run(_cleanup(vu))
+
+
+def test_f08_resolution_succeeds_on_verified_public_video(monkeypatch):
+    """Positive control: with processing succeeded AND public visibility,
+    the same reconciliation path resolves (the gate does not
+    over-block)."""
+    script = _Script(list_response=_evidence_items("succeeded", "public"))
+    _install_real_youtube(monkeypatch, script)
+    _install_recon_youtube(monkeypatch)
+    aid, vu = _make_yt_attempt(PublicationAttemptStatus.UNKNOWN)
+    try:
+        attempt, audit = _svc_resolve(
+            aid,
+            from_status=PublicationAttemptStatus.UNKNOWN,
+            to_status=PublicationAttemptStatus.SUCCEEDED,
+            external_post_id="yt-post-9",
+        )
+        assert attempt.status == PublicationAttemptStatus.SUCCEEDED
+        assert audit["verification"]["provider_status"] == "ready"
+    finally:
+        asyncio.run(_cleanup(vu))

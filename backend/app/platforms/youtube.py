@@ -502,7 +502,17 @@ class YouTubeAdapter(PlatformAdapter):
         content_id: str,
         credentials: Any | None = None,
     ) -> ProcessingStatus:
-        """Check whether a YouTube video has finished processing."""
+        """Check publication evidence for a YouTube video.
+
+        Evidence contract (F-08): video PROCESSING completion is not
+        proof of public publication. "ready" — the verification basis
+        for operator -> SUCCEEDED resolutions — requires the provider
+        to state BOTH that processing succeeded (processingDetails.
+        processingStatus == "succeeded") AND that the video is publicly
+        visible (status.privacyStatus == "public"). Private or unlisted
+        videos, and responses without usable publication-visibility
+        evidence, fail closed ("unknown").
+        """
         if self._youtube_client is None:
             auth_result = await self.authenticate()
             if not auth_result.success:
@@ -511,7 +521,7 @@ class YouTubeAdapter(PlatformAdapter):
         try:
             response = (
                 self._youtube_client.videos()
-                .list(part="processingDetails", id=content_id)
+                .list(part="processingDetails,status", id=content_id)
                 .execute()
             )
 
@@ -523,6 +533,9 @@ class YouTubeAdapter(PlatformAdapter):
                 )
 
             processing = items[0].get("processingDetails", {})
+            privacy_status = str(
+                items[0].get("status", {}).get("privacyStatus") or ""
+            ).strip().lower()
             processing_status = processing.get("processingStatus", "unknown")
 
             # Map YouTube status to our status
@@ -533,6 +546,23 @@ class YouTubeAdapter(PlatformAdapter):
                 "terminated": "failed",
             }
             mapped_status = status_map.get(processing_status, "unknown")
+
+            # F-08 evidence gate: processing completion is NOT proof of
+            # public publication. Only a publicly visible video may be
+            # reported ready; everything else fails closed.
+            if mapped_status == "ready":
+                if not privacy_status:
+                    return ProcessingStatus(
+                        status="unknown",
+                        error="processing complete but privacyStatus unavailable — "
+                        "publication visibility cannot be verified (fails closed)",
+                    )
+                if privacy_status != "public":
+                    return ProcessingStatus(
+                        status="unknown",
+                        error=f"processing complete but video is {privacy_status} — "
+                        "not publicly published",
+                    )
 
             logger.info(
                 "youtube_adapter_processing_status",
