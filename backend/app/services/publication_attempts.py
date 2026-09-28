@@ -22,10 +22,22 @@ Admission semantics (ratified):
   UNIQUE(intent_key, attempt_number): the loser of the insert race
   re-queries and resolves to the winner's row.
 
-State transitions are committed immediately; each transition helper is
-best-effort against the attempt row only (an attempt bookkeeping
-failure must never resurrect a blocked or duplicate publication).
+H1 state-machine amendment: every EXECUTION transition is a conditional
+compare-and-swap UPDATE (WHERE id = :id AND status IN :expected). A
+transition whose expected source statuses no longer hold is REFUSED
+(returns False, nothing written) — a late agent transition can never
+overwrite an operator resolution or any other concurrent state change.
+mark_in_progress is the publication PERMIT: the execution may make the
+first irreversible external publication call only after the
+PENDING -> IN_PROGRESS CAS succeeds; a refused permit aborts the
+publication before any external submission. Transitions remain
+fail-closed best-effort against the attempt row only: a commit failure
+refuses the transition (an attempt bookkeeping failure must never
+resurrect a blocked or duplicate publication).
 """
+from datetime import datetime, timezone
+
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import PublicationAttemptStatus
@@ -36,6 +48,14 @@ BLOCKING_STATUSES = (
     PublicationAttemptStatus.IN_PROGRESS,
     PublicationAttemptStatus.UNKNOWN,
     PublicationAttemptStatus.SUCCEEDED,
+)
+
+# The execution owns the attempt only while it sits in these statuses.
+# Once an operator resolution (or any other transition) moves the row,
+# every execution-side CAS below refuses.
+EXECUTION_OWNED_STATUSES = (
+    PublicationAttemptStatus.PENDING,
+    PublicationAttemptStatus.IN_PROGRESS,
 )
 
 
@@ -127,29 +147,76 @@ async def admit_attempt(
 async def _transition(
     db: AsyncSession,
     attempt: PublicationAttempt,
-    status: PublicationAttemptStatus,
+    status: PublicationAttemptStatus | None,
+    expected_statuses: tuple[PublicationAttemptStatus, ...],
     **fields,
-) -> None:
-    attempt.status = status
-    for name, value in fields.items():
-        setattr(attempt, name, value)
+) -> bool:
+    """Conditional compare-and-swap transition (H1).
+
+    Applies `status` (unless None: status-preserving field write) and
+    `fields` ONLY IF the row still holds one of `expected_statuses`.
+    Returns True iff the transition was applied; on refusal nothing is
+    written and the in-memory attempt is refreshed from the row (best
+    effort) so callers report the true current status.
+    """
+    values = dict(fields)
+    if status is not None:
+        values["status"] = status
+    values["updated_at"] = datetime.now(timezone.utc)
     try:
+        result = await db.execute(
+            update(PublicationAttempt)
+            .where(
+                PublicationAttempt.id == attempt.id,
+                PublicationAttempt.status.in_(expected_statuses),
+            )
+            .values(**values)
+        )
+        if result.rowcount != 1:
+            # The attempt moved underneath this execution (operator
+            # resolution or concurrent transition): refuse, never
+            # overwrite. Nothing to resurrect.
+            await db.rollback()
+            try:
+                await db.refresh(attempt)
+            except Exception:  # noqa: BLE001, S110 — refresh is reporting-only
+                pass
+            return False
         await db.commit()
     except Exception:  # noqa: BLE001 — bookkeeping must never resurrect a publication
-        await db.rollback()  # bookkeeping must never resurrect a publication
+        await db.rollback()
+        return False
+    if status is not None:
+        attempt.status = status
+    for name, value in fields.items():
+        setattr(attempt, name, value)
+    return True
 
 
-async def mark_in_progress(db: AsyncSession, attempt: PublicationAttempt) -> None:
-    """Persisted immediately BEFORE the first irreversible external
-    publication call (ratified §9)."""
-    await _transition(db, attempt, PublicationAttemptStatus.IN_PROGRESS)
+async def mark_in_progress(db: AsyncSession, attempt: PublicationAttempt) -> bool:
+    """The publication PERMIT (H1): PENDING -> IN_PROGRESS via CAS.
+
+    Persisted immediately BEFORE the first irreversible external
+    publication call (ratified §9). True grants the permit; False means
+    the attempt no longer belongs to this execution (e.g., an operator
+    resolution landed) and the external publication call must NOT be
+    made."""
+    return await _transition(
+        db,
+        attempt,
+        PublicationAttemptStatus.IN_PROGRESS,
+        (PublicationAttemptStatus.PENDING,),
+    )
 
 
-async def mark_external_content(db: AsyncSession, attempt: PublicationAttempt, content_id: str) -> None:
+async def mark_external_content(
+    db: AsyncSession, attempt: PublicationAttempt, content_id: str
+) -> bool:
     """Persist the provider content id as soon as it is safely available
-    (after upload, BEFORE publish) — the crash-recovery anchor."""
-    await _transition(
-        db, attempt, attempt.status, external_content_id=content_id
+    (after upload, BEFORE publish) — the crash-recovery anchor.
+    Status-preserving; CAS-guarded on the execution-owned statuses."""
+    return await _transition(
+        db, attempt, None, EXECUTION_OWNED_STATUSES, external_content_id=content_id
     )
 
 
@@ -159,25 +226,30 @@ async def mark_succeeded(
     *,
     external_post_id: str | None,
     public_url: str | None = None,
-) -> None:
-    await _transition(
+) -> bool:
+    return await _transition(
         db,
         attempt,
         PublicationAttemptStatus.SUCCEEDED,
+        (PublicationAttemptStatus.IN_PROGRESS,),
         external_post_id=external_post_id,
         public_url=public_url,
     )
 
 
-async def mark_failed(db: AsyncSession, attempt: PublicationAttempt, error: str) -> None:
+async def mark_failed(db: AsyncSession, attempt: PublicationAttempt, error: str) -> bool:
     """Confirmed provider rejection, local validation failure, or a
     pre-submission external read failure — evidence supports 'no public
     post was created'."""
-    await _transition(db, attempt, PublicationAttemptStatus.FAILED, error=error)
+    return await _transition(
+        db, attempt, PublicationAttemptStatus.FAILED, EXECUTION_OWNED_STATUSES, error=error
+    )
 
 
-async def mark_unknown(db: AsyncSession, attempt: PublicationAttempt, reason: str) -> None:
+async def mark_unknown(db: AsyncSession, attempt: PublicationAttempt, reason: str) -> bool:
     """Ambiguous outcome: an exception/timeout AFTER external submission
     may have occurred. Durable manual-operations state; automatic retry
     is blocked at admission."""
-    await _transition(db, attempt, PublicationAttemptStatus.UNKNOWN, error=reason)
+    return await _transition(
+        db, attempt, PublicationAttemptStatus.UNKNOWN, EXECUTION_OWNED_STATUSES, error=reason
+    )

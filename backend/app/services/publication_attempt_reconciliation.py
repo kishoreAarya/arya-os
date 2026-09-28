@@ -20,6 +20,12 @@ Rules (explicit transition matrix):
   execution transition rewrites updated_at; provider timeouts are
   seconds). A fresh row is never resolved underneath a possibly-active
   execution.
+- IN_PROGRESS -> SUCCEEDED (H2, evidence-based): requires the external
+  post id AND the same fail-closed in-resolve provider verification as
+  UNKNOWN -> SUCCEEDED AND the active-execution floor — the crash
+  window where the provider accepted the publication but the execution
+  died before persisting SUCCEEDED. PENDING -> SUCCEEDED remains
+  illegal (no irreversible external call was ever made from PENDING).
 - SUCCEEDED -> * and FAILED -> * are illegal (FAILED already admits
   retry via the existing admission algorithm, which this module never
   touches).
@@ -27,7 +33,12 @@ Rules (explicit transition matrix):
 Concurrency: resolution is a conditional compare-and-swap UPDATE
 (WHERE id = :id AND status = :expected_status). Zero rows changed means
 the attempt moved underneath the operator (a live execution or another
-resolution) -> refused, never retried blindly.
+resolution) -> refused, never retried blindly. Symmetrically (H1), the
+agent-side execution transitions in services/publication_attempts.py
+are CAS-guarded on their expected source statuses: a late agent
+transition can never resurrect (overwrite) an operator resolution,
+and a refused publication permit (PENDING -> IN_PROGRESS) blocks the
+irreversible external publish call.
 
 Auditability: every successful resolution appends an IMMUTABLE SystemLog
 event ("PublicationAttemptResolved") carrying the from/to statuses, the
@@ -131,10 +142,11 @@ async def fetch_evidence(db: AsyncSession, attempt_id: UUID) -> dict:
 
 
 async def _verify_ready_with_provider(db: AsyncSession, attempt: PublicationAttempt) -> dict:
-    """Fail-closed in-resolve verification for UNKNOWN -> SUCCEEDED."""
+    """Fail-closed in-resolve verification for -> SUCCEEDED resolutions
+    (UNKNOWN and IN_PROGRESS sources)."""
     if not attempt.external_content_id:
         raise MissingAnchorError(
-            "UNKNOWN -> SUCCEEDED requires the persisted external_content_id "
+            "-> SUCCEEDED requires the persisted external_content_id "
             "anchor to verify against the provider"
         )
     adapter = get_platform_adapter(attempt.platform, db)
@@ -144,12 +156,32 @@ async def _verify_ready_with_provider(db: AsyncSession, attempt: PublicationAtte
             f"provider did not confirm the publication as ready "
             f"(check_processing status: {processing.status!r}"
             + (f"; {processing.error}" if processing.error else "")
-            + "). UNKNOWN -> SUCCEEDED fails closed without verified evidence."
+            + "). -> SUCCEEDED fails closed without verified evidence."
         )
     return {
         "provider_status": processing.status,
         "progress_percent": processing.progress_percent,
     }
+
+
+def _require_beyond_active_execution_floor(attempt: PublicationAttempt) -> None:
+    """The active-execution floor for resolutions out of PENDING /
+    IN_PROGRESS: the row must have been untouched for at least
+    _ACTIVE_EXECUTION_FLOOR — never resolve underneath a possibly-live
+    execution."""
+    last_touch = attempt.updated_at
+    if last_touch is None or last_touch.tzinfo is None:
+        raise ActiveExecutionError(
+            "cannot establish the attempt's last-touch time; refusing to "
+            "resolve a possibly-active execution"
+        )
+    age = datetime.now(timezone.utc) - last_touch
+    if age < _ACTIVE_EXECUTION_FLOOR:
+        raise ActiveExecutionError(
+            f"attempt was touched {int(age.total_seconds())}s ago — inside the "
+            f"{int(_ACTIVE_EXECUTION_FLOOR.total_seconds())}s active-execution "
+            "floor; never resolve underneath a possibly-live execution"
+        )
 
 
 def _validate_transition(
@@ -193,6 +225,22 @@ def _validate_transition(
                 "(the evidence statement that no public post was created)"
             )
         return
+    # Active-execution sources (PENDING / IN_PROGRESS)
+    if to_status == PublicationAttemptStatus.SUCCEEDED:
+        # H2: evidence-based IN_PROGRESS -> SUCCEEDED (crash window:
+        # provider accepted, execution died before persisting success).
+        if source != PublicationAttemptStatus.IN_PROGRESS:
+            raise IllegalTransitionError(
+                "PENDING -> SUCCEEDED is not a legal resolution (no "
+                "irreversible external publication call was made from "
+                "PENDING)"
+            )
+        if not (external_post_id or "").strip():
+            raise IllegalTransitionError(
+                "IN_PROGRESS -> SUCCEEDED requires the external post id"
+            )
+        _require_beyond_active_execution_floor(attempt)
+        return
     # PENDING / IN_PROGRESS -> FAILED
     if to_status != PublicationAttemptStatus.FAILED:
         raise IllegalTransitionError(
@@ -206,19 +254,7 @@ def _validate_transition(
         raise IllegalTransitionError(
             f"{source.value} -> FAILED requires an explicit operator attestation"
         )
-    last_touch = attempt.updated_at
-    if last_touch is None or last_touch.tzinfo is None:
-        raise ActiveExecutionError(
-            "cannot establish the attempt's last-touch time; refusing to "
-            "resolve a possibly-active execution"
-        )
-    age = datetime.now(timezone.utc) - last_touch
-    if age < _ACTIVE_EXECUTION_FLOOR:
-        raise ActiveExecutionError(
-            f"attempt was touched {int(age.total_seconds())}s ago — inside the "
-            f"{int(_ACTIVE_EXECUTION_FLOOR.total_seconds())}s active-execution "
-            "floor; never resolve underneath a possibly-live execution"
-        )
+    _require_beyond_active_execution_floor(attempt)
 
 
 async def resolve_attempt(
@@ -247,8 +283,9 @@ async def resolve_attempt(
         force=force,
     )
     verification: dict = {}
-    if from_status == PublicationAttemptStatus.UNKNOWN and (
-        to_status == PublicationAttemptStatus.SUCCEEDED
+    if to_status == PublicationAttemptStatus.SUCCEEDED and from_status in (
+        PublicationAttemptStatus.UNKNOWN,
+        PublicationAttemptStatus.IN_PROGRESS,
     ):
         verification = await _verify_ready_with_provider(db, attempt)
 

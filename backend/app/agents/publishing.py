@@ -229,11 +229,19 @@ class PublishingAgent(BaseAgent):
             # External submission ambiguity (the provider may hold the
             # media): UNKNOWN — never silently FAILED.
             logger.error("publishing_agent_upload_error", platform=platform, error=str(exc))
+            recorded_unknown = True
             if attempt is not None:
-                await mark_unknown(self._db, attempt, f"upload exception: {type(exc).__name__}")
+                recorded_unknown = await mark_unknown(
+                    self._db, attempt, f"upload exception: {type(exc).__name__}"
+                )
+            suffix = (
+                " (attempt recorded UNKNOWN)"
+                if recorded_unknown
+                else " (attempt already resolved — transition refused)"
+            )
             return AgentResult(
                 success=False,
-                error=f"Upload raised for '{platform}': {exc} (attempt recorded UNKNOWN)",
+                error=f"Upload raised for '{platform}': {exc}{suffix}",
             )
         if not upload_result.success:
             logger.error(
@@ -287,12 +295,29 @@ class PublishingAgent(BaseAgent):
 
         # Publish or schedule the video. IN_PROGRESS is persisted
         # immediately BEFORE this — the first irreversible external call.
+        # The PENDING -> IN_PROGRESS CAS is the publication PERMIT (H1):
+        # if it refuses, the attempt was resolved underneath this
+        # execution and the irreversible external call must NOT happen.
         privacy_status = context.get("privacy_status") or (context.get("metadata") or {}).get("privacy_status") or "private"
         default_pub_type = "schedule" if context.get("scheduled_at") else ("draft" if is_dry_run else "now")
         publish_type = context.get("publish_type") or default_pub_type
 
         if attempt is not None:
-            await mark_in_progress(self._db, attempt)
+            permit_granted = await mark_in_progress(self._db, attempt)
+            if not permit_granted:
+                logger.error(
+                    "publishing_agent_permit_denied",
+                    platform=platform,
+                    video_id=video_id,
+                    attempt_id=str(attempt.id),
+                    attempt_status=attempt.status.value,
+                )
+                return AgentResult(
+                    success=False,
+                    error=f"Publication permit denied for attempt {attempt.attempt_number} of "
+                    f"this intent: the attempt is now {attempt.status.value} (resolved by an "
+                    "operator or another execution); no external publish was made",
+                )
         try:
             publish_result = await adapter.publish(
                 content_id=upload_result.content_id,
@@ -311,14 +336,22 @@ class PublishingAgent(BaseAgent):
         except Exception as exc:  # noqa: BLE001 — ambiguity after possible submission → UNKNOWN
             # Ambiguity after external submission may have occurred:
             # durable UNKNOWN — never auto-retried, never FAILED without
-            # evidence (ratified §2/§11).
+            # evidence (ratified §2/§11). If the CAS refuses, an operator
+            # resolution already moved the attempt: it stands (H1).
             logger.error("publishing_agent_publish_error", platform=platform, error=str(exc))
+            recorded_unknown = True
             if attempt is not None:
-                await mark_unknown(self._db, attempt, f"publish exception: {type(exc).__name__}")
+                recorded_unknown = await mark_unknown(
+                    self._db, attempt, f"publish exception: {type(exc).__name__}"
+                )
+            suffix = (
+                " (attempt recorded UNKNOWN; manual reconciliation required)"
+                if recorded_unknown
+                else " (attempt already resolved — transition refused)"
+            )
             return AgentResult(
                 success=False,
-                error=f"Publish raised for '{platform}': {exc} (attempt recorded UNKNOWN; "
-                "manual reconciliation required)",
+                error=f"Publish raised for '{platform}': {exc}{suffix}",
             )
         if not publish_result.success:
             logger.error(
@@ -335,13 +368,33 @@ class PublishingAgent(BaseAgent):
             )
         if attempt is not None:
             # External identifiers persisted immediately at confirmed
-            # success — independent of the Video writeback below.
-            await mark_succeeded(
+            # success — independent of the Video writeback below. The
+            # CAS refuses if an operator resolution moved the attempt
+            # while the publish call was in flight: that resolution
+            # stands (H1) — never resurrect it; surface for manual review.
+            succeeded_recorded = await mark_succeeded(
                 self._db,
                 attempt,
                 external_post_id=publish_result.published_content_id,
                 public_url=publish_result.url,
             )
+            if not succeeded_recorded:
+                logger.error(
+                    "publishing_agent_success_bookkeeping_refused",
+                    platform=platform,
+                    video_id=video_id,
+                    attempt_id=str(attempt.id),
+                    attempt_status=attempt.status.value,
+                    external_post_id=publish_result.published_content_id,
+                )
+                return AgentResult(
+                    success=False,
+                    error=f"Publish succeeded externally for '{platform}' "
+                    f"(content id {publish_result.published_content_id}), but publication "
+                    f"attempt {attempt.attempt_number} is now {attempt.status.value} "
+                    "(resolved underneath this execution); the operator resolution stands — "
+                    "manual review required",
+                )
 
         # Update the existing Video row after successful publish.
         status_map = {
@@ -434,7 +487,11 @@ class PublishingAgent(BaseAgent):
             if public_url and attempt.public_url is None:
                 from app.services.publication_attempts import _transition
 
-                await _transition(self._db, attempt, attempt.status, public_url=public_url)
+                # Status-preserving CAS bookkeeping (best-effort): only
+                # while the attempt still holds its recorded status.
+                await _transition(
+                    self._db, attempt, None, (attempt.status,), public_url=public_url
+                )
 
         # Carry forward context for AnalyticsAgent
         if public_url:

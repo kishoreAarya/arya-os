@@ -409,3 +409,194 @@ def test_dry_run_records_no_attempt(monkeypatch):
         assert asyncio.run(_attempts_for(video_uuid)) == []
     finally:
         asyncio.run(_cleanup_attempts(video_uuid))
+
+
+# ---------------------------------------------------------------------------
+# H1: execution transitions are CAS — refused once the attempt moved
+# ---------------------------------------------------------------------------
+
+
+def _operator_move(attempt_id, status):
+    """Simulate an operator resolution landing via a direct conditional
+    update (the same mechanism the reconciliation service uses)."""
+
+    async def _inner():
+        from datetime import datetime, timezone
+
+        from sqlalchemy import update
+
+        engine, session = await _session()
+        try:
+            await session.execute(
+                update(PublicationAttempt)
+                .where(PublicationAttempt.id == attempt_id)
+                .values(status=status, updated_at=datetime.now(timezone.utc))
+            )
+            await session.commit()
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    asyncio.run(_inner())
+
+
+def _late_transition(attempt_id, call):
+    """The crashed execution's next bookkeeping transition, fired through
+    the REAL helper against the CURRENT row."""
+
+    async def _inner():
+        from sqlalchemy import select
+
+        engine, session = await _session()
+        try:
+            obj = (
+                (
+                    await session.execute(
+                        select(PublicationAttempt).where(PublicationAttempt.id == attempt_id)
+                    )
+                )
+                .scalars()
+                .one()
+            )
+            return await call(session, obj)
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    return asyncio.run(_inner())
+
+
+def test_execution_transitions_apply_while_attempt_is_owned():
+    """Normal flow: every transition helper returns True and lands while
+    the attempt still holds its expected source status."""
+    from app.services.publication_attempts import (
+        admit_attempt,
+        mark_external_content,
+        mark_failed,
+        mark_in_progress,
+        mark_succeeded,
+        mark_unknown,
+    )
+
+    video_uuid, video_uuid2, video_uuid3 = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+
+    async def _success_path():
+        engine, session = await _session()
+        try:
+            attempt, _ = await admit_attempt(
+                session,
+                video_id=video_uuid,
+                platform="postiz",
+                social_platform="youtube",
+                integration_id=None,
+            )
+            assert await mark_external_content(session, attempt, "anchor-1") is True
+            assert await mark_in_progress(session, attempt) is True
+            assert await mark_succeeded(session, attempt, external_post_id="post-1") is True
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    async def _failure_paths():
+        engine, session = await _session()
+        try:
+            # Upload-exception shape: UNKNOWN straight from PENDING.
+            a1, _ = await admit_attempt(
+                session,
+                video_id=video_uuid2,
+                platform="postiz",
+                social_platform="youtube",
+                integration_id=None,
+            )
+            assert await mark_unknown(session, a1, "upload exception: ReadTimeout") is True
+            # Publish-rejection shape: FAILED from IN_PROGRESS.
+            a2, _ = await admit_attempt(
+                session,
+                video_id=video_uuid3,
+                platform="postiz",
+                social_platform="youtube",
+                integration_id=None,
+            )
+            assert await mark_in_progress(session, a2) is True
+            assert await mark_failed(session, a2, "publish rejected: scripted") is True
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    try:
+        asyncio.run(_success_path())
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert rows[0].status == PublicationAttemptStatus.SUCCEEDED
+        assert rows[0].external_content_id == "anchor-1"
+        assert rows[0].external_post_id == "post-1"
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
+    try:
+        asyncio.run(_failure_paths())
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid2, video_uuid3))
+
+
+def test_operator_resolution_rejects_every_late_execution_transition():
+    """The H1 core: once the row leaves the execution-owned statuses
+    (operator resolution), every transition helper refuses (returns
+    False) and writes NOTHING — the resolution cannot be resurrected."""
+    from app.services.publication_attempts import (
+        admit_attempt,
+        mark_external_content,
+        mark_failed,
+        mark_in_progress,
+        mark_succeeded,
+        mark_unknown,
+    )
+
+    made = []
+
+    async def _admit(video_uuid, to_in_progress=False):
+        engine, session = await _session()
+        try:
+            attempt, _ = await admit_attempt(
+                session,
+                video_id=video_uuid,
+                platform="postiz",
+                social_platform="youtube",
+                integration_id=None,
+            )
+            if to_in_progress:
+                assert await mark_in_progress(session, attempt) is True
+            return attempt.id
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    try:
+        # Operator force-failed a stalled PENDING attempt mid-execution.
+        v1 = uuid.uuid4()
+        made.append(v1)
+        aid = asyncio.run(_admit(v1))
+        _operator_move(aid, PublicationAttemptStatus.FAILED)
+        assert _late_transition(aid, lambda s, o: mark_in_progress(s, o)) is False
+        assert _late_transition(aid, lambda s, o: mark_external_content(s, o, "anchor-x")) is False
+        assert _late_transition(aid, lambda s, o: mark_failed(s, o, "late failure")) is False
+        assert _late_transition(aid, lambda s, o: mark_unknown(s, o, "late ambiguity")) is False
+        rows = asyncio.run(_attempts_for(v1))
+        assert rows[0].status == PublicationAttemptStatus.FAILED
+        assert rows[0].external_content_id is None
+        assert rows[0].error is None  # nothing the late execution wrote
+
+        # Operator resolved a crashed IN_PROGRESS attempt to SUCCEEDED.
+        v2 = uuid.uuid4()
+        made.append(v2)
+        aid2 = asyncio.run(_admit(v2, to_in_progress=True))
+        _operator_move(aid2, PublicationAttemptStatus.SUCCEEDED)
+        assert (
+            _late_transition(aid2, lambda s, o: mark_succeeded(s, o, external_post_id="late-post"))
+            is False
+        )
+        assert _late_transition(aid2, lambda s, o: mark_unknown(s, o, "late ambiguity")) is False
+        rows2 = asyncio.run(_attempts_for(v2))
+        assert rows2[0].status == PublicationAttemptStatus.SUCCEEDED
+        assert rows2[0].external_post_id is None
+        assert rows2[0].error is None
+    finally:
+        asyncio.run(_cleanup_attempts(*made))

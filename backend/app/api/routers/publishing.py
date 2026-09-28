@@ -241,7 +241,7 @@ class ResolveAttemptRequest(BaseModel):
     from_status: PublicationAttemptStatus
     to_status: PublicationAttemptStatus
     external_post_id: str | None = Field(
-        default=None, max_length=255, description="Required for UNKNOWN -> SUCCEEDED"
+        default=None, max_length=255, description="Required for UNKNOWN/IN_PROGRESS -> SUCCEEDED"
     )
     public_url: str | None = Field(default=None, max_length=1000)
     attestation: str | None = Field(
@@ -328,7 +328,12 @@ async def resolve_publication_attempt(
 ):
     """Operator resolution of a blocking attempt (UNKNOWN, or a stale
     PENDING/IN_PROGRESS). Conditional CAS update — never resolves
-    underneath a live execution or a concurrent resolution."""
+    underneath a live execution or a concurrent resolution. Evidence
+    based: -> SUCCEEDED requires the external post id plus fail-closed
+    in-resolve provider verification (UNKNOWN and stale IN_PROGRESS
+    sources); PENDING/IN_PROGRESS -> FAILED additionally requires force
+    and an attestation; every active-execution source enforces the
+    staleness floor."""
     try:
         attempt, _audit = await recon.resolve_attempt(
             db,

@@ -21,6 +21,12 @@ the postiz module is scripted, using real httpx exceptions/responses):
 - end-to-end: UNKNOWN -> resolve(FAILED) -> retry admitted as n+1, and
   UNKNOWN -> resolve(SUCCEEDED) -> duplicate guard engages with no
   second provider publish
+- H2: evidence-based IN_PROGRESS -> SUCCEEDED (external post id +
+  fail-closed in-resolve provider verification + active-execution
+  floor; PENDING -> SUCCEEDED stays illegal)
+- H1 races: an operator resolution can never be resurrected by a late
+  agent transition (CAS on both sides), and a refused publication
+  permit blocks the irreversible external publish call end-to-end
 """
 import asyncio
 import json
@@ -250,6 +256,9 @@ async def _make_attempt(status, *, anchor=False):
         elif status == PublicationAttemptStatus.FAILED:
             await mark_failed(session, attempt, "publish rejected: scripted")
         elif status == PublicationAttemptStatus.SUCCEEDED:
+            # Real execution shape under the H1 CAS: the permit first,
+            # then the confirmed-success transition.
+            await mark_in_progress(session, attempt)
             await mark_succeeded(session, attempt, external_post_id="post-1")
         return attempt.id, video_uuid
     finally:
@@ -793,5 +802,295 @@ def test_e2e_unknown_resolved_succeeded_duplicate_guard_engages(monkeypatch):
         assert second.output["published_video_id"] == "post-77"
         assert script.posts_calls == posts_after_first
         assert len(asyncio.run(_attempts_for(video_uuid))) == 1
+    finally:
+        asyncio.run(_cleanup(video_uuid))
+
+
+# ---------------------------------------------------------------------------
+# 8. H2: evidence-based IN_PROGRESS -> SUCCEEDED
+# ---------------------------------------------------------------------------
+
+
+def test_in_progress_to_succeeded_refusals(monkeypatch):
+    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    made = []
+    try:
+        # PENDING -> SUCCEEDED remains illegal (no irreversible external
+        # call was ever made from PENDING).
+        aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.PENDING))
+        made.append((aid, vu))
+        with pytest.raises(recon.IllegalTransitionError):
+            _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.PENDING,
+                to_status=PublicationAttemptStatus.SUCCEEDED,
+                external_post_id="p1",
+            )
+
+        # IN_PROGRESS -> SUCCEEDED requires the external post id.
+        aid, vu = asyncio.run(
+            _make_attempt(PublicationAttemptStatus.IN_PROGRESS, anchor=True)
+        )
+        made.append((aid, vu))
+        asyncio.run(_age_attempt(aid, hours=1))
+        with pytest.raises(recon.IllegalTransitionError):
+            _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.IN_PROGRESS,
+                to_status=PublicationAttemptStatus.SUCCEEDED,
+            )
+
+        # Fresh row: the active-execution floor still applies.
+        aid, vu = asyncio.run(
+            _make_attempt(PublicationAttemptStatus.IN_PROGRESS, anchor=True)
+        )
+        made.append((aid, vu))
+        with pytest.raises(recon.ActiveExecutionError):
+            _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.IN_PROGRESS,
+                to_status=PublicationAttemptStatus.SUCCEEDED,
+                external_post_id="p1",
+            )
+
+        # Missing anchor: nothing to verify against.
+        aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.IN_PROGRESS))
+        made.append((aid, vu))
+        asyncio.run(_age_attempt(aid, hours=1))
+        with pytest.raises(recon.MissingAnchorError):
+            _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.IN_PROGRESS,
+                to_status=PublicationAttemptStatus.SUCCEEDED,
+                external_post_id="p1",
+            )
+    finally:
+        for aid, vu in made:
+            asyncio.run(_cleanup(vu, (aid,)))
+
+
+@pytest.mark.parametrize("check_script", ["processing", "server_error", "notfound_nomatch"])
+def test_in_progress_to_succeeded_fails_closed_without_ready_evidence(monkeypatch, check_script):
+    _install_real_postiz(monkeypatch, _PostizScript(check=check_script))
+    aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.IN_PROGRESS, anchor=True))
+    asyncio.run(_age_attempt(aid, hours=1))
+    try:
+        with pytest.raises(recon.VerificationFailedError):
+            _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.IN_PROGRESS,
+                to_status=PublicationAttemptStatus.SUCCEEDED,
+                external_post_id="post-9",
+            )
+        rows = asyncio.run(_attempts_for(vu))
+        assert rows[0].status == PublicationAttemptStatus.IN_PROGRESS  # unchanged
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_in_progress_to_succeeded_with_verified_evidence(monkeypatch):
+    """The H2 crash window: the provider accepted the publication, the
+    execution died before persisting SUCCEEDED (row stale IN_PROGRESS
+    with its upload anchor); verified evidence resolves it, the audit
+    records the verification, and the duplicate guard engages on
+    re-submission (no second external publication)."""
+    script = _PostizScript(check="ready")
+    _install_real_postiz(monkeypatch, script)
+    aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.IN_PROGRESS, anchor=True))
+    asyncio.run(_age_attempt(aid, hours=1))
+    try:
+        attempt, audit = _svc_resolve(
+            aid,
+            from_status=PublicationAttemptStatus.IN_PROGRESS,
+            to_status=PublicationAttemptStatus.SUCCEEDED,
+            external_post_id="post-8",
+            public_url="https://social.example/watch/post-8",
+        )
+        assert attempt.status == PublicationAttemptStatus.SUCCEEDED
+        assert attempt.external_post_id == "post-8"
+        assert attempt.public_url == "https://social.example/watch/post-8"
+        assert audit["from_status"] == "in_progress"
+        assert audit["verification"]["provider_status"] == "ready"
+        events = asyncio.run(_audit_for(aid))
+        assert len(events) == 1
+        assert json.loads(events[0].message)["from_status"] == "in_progress"
+
+        # Re-submission of the identical intent: idempotent duplicate.
+        second = _run_agent(_ctx(vu))
+        assert second.success and second.output.get("duplicate") is True
+        assert second.output["published_video_id"] == "post-8"
+        assert script.posts_calls == 0  # no second external publication
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+# ---------------------------------------------------------------------------
+# 9. H1 races: an operator resolution can never be resurrected by a
+#    late agent transition
+# ---------------------------------------------------------------------------
+
+
+def _late_agent_transition(attempt_id, kind, **kwargs):
+    """The crashed execution waking up AFTER the operator resolution and
+    firing its next bookkeeping transition through the REAL helper."""
+
+    async def _inner():
+        from sqlalchemy import select
+
+        from app.services.publication_attempts import (
+            mark_failed,
+            mark_in_progress,
+            mark_succeeded,
+            mark_unknown,
+        )
+
+        engine, session = await _session()
+        try:
+            obj = (
+                (
+                    await session.execute(
+                        select(PublicationAttempt).where(PublicationAttempt.id == attempt_id)
+                    )
+                )
+                .scalars()
+                .one()
+            )
+            if kind == "succeeded":
+                return await mark_succeeded(session, obj, **kwargs)
+            if kind == "unknown":
+                return await mark_unknown(session, obj, kwargs["reason"])
+            if kind == "failed":
+                return await mark_failed(session, obj, kwargs["error"])
+            return await mark_in_progress(session, obj)
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    return asyncio.run(_inner())
+
+
+def test_race_operator_failed_resolution_survives_late_agent_success(monkeypatch):
+    """Operator force-fails a stale IN_PROGRESS attempt; the crashed
+    execution then wakes up after its publish call and fires
+    mark_succeeded — the CAS refuses: the FAILED resolution stands, no
+    external ids are written, exactly one audit event exists."""
+    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.IN_PROGRESS, anchor=True))
+    asyncio.run(_age_attempt(aid, hours=1))
+    try:
+        attempt, _audit = _svc_resolve(
+            aid,
+            from_status=PublicationAttemptStatus.IN_PROGRESS,
+            to_status=PublicationAttemptStatus.FAILED,
+            attestation="operator verified crash: no post exists",
+            force=True,
+        )
+        assert attempt.status == PublicationAttemptStatus.FAILED
+
+        applied = _late_agent_transition(
+            aid,
+            "succeeded",
+            external_post_id="post-late",
+            public_url="https://social.example/watch/post-late",
+        )
+        assert applied is False
+
+        rows = asyncio.run(_attempts_for(vu))
+        assert rows[0].status == PublicationAttemptStatus.FAILED  # not resurrected
+        assert rows[0].external_post_id is None
+        assert rows[0].public_url is None
+        assert len(asyncio.run(_audit_for(aid))) == 1
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_race_operator_succeeded_resolution_survives_late_agent_unknown(monkeypatch):
+    """Operator resolves UNKNOWN -> SUCCEEDED on verified evidence; the
+    execution's delayed publish-exception handler then fires
+    mark_unknown — the CAS refuses: SUCCEEDED stands with the
+    operator-recorded external ids intact."""
+    _install_real_postiz(monkeypatch, _PostizScript(check="ready"))
+    aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.UNKNOWN, anchor=True))
+    try:
+        attempt, _ = _svc_resolve(
+            aid,
+            from_status=PublicationAttemptStatus.UNKNOWN,
+            to_status=PublicationAttemptStatus.SUCCEEDED,
+            external_post_id="post-9",
+        )
+        assert attempt.status == PublicationAttemptStatus.SUCCEEDED
+
+        applied = _late_agent_transition(
+            aid, "unknown", reason="late publish exception: ReadTimeout"
+        )
+        assert applied is False
+
+        rows = asyncio.run(_attempts_for(vu))
+        assert rows[0].status == PublicationAttemptStatus.SUCCEEDED  # not resurrected
+        assert rows[0].external_post_id == "post-9"  # operator data intact
+    finally:
+        asyncio.run(_cleanup(vu, (aid,)))
+
+
+def test_race_operator_force_fail_blocks_irreversible_publish_permit(monkeypatch):
+    """End-to-end through the REAL agent: a stalled execution (attempt
+    admitted, then untouched for an hour) is force-failed by the
+    operator mid-flight; when the execution resumes, its publication
+    permit (PENDING -> IN_PROGRESS CAS) is REFUSED and the irreversible
+    external publish call is never made."""
+    script = _PostizScript(check="ready", publish=("ok", "post-late"))
+    _install_real_postiz(monkeypatch, script)
+    video_uuid = uuid.uuid4()
+
+    async def _operator_force_fails_mid_flight(path):
+        if path is None:
+            return None
+        from sqlalchemy import select, update
+
+        engine, session = await _session()
+        try:
+            row = (
+                (
+                    await session.execute(
+                        select(PublicationAttempt).where(
+                            PublicationAttempt.video_id == video_uuid
+                        )
+                    )
+                )
+                .scalars()
+                .one()
+            )
+            # The stalled execution's row is an hour old.
+            await session.execute(
+                update(PublicationAttempt)
+                .where(PublicationAttempt.id == row.id)
+                .values(updated_at=datetime.now(timezone.utc) - timedelta(hours=1))
+            )
+            await session.commit()
+            await recon.resolve_attempt(
+                session,
+                row.id,
+                from_status=PublicationAttemptStatus.PENDING,
+                to_status=PublicationAttemptStatus.FAILED,
+                attestation="operator verified: execution stalled before publish",
+                force=True,
+            )
+        finally:
+            await session.close()
+            await engine.dispose()
+        return path
+
+    monkeypatch.setattr(
+        "app.agents.publishing.ensure_local_asset", _operator_force_fails_mid_flight
+    )
+    try:
+        result = _run_agent(_ctx(video_uuid))
+        assert not result.success
+        assert "permit" in result.error.lower()
+        assert "failed" in result.error  # the refreshed (operator-resolved) status
+        assert script.posts_calls == 0  # the irreversible publish NEVER happened
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert rows[0].status == PublicationAttemptStatus.FAILED
+        assert rows[0].external_post_id is None
     finally:
         asyncio.run(_cleanup(video_uuid))
