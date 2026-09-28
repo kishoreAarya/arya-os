@@ -505,6 +505,43 @@ class PublishingAgent(BaseAgent):
                     attempt_status=attempt.status.value,
                     external_post_id=publish_result.published_content_id,
                 )
+                if attempt.status == PublicationAttemptStatus.SUCCEEDED:
+                    # F-11a (ratified): AGREEMENT, not conflict — a
+                    # concurrent evidence-based operator resolution already
+                    # recorded the same terminal outcome (the refused CAS
+                    # refreshed the in-memory attempt). The attempt row is
+                    # the system of record: return success with the row's
+                    # external ids, surface the agent-observed id as a
+                    # warning, and make no provider call, no new attempt,
+                    # and no state write.
+                    logger.warning(
+                        "publishing_agent_success_recorded_concurrently",
+                        platform=platform,
+                        video_id=video_id,
+                        attempt_id=str(attempt.id),
+                        recorded_external_post_id=attempt.external_post_id,
+                        agent_observed_external_post_id=publish_result.published_content_id,
+                    )
+                    return AgentResult(
+                        success=True,
+                        output={
+                            "publishing_result": None,
+                            "published_video_id": attempt.external_post_id,
+                            "public_url": attempt.public_url,
+                            "attempt_id": str(attempt.id),
+                            "attempt_status": attempt.status.value,
+                            "attempt_number": attempt.attempt_number,
+                            "writeback_warnings": [
+                                "outcome recorded concurrently by an operator "
+                                f"resolution; the agent-observed external id "
+                                f"{publish_result.published_content_id} was not "
+                                "re-recorded (the attempt row holds "
+                                f"{attempt.external_post_id})"
+                            ],
+                        },
+                        provider_used=platform,
+                        error=None,
+                    )
                 return AgentResult(
                     success=False,
                     error=f"Publish succeeded externally for '{platform}' "

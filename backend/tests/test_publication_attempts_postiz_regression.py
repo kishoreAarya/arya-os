@@ -402,3 +402,219 @@ def test_f09_permit_denied_error_names_the_uploaded_media_id(monkeypatch):
         assert rows[0].external_content_id is None
     finally:
         asyncio.run(_cleanup_attempts(video_uuid))
+
+
+# ---------------------------------------------------------------------------
+# F-11a: agreement-aware success refusal — when the agent's mark_succeeded
+# CAS is refused under an already-SUCCEEDED row (concurrent evidence-based
+# operator resolution), the outcome is AGREEMENT: success with the attempt
+# row's ids and the agent-observed id surfaced as a warning. Refusals under
+# any other status remain fail-loud exactly as ratified.
+# ---------------------------------------------------------------------------
+
+
+class _MidFlightOperatorClient(_ScriptedClient):
+    """Scripts the Postiz transport AND interposes an operator resolution
+    on the FIRST /posts dispatch (F-11 harness). Evidence lookups answer
+    per the configured provider state."""
+
+    def __init__(self, transport, on_publish_dispatch=None, evidence="ready", **kwargs):
+        super().__init__(transport, **kwargs)
+        self._on_publish_dispatch = on_publish_dispatch
+        self._evidence = evidence
+
+    async def get(self, url, **kwargs):
+        is_specific_post = (
+            "/public/v1/posts" in url
+            and not url.endswith("/public/v1/posts")
+            and "startDate" not in kwargs.get("params", {})
+        )
+        if is_specific_post:
+            if self._evidence == "ready":
+                return httpx.Response(
+                    200, json={"id": "x", "status": "published"},
+                    request=httpx.Request("GET", url),
+                )
+            return httpx.Response(
+                200, json={"status": "processing"}, request=httpx.Request("GET", url)
+            )
+        return await super().get(url, **kwargs)
+
+    async def post(self, url, **kwargs):
+        if not url.endswith("/public/v1/upload") and self._on_publish_dispatch:
+            hook = self._on_publish_dispatch
+            self._on_publish_dispatch = None  # first dispatch only
+            await hook()
+        return await super().post(url, **kwargs)
+
+
+def _operator_resolution_hook(video_uuid, *, to_status, external_post_id=None):
+    """Aged mid-flight operator resolution (IN_PROGRESS -> SUCCEEDED on
+    ready evidence, or -> FAILED with force on non-public evidence)."""
+
+    async def hook():
+        from datetime import datetime, timedelta, timezone
+
+        from sqlalchemy import select, update
+
+        from app.services import publication_attempt_reconciliation as recon
+
+        engine, session = await _session()
+        try:
+            row = (
+                (
+                    await session.execute(
+                        select(PublicationAttempt).where(
+                            PublicationAttempt.video_id == video_uuid
+                        )
+                    )
+                )
+                .scalars()
+                .one()
+            )
+            await session.execute(
+                update(PublicationAttempt)
+                .where(PublicationAttempt.id == row.id)
+                .values(updated_at=datetime.now(timezone.utc) - timedelta(hours=1))
+            )
+            await session.commit()
+            if to_status == "succeeded":
+                await recon.resolve_attempt(
+                    session,
+                    row.id,
+                    from_status=PublicationAttemptStatus.IN_PROGRESS,
+                    to_status=PublicationAttemptStatus.SUCCEEDED,
+                    external_post_id=external_post_id,
+                    public_url=f"https://social.example/watch/{external_post_id}",
+                )
+            else:
+                await recon.resolve_attempt(
+                    session,
+                    row.id,
+                    from_status=PublicationAttemptStatus.IN_PROGRESS,
+                    to_status=PublicationAttemptStatus.FAILED,
+                    attestation="operator verified: execution stalled",
+                    force=True,
+                )
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    return hook
+
+
+def _install_midflight_postiz(monkeypatch, transport, on_publish_dispatch, evidence):
+    class _Shim:
+        ConnectError = httpx.ConnectError
+        ConnectTimeout = httpx.ConnectTimeout
+        ReadTimeout = httpx.ReadTimeout
+        TimeoutException = httpx.TimeoutException
+
+        @staticmethod
+        def AsyncClient(**kwargs):
+            return _MidFlightOperatorClient(
+                transport, on_publish_dispatch, evidence, **kwargs
+            )
+
+    monkeypatch.setattr(
+        "app.agents.publishing.get_platform_adapter",
+        lambda platform, db, secrets=None: PostizAdapter(db=db, secrets=_FakeSecrets()),
+    )
+    monkeypatch.setattr(
+        "app.services.publication_attempt_reconciliation.get_platform_adapter",
+        lambda platform, db, secrets=None: PostizAdapter(db=db, secrets=_FakeSecrets()),
+    )
+    monkeypatch.setattr("app.platforms.postiz.httpx", _Shim)
+
+
+def test_f11a_concurrent_succeeded_resolution_is_agreement_not_failure(monkeypatch):
+    """Tests 1-5: an evidence-based SUCCEEDED resolution landing under the
+    in-flight publish is AGREEMENT: the agent returns success with the
+    attempt ROW's ids, surfaces the agent-observed id as a warning, makes
+    exactly one dispatch, and the duplicate retry stays zero-dispatch."""
+    video_uuid = uuid.uuid4()
+    transport = _ScriptedTransport()  # upload ok media-1; publish ok post-1
+    _install_midflight_postiz(
+        monkeypatch,
+        transport,
+        _operator_resolution_hook(video_uuid, to_status="succeeded", external_post_id="post-operator"),
+        evidence="ready",
+    )
+    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    try:
+        first = _run(ctx)
+        # 1. Agreement, not failure.
+        assert first.success, first.error
+        # 2. The authoritative ids come from the attempt ROW.
+        assert first.output["published_video_id"] == "post-operator"
+        assert first.output["public_url"] == "https://social.example/watch/post-operator"
+        assert first.output["attempt_status"] == "succeeded"
+        # 3. The agent-observed id is surfaced in the warning.
+        warnings = first.output.get("writeback_warnings") or []
+        assert any("post-1" in w for w in warnings)
+        # 4. Exactly one dispatch.
+        assert transport.posts_calls == 1
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.SUCCEEDED]
+        assert rows[0].external_post_id == "post-operator"
+        # 5. Duplicate retry: successful, zero additional dispatch.
+        second = _run(ctx)
+        assert second.success and second.output.get("duplicate") is True
+        assert second.output["published_video_id"] == "post-operator"
+        assert transport.posts_calls == 1
+        assert len(asyncio.run(_attempts_for(video_uuid))) == 1
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_f11a_failed_refusal_remains_fail_loud(monkeypatch):
+    """Test 6: refusal under a FAILED resolution (non-public evidence,
+    force) stays fail-loud byte-for-byte — that is the genuine duplicate-
+    risk manual-review signal."""
+    video_uuid = uuid.uuid4()
+    transport = _ScriptedTransport()
+    _install_midflight_postiz(
+        monkeypatch,
+        transport,
+        _operator_resolution_hook(video_uuid, to_status="failed"),
+        evidence="processing",
+    )
+    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    try:
+        first = _run(ctx)
+        assert not first.success
+        assert "manual review required" in first.error
+        assert "post-1" in first.error
+        assert transport.posts_calls == 1
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.FAILED]
+        assert rows[0].external_post_id is None
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_f11a_unknown_refusal_unchanged(monkeypatch):
+    """Test 7: a publish EXCEPTION after a concurrent SUCCEEDED resolution
+    keeps the existing refused-transition behavior: failure naming the
+    resolution, no UNKNOWN landing, row stays SUCCEEDED."""
+    video_uuid = uuid.uuid4()
+    transport = _ScriptedTransport(
+        publish_behavior=("raise", httpx.ReadTimeout("dropped after submit"))
+    )
+    _install_midflight_postiz(
+        monkeypatch,
+        transport,
+        _operator_resolution_hook(video_uuid, to_status="succeeded", external_post_id="post-operator"),
+        evidence="ready",
+    )
+    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    try:
+        first = _run(ctx)
+        assert not first.success
+        assert "attempt already resolved" in first.error
+        assert transport.posts_calls == 1
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.SUCCEEDED]
+        assert rows[0].external_post_id == "post-operator"
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
