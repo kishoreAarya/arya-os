@@ -7,7 +7,9 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-arya}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      # M1 (release hardening): no silent default — startup fails fast with
+      # a clear error if POSTGRES_PASSWORD is unset/empty.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (generate a strong value; see .env.example)}
       POSTGRES_DB: ${POSTGRES_DB:-arya_os}
     ports:
       - "127.0.0.1:5432:5432"
@@ -41,6 +43,11 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      # M1 (release hardening): the API key must be provided explicitly —
+      # docker compose fails at configuration time if unset/empty, instead
+      # of letting the app start with a placeholder credential.
+      ARYA_API_KEY: ${ARYA_API_KEY:?ARYA_API_KEY must be set (generate a strong value; see .env.example)}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
@@ -65,7 +72,7 @@ services:
       DB_POSTGRESDB_PORT: 5432
       DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-arya_os}
       DB_POSTGRESDB_USER: ${POSTGRES_USER:-arya}
-      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (generate a strong value; see .env.example)}
     ports:
       - "${N8N_HOST_PORT:-5678}:5678"
     depends_on:
