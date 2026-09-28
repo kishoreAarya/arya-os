@@ -15,6 +15,8 @@ import tempfile
 import uuid
 from pathlib import Path
 
+import pytest
+
 from app.agents.publishing import PublishingAgent
 from app.models.enums import PublicationAttemptStatus
 from app.models.publication import PublicationAttempt
@@ -600,3 +602,230 @@ def test_operator_resolution_rejects_every_late_execution_transition():
         assert rows2[0].error is None
     finally:
         asyncio.run(_cleanup_attempts(*made))
+
+
+# ---------------------------------------------------------------------------
+# F-07: exception-window hardening — pre-permit local failures land FAILED
+# (never a stranded PENDING row, never a provider publish); post-success
+# bookkeeping failures never falsify an externally-successful publication.
+# ---------------------------------------------------------------------------
+
+
+def test_ssrf_rejected_asset_url_is_failed_not_pending(monkeypatch):
+    """The identified window: ensure_local_asset raises ValueError for an
+    SSRF-rejected remote URL. Pre-dispatch local failure -> FAILED, zero
+    provider calls, and the existing FAILED -> n+1 admission admits the
+    retry."""
+    video_uuid = uuid.uuid4()
+    adapter = StubAdapter(None)
+    adapter._video_uuid = video_uuid
+    _install_adapter(monkeypatch, adapter)
+    try:
+        result = _run(
+            _context(
+                video_uuid,
+                video_storage_path="http://169.254.169.254/latest/meta-data",
+            )
+        )
+        assert not result.success
+        assert "Asset resolution failed" in result.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.FAILED]
+        assert "ValueError" in rows[0].error  # classified, not stranded
+        assert adapter.calls["publish"] == 0
+        assert adapter.calls["upload_content"] == 0
+
+        # The existing admission contract: FAILED admits attempt n+1.
+        second = _run(_context(video_uuid, video_storage_path=_tmp_video()))
+        assert second.success, second.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.attempt_number for r in rows] == [1, 2]
+        assert [r.status for r in rows] == [
+            PublicationAttemptStatus.FAILED,
+            PublicationAttemptStatus.SUCCEEDED,
+        ]
+        assert adapter.calls["publish"] == 1  # exactly the one legitimate retry
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_local_asset_oserror_is_failed_not_pending(monkeypatch):
+    """Representative pre-permit local failure: OSError during asset
+    resolution -> FAILED, no provider publish call."""
+    video_uuid = uuid.uuid4()
+    adapter = StubAdapter(None)
+    adapter._video_uuid = video_uuid
+    _install_adapter(monkeypatch, adapter)
+
+    async def _oserror(path):
+        raise OSError("disk I/O error while resolving asset")
+
+    monkeypatch.setattr("app.agents.publishing.ensure_local_asset", _oserror)
+    try:
+        result = _run(_context(video_uuid, video_storage_path=_tmp_video()))
+        assert not result.success
+        assert "Asset resolution failed" in result.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.FAILED]
+        assert "OSError" in rows[0].error
+        assert adapter.calls["publish"] == 0
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_unexpected_asset_error_is_not_silently_classified_failed(monkeypatch):
+    """Review-required: a genuine programming defect (KeyError) escaping
+    asset resolution must NOT be silently converted into the FAILED
+    asset-resolution classification — it propagates for observability.
+    No provider publish occurs; the attempt is left unclassified (the
+    defect must be investigated, not papered over)."""
+    video_uuid = uuid.uuid4()
+    adapter = StubAdapter(None)
+    adapter._video_uuid = video_uuid
+    _install_adapter(monkeypatch, adapter)
+
+    async def _defect(path):
+        raise KeyError("programming defect in resolution path")
+
+    monkeypatch.setattr("app.agents.publishing.ensure_local_asset", _defect)
+    try:
+        with pytest.raises(KeyError):
+            _run(_context(video_uuid, video_storage_path=_tmp_video()))
+        rows = asyncio.run(_attempts_for(video_uuid))
+        # NOT classified as an asset-resolution FAILED: the defect stays loud.
+        assert [r.status for r in rows] == [PublicationAttemptStatus.PENDING]
+        assert rows[0].error is None
+        assert adapter.calls["publish"] == 0
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_thumbnail_resolution_failure_is_failed_not_pending(monkeypatch):
+    """Pre-permit local failure in the THUMBNAIL resolution window (after
+    upload, before permit/publish): no post can exist -> FAILED, no
+    adapter.publish call."""
+    video_uuid = uuid.uuid4()
+    adapter = StubAdapter(None)
+    adapter._video_uuid = video_uuid
+    _install_adapter(monkeypatch, adapter)
+    video_path = _tmp_video()
+
+    async def _thumb_fails(path):
+        if path is None or path == video_path:
+            return path
+        raise ValueError("Insecure or invalid remote asset URL: http://169.254.169.254/t.png")
+
+    monkeypatch.setattr("app.agents.publishing.ensure_local_asset", _thumb_fails)
+    try:
+        result = _run(
+            _context(
+                video_uuid,
+                video_storage_path=video_path,
+                thumbnail_storage_path="http://169.254.169.254/t.png",
+            )
+        )
+        assert not result.success
+        assert "Thumbnail resolution failed" in result.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.FAILED]
+        assert adapter.calls["upload_content"] == 1  # upload did happen
+        assert adapter.calls["publish"] == 0  # ...but no publish was dispatched
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_video_writeback_failure_never_falsifies_succeeded_publication(monkeypatch):
+    """Provider publication succeeds, SUCCEEDED is durably committed, then
+    the Video-row writeback fails: the result stays successful with the
+    problem surfaced, the attempt stays SUCCEEDED, no second publish
+    occurs, and the duplicate guard blocks any re-submission."""
+    from sqlalchemy import Update
+
+    video_uuid = uuid.uuid4()
+    adapter = StubAdapter(None)
+    adapter._video_uuid = video_uuid
+    _install_adapter(monkeypatch, adapter)
+
+    def _run_with_failing_video_update(agent_context):
+        async def _inner():
+            engine, session = await _session()
+            original_execute = session.execute
+
+            async def _failing_execute(statement, *args, **kwargs):
+                if isinstance(statement, Update) and statement.table.name == "videos":
+                    raise RuntimeError("simulated writeback persistence failure")
+                return await original_execute(statement, *args, **kwargs)
+
+            session.execute = _failing_execute
+            try:
+                return await PublishingAgent(db=session).run(agent_context)
+            finally:
+                await session.close()
+                await engine.dispose()
+
+        return asyncio.run(_inner())
+
+    try:
+        result = _run_with_failing_video_update(
+            _context(video_uuid, video_storage_path=_tmp_video())
+        )
+        # The external publication is authoritative: never a false failure.
+        assert result.success, result.error
+        warnings = result.output.get("writeback_warnings")
+        assert warnings and any("video writeback failed" in w for w in warnings)
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.SUCCEEDED]
+        assert rows[0].external_post_id == "provider-post-123"
+        assert adapter.calls["publish"] == 1
+
+        # Duplicate guard: the re-submission resolves to the SUCCEEDED
+        # attempt — no second provider publication.
+        second = _run(_context(video_uuid, video_storage_path=_tmp_video()))
+        assert second.success and second.output.get("duplicate") is True
+        assert adapter.calls["publish"] == 1
+        assert len(asyncio.run(_attempts_for(video_uuid))) == 1
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_public_url_fetch_failure_is_surfaced_not_fatal(monkeypatch):
+    """A post-success public-URL fetch failure is surfaced as a recovery
+    warning; the publication remains successful and SUCCEEDED."""
+    video_uuid = uuid.uuid4()
+    adapter = StubAdapter(None)
+    adapter._video_uuid = video_uuid
+    _install_adapter(monkeypatch, adapter)
+
+    async def _fetch_url_raises(**kwargs):
+        raise RuntimeError("url lookup unavailable")
+
+    adapter.fetch_url = _fetch_url_raises
+    try:
+        result = _run(_context(video_uuid, video_storage_path=_tmp_video()))
+        assert result.success, result.error
+        warnings = result.output.get("writeback_warnings")
+        assert warnings and any("public url fetch failed" in w for w in warnings)
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.SUCCEEDED]
+        assert adapter.calls["publish"] == 1
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_normal_success_output_unchanged_without_warnings(monkeypatch):
+    """Normal successful publication: response shape unchanged — no
+    writeback_warnings key, no error, existing output fields intact."""
+    video_uuid = uuid.uuid4()
+    adapter = StubAdapter(None)
+    adapter._video_uuid = video_uuid
+    _install_adapter(monkeypatch, adapter)
+    try:
+        result = _run(_context(video_uuid, video_storage_path=_tmp_video()))
+        assert result.success
+        assert "writeback_warnings" not in result.output
+        assert result.error is None
+        assert result.output["published_video_id"] == "provider-post-123"
+        assert result.output["attempt_status"] == "succeeded"
+        assert result.output["public_url"] == "provider-post-123"
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))

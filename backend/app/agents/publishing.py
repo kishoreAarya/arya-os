@@ -194,7 +194,17 @@ class PublishingAgent(BaseAgent):
 
         try:
             local_video_path = await ensure_local_asset(video_storage_path)
-        except RuntimeError as exc:
+        except (RuntimeError, ValueError, OSError) as exc:
+            # Known local asset-resolution/validation failures only
+            # (missing file, SSRF-rejected remote URL, size/download/
+            # zero-byte guards, filesystem errors). This happens BEFORE
+            # any adapter submission call: evidence supports "no public
+            # post was created" — FAILED (F-07), never a stranded
+            # PENDING row and never UNKNOWN (nothing external was
+            # attempted). Deliberately NARROW: unexpected programming
+            # errors (AttributeError/KeyError/...) stay loud — they are
+            # defects to observe, not business-level FAILED
+            # classifications.
             logger.error(
                 "publishing_agent_asset_error",
                 platform=platform,
@@ -202,7 +212,9 @@ class PublishingAgent(BaseAgent):
                 error=str(exc),
             )
             if attempt is not None:
-                await _attempt_failed(self._db, attempt, f"asset resolution failed: {exc}")
+                await _attempt_failed(
+                    self._db, attempt, f"asset resolution failed: {type(exc).__name__}: {exc}"
+                )
             return AgentResult(
                 success=False,
                 error=f"Asset resolution failed for '{platform}': {exc}",
@@ -261,10 +273,31 @@ class PublishingAgent(BaseAgent):
             # the crash-recovery anchor (ratified §9).
             await mark_external_content(self._db, attempt, upload_result.content_id)
 
-        # Upload thumbnail if provided
-        thumbnail_path = await ensure_local_asset(
-            context.get("thumbnail_storage_path")
-        )
+        # Upload thumbnail if provided. A resolution failure here is a
+        # pre-permit local failure (F-07): the publish call has not been
+        # made, so no post can exist — FAILED, never a stranded PENDING.
+        # Same NARROW exception set as the main asset resolver (the same
+        # ensure_local_asset code path): unexpected programming errors
+        # stay loud.
+        try:
+            thumbnail_path = await ensure_local_asset(
+                context.get("thumbnail_storage_path")
+            )
+        except (RuntimeError, ValueError, OSError) as exc:
+            logger.error(
+                "publishing_agent_thumbnail_asset_error",
+                platform=platform,
+                video_id=video_id,
+                error=str(exc),
+            )
+            if attempt is not None:
+                await mark_failed(
+                    self._db, attempt, f"thumbnail resolution failed: {type(exc).__name__}: {exc}"
+                )
+            return AgentResult(
+                success=False,
+                error=f"Thumbnail resolution failed for '{platform}': {exc}",
+            )
 
         if thumbnail_path and upload_result.content_id:
             try:
@@ -396,6 +429,13 @@ class PublishingAgent(BaseAgent):
                     "manual review required",
                 )
 
+        # The external publication is now authoritative: SUCCEEDED is
+        # durably committed. Every operation below is bookkeeping; a
+        # failure in any of them is surfaced as a recovery warning and
+        # NEVER reverts the attempt, re-publishes, or reports the
+        # publication as failed (F-07).
+        writeback_warnings: list[str] = []
+
         # Update the existing Video row after successful publish.
         status_map = {
             "published": PublishStatus.PUBLISHED,
@@ -426,6 +466,25 @@ class PublishingAgent(BaseAgent):
                 )
             except (ValueError, TypeError):
                 logger.debug("video_id_not_uuid_skipping_row_update", video_id=video_id)
+            except Exception as exc:  # noqa: BLE001 — post-success bookkeeping must never falsify the publication
+                try:
+                    await self._db.rollback()
+                    # Rollback expires ORM instances; rehydrate the attempt
+                    # (best-effort) so later attribute access cannot trip a
+                    # lazy load.
+                    if attempt is not None:
+                        await self._db.refresh(attempt)
+                except Exception:  # noqa: BLE001, S110 — best-effort session recovery
+                    pass
+                writeback_warnings.append(
+                    f"video writeback failed: {type(exc).__name__}: {exc}"
+                )
+                logger.error(
+                    "publishing_agent_video_writeback_failed",
+                    video_id=video_id,
+                    published_content_id=publish_result.published_content_id,
+                    error=str(exc),
+                )
 
         # Persist provenance in SystemLog if workflow_run_id is attached
         workflow_run_id = context.get("workflow_run_id")
@@ -450,15 +509,36 @@ class PublishingAgent(BaseAgent):
                 self._db.add(log_entry)
                 await self._db.commit()
             except Exception as exc:
+                # Post-success provenance bookkeeping failure: recover the
+                # session and surface it — never falsify the publication.
+                try:
+                    await self._db.rollback()
+                    if attempt is not None:
+                        await self._db.refresh(attempt)
+                except Exception:  # noqa: BLE001, S110 — best-effort session recovery
+                    pass
+                writeback_warnings.append(f"provenance log persist failed: {exc}")
                 logger.warning("publishing_log_persist_failed", error=str(exc))
 
-        # Fetch the public URL
+        # Fetch the public URL. Post-success (F-07): a failure here is a
+        # recovery problem, never a publication failure.
         public_url = None
         if publish_result.published_content_id:
-            public_url = await adapter.fetch_url(
-                published_content_id=publish_result.published_content_id,
-                credentials=auth_result.credentials,
-            )
+            try:
+                public_url = await adapter.fetch_url(
+                    published_content_id=publish_result.published_content_id,
+                    credentials=auth_result.credentials,
+                )
+            except Exception as exc:  # noqa: BLE001 — post-success recovery problem
+                writeback_warnings.append(
+                    f"public url fetch failed: {type(exc).__name__}: {exc}"
+                )
+                logger.warning(
+                    "publishing_agent_public_url_fetch_failed",
+                    platform=platform,
+                    published_content_id=publish_result.published_content_id,
+                    error=str(exc),
+                )
 
         publishing_result = PublishingResult(
             platform=platform,
@@ -489,9 +569,24 @@ class PublishingAgent(BaseAgent):
 
                 # Status-preserving CAS bookkeeping (best-effort): only
                 # while the attempt still holds its recorded status.
-                await _transition(
+                public_url_persisted = await _transition(
                     self._db, attempt, None, (attempt.status,), public_url=public_url
                 )
+                if not public_url_persisted:
+                    # Surfaced, not swallowed: the attempt moved (operator
+                    # resolution) or the commit failed — the publication
+                    # itself is unaffected.
+                    logger.warning(
+                        "publishing_agent_public_url_persist_skipped",
+                        attempt_id=str(attempt.id),
+                        attempt_status=attempt.status.value,
+                    )
+
+        if writeback_warnings:
+            # Truthful surfacing (F-07): the publication SUCCEEDED; these
+            # are recovery problems for the operator, not publication
+            # failures. Absent on the normal path (output unchanged).
+            result_output["writeback_warnings"] = writeback_warnings
 
         # Carry forward context for AnalyticsAgent
         if public_url:
