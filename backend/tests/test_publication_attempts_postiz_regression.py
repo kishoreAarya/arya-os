@@ -944,3 +944,165 @@ def test_f14a_operator_gated_escape_with_ack_proceeds(monkeypatch):
         assert len(provider_posts) == 2
     finally:
         asyncio.run(_cleanup_attempts(video_uuid))
+
+
+# ---------------------------------------------------------------------------
+# F-15a: truthful upload anchors — an id-less 2xx upload response raises
+# the ambiguity error (agent records UNKNOWN, retry blocked) instead of
+# fabricating an anchor from the local file name; parseable id/path
+# responses are unaffected; symmetry with the F-06 publish-side contract.
+# ---------------------------------------------------------------------------
+
+
+class _UploadResponseClient(_ScriptedClient):
+    """Scripts the upload endpoint's 200 JSON body; everything else normal."""
+
+    def __init__(self, transport, upload_body, **kwargs):
+        super().__init__(transport, **kwargs)
+        self._upload_body = upload_body
+
+    async def post(self, url, **kwargs):
+        if url.endswith("/public/v1/upload"):
+            self._transport.upload_calls += 1
+            return httpx.Response(
+                200, json=self._upload_body, request=httpx.Request("POST", url)
+            )
+        return await super().post(url, **kwargs)
+
+
+def _install_upload_body(monkeypatch, upload_body):
+    transport = _ScriptedTransport()
+
+    class _Shim:
+        ConnectError = httpx.ConnectError
+        ConnectTimeout = httpx.ConnectTimeout
+        ReadTimeout = httpx.ReadTimeout
+        TimeoutException = httpx.TimeoutException
+
+        @staticmethod
+        def AsyncClient(**kwargs):
+            return _UploadResponseClient(transport, upload_body, **kwargs)
+
+    monkeypatch.setattr(
+        "app.agents.publishing.get_platform_adapter",
+        lambda platform, db, secrets=None: PostizAdapter(db=db, secrets=_FakeSecrets()),
+    )
+    monkeypatch.setattr("app.platforms.postiz.httpx", _Shim)
+    return transport
+
+
+def test_f15a_idless_upload_200_is_unknown_with_no_fabricated_anchor(monkeypatch):
+    """Requirements: id-less 2xx upload -> ambiguity/UNKNOWN; NO fabricated
+    anchor; NO publish dispatch; retry remains blocked (UNKNOWN is durable)."""
+    video_uuid = uuid.uuid4()
+    transport = _install_upload_body(monkeypatch, {"unrelated": True})
+    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    try:
+        first = _run(ctx)
+        assert not first.success
+        assert "UNKNOWN" in first.error
+        assert "no parseable media id" in first.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.UNKNOWN]
+        # No fabricated anchor: the row carries no external_content_id.
+        assert rows[0].external_content_id is None
+        # No publish was dispatched.
+        assert transport.posts_calls == 0
+        assert transport.upload_calls == 1
+
+        # Retry remains blocked at admission (UNKNOWN is durable).
+        second = _run(ctx)
+        assert not second.success and "AMBIGUOUS" in second.error
+        assert transport.posts_calls == 0
+        assert len(asyncio.run(_attempts_for(video_uuid))) == 1
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_f15a_path_only_upload_response_still_works(monkeypatch):
+    """A 200 response carrying only `path` (no `id`) remains a valid,
+    non-fabricated anchor — unchanged behavior."""
+    video_uuid = uuid.uuid4()
+    transport = _install_upload_body(monkeypatch, {"path": "uploads/media-9.mp4"})
+    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    try:
+        result = _run(ctx)
+        assert result.success, result.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert rows[0].status == PublicationAttemptStatus.SUCCEEDED
+        assert rows[0].external_content_id == "uploads/media-9.mp4"
+        assert transport.posts_calls == 1
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_f15a_id_upload_response_still_works(monkeypatch):
+    """A 200 response carrying `id` is unchanged (the default scripted
+    behavior exercises exactly this)."""
+    video_uuid = uuid.uuid4()
+    transport = _install_upload_body(monkeypatch, {"id": "media-77"})
+    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    try:
+        result = _run(ctx)
+        assert result.success, result.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert rows[0].external_content_id == "media-77"
+        assert rows[0].status == PublicationAttemptStatus.SUCCEEDED
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_f15a_f06_symmetry_idless_2xx_raises_on_both_paths(monkeypatch):
+    """F-06 symmetry: an id-less 2xx raises the SAME ambiguity contract on
+    both the upload path and the publish path — never a fabricated
+    identifier on either."""
+    import pytest as _pytest
+
+    from app.platforms.postiz import PostizAdapter
+
+    # Upload path: id-less 200 -> ambiguity RuntimeError (F-15a).
+    _install_upload_body(monkeypatch, {"unrelated": True})
+
+    async def _upload():
+        adapter = PostizAdapter(db=None, secrets=_FakeSecrets())
+        return await adapter.upload_content(
+            file_path=_tmp_video(), credentials={"api_key": "k"}, is_dry_run=False
+        )
+
+    with _pytest.raises(RuntimeError) as upload_exc:
+        asyncio.run(_upload())
+    assert "no parseable media id" in str(upload_exc.value)
+
+    class _PublishClient(_ScriptedClient):
+        async def post(self, url, **kwargs):
+            if url.endswith("/public/v1/upload"):
+                return await super().post(url, **kwargs)
+            return httpx.Response(200, json={"unrelated": True}, request=httpx.Request("POST", url))
+
+    import app.platforms.postiz as _pm
+
+    class _PublishShim:
+        ConnectError = httpx.ConnectError
+        ConnectTimeout = httpx.ConnectTimeout
+        ReadTimeout = httpx.ReadTimeout
+        TimeoutException = httpx.TimeoutException
+        AsyncClient = staticmethod(lambda **kw: _PublishClient(_ScriptedTransport(), **kw))
+
+    original_httpx = _pm.httpx
+    _pm.httpx = _PublishShim
+    try:
+
+        async def _publish():
+            adapter = PostizAdapter(db=None, secrets=_FakeSecrets())
+            return await adapter.publish(
+                content_id="media-1",
+                credentials={"api_key": "k"},
+                integration_id="integ-1",
+                publish_type="now",
+            )
+
+        with _pytest.raises(RuntimeError) as publish_exc:
+            asyncio.run(_publish())
+        assert "no parseable post id" in str(publish_exc.value)
+    finally:
+        _pm.httpx = original_httpx

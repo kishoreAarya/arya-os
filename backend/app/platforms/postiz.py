@@ -193,7 +193,20 @@ class PostizAdapter(PlatformAdapter):
                     )
 
                 data = resp.json()
-                content_id = data.get("id") or data.get("path") or file_name
+                content_id = data.get("id") or data.get("path")
+                if content_id is None or not str(content_id).strip():
+                    # F-15a (ratified): ambiguous upload success — the
+                    # provider accepted the media (2xx) but returned no
+                    # parseable provider identifier. NEVER fabricate an
+                    # anchor from the local file name (a fabricated anchor
+                    # poisons the crash-recovery anchor and the evidence
+                    # channel). Raise so the operator path records UNKNOWN
+                    # — mirroring the ratified publish-side contract (F-06).
+                    raise RuntimeError(
+                        f"Postiz media upload succeeded (HTTP {resp.status_code}) "
+                        "but the response contained no parseable media id: "
+                        "outcome ambiguous"
+                    )
                 url = data.get("path") or data.get("url")
                 return UploadResult(
                     success=True,
