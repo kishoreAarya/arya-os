@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.publishing import PublishingAgent
@@ -54,6 +54,27 @@ class PublishRequest(BaseModel):
     dry_run: bool = Field(default=False, description="If true, validates contract and simulates without external post")
     workflow_run_id: uuid.UUID | None = Field(default=None, description="Associated WorkflowRun ID for provenance")
     video_id: str | None = Field(default=None, description="Associated Video DB row ID")
+
+    @field_validator("scheduled_at")
+    @classmethod
+    def _validate_scheduled_at(cls, value: str | None) -> str | None:
+        """F-05a (ratified): scheduled_at must be a well-formed ISO-8601
+        UTC datetime in the FUTURE. Fail-closed at the API edge —
+        malformed, naive, non-UTC, and past/current values are rejected
+        (422) before any admission, attempt creation, or provider call."""
+        if value is None:
+            return value
+        try:
+            dt = datetime.fromisoformat(value)
+        except ValueError:
+            raise ValueError(
+                "scheduled_at must be a valid ISO-8601 datetime (e.g. 2030-01-01T12:00:00Z)"
+            ) from None
+        if dt.tzinfo is None or dt.utcoffset() != timedelta(0):
+            raise ValueError("scheduled_at must include a UTC timezone (Z or +00:00)")
+        if dt <= datetime.now(timezone.utc):
+            raise ValueError("scheduled_at must be in the future")
+        return value
 
 
 # F3 stable intent identity: fixed namespace for server-derived synthetic
@@ -163,6 +184,20 @@ async def publish_asset(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied: path traversal detected in asset path",
+        )
+
+    # F-05a (ratified): YouTube does not support scheduling in this
+    # slice. Refuse scheduled YouTube requests at the API edge — BEFORE
+    # admission, attempt creation, and any provider call. Native
+    # publishAt scheduling is a deferred, separately-ratified capability.
+    if payload.platform == "youtube" and (
+        payload.scheduled_at or payload.publish_type == "schedule"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Scheduling is not supported on youtube: scheduled_at (or "
+            "publish_type='schedule') is rejected. Publish without a schedule, "
+            "or use a platform that supports scheduling (e.g. postiz).",
         )
 
     agent = PublishingAgent(db=db)

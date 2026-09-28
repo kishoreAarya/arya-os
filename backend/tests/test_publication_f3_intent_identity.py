@@ -423,7 +423,9 @@ def test_f3_scheduled_duplicate_protected_without_video_id(monkeypatch):
     kwargs = _payload(
         asset_storage_path=asset,
         publish_type="schedule",
-        scheduled_at="2026-12-01T10:00:00Z",
+        # Far-future UTC timestamp (F-05a validates scheduled_at as a
+        # future ISO-8601 UTC datetime at the API edge).
+        scheduled_at="2030-12-01T10:00:00Z",
     )
     synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs)))
     try:

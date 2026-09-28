@@ -420,6 +420,21 @@ class YouTubeAdapter(PlatformAdapter):
         """
         is_dry_run = kwargs.get("is_dry_run", False)
 
+        # F-05a (ratified): YouTube does not support scheduling in this
+        # slice. Scheduling parameters are NEVER silently discarded —
+        # refuse them explicitly (confirmed failure: nothing was
+        # published, so the operator path records an evidence-based
+        # FAILED) rather than converting a scheduled request into an
+        # immediate publication. Native publishAt scheduling is a
+        # deferred, separately-ratified capability.
+        if kwargs.get("publish_type") == "schedule" or kwargs.get("scheduled_at"):
+            return PublishResult(
+                success=False,
+                error="Scheduling is not supported on youtube "
+                "(no publishAt support in this contract): refusing rather "
+                "than publishing immediately",
+            )
+
         if is_dry_run:
             simulated_id = f"dry_run_post_{uuid.uuid4().hex[:12]}"
             logger.info(

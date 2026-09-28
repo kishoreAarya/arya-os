@@ -918,3 +918,133 @@ def test_f04a_public_publication_converges_with_f08_evidence(monkeypatch):
         assert processing.error is None
     finally:
         asyncio.run(_cleanup(synthetic))
+
+
+# ---------------------------------------------------------------------------
+# F-05a: truthful scheduling contract — YouTube does not support scheduling;
+# scheduled requests are refused BEFORE admission/attempt/provider call.
+# ---------------------------------------------------------------------------
+
+
+def test_f05a_router_rejects_scheduled_youtube_before_any_side_effect(monkeypatch):
+    """Matrix 1/2/3/4/9/20/21: a VALID future-UTC scheduled YouTube
+    request (and a publish_type='schedule' request without a timestamp)
+    is rejected with HTTP 422 naming the unsupported capability — zero
+    provider API calls, zero publication-attempt rows, nothing admitted."""
+    from fastapi import HTTPException
+
+    from app.api.routers.publishing import _synthetic_video_id
+
+    script = _Script()
+    _install_real_youtube(monkeypatch, script)
+    for extra in (
+        {"scheduled_at": "2030-01-01T00:00:00Z"},  # valid future UTC -> still unsupported
+        {"publish_type": "schedule"},  # scheduling requested without a timestamp
+    ):
+        kwargs = {**_yt_payload_kwargs(_tmp_video()), **extra}
+        synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs)))
+        with pytest.raises(HTTPException) as excinfo:
+            _publish_youtube(kwargs)
+        assert excinfo.value.status_code == 422
+        assert "Scheduling is not supported on youtube" in str(excinfo.value.detail)
+        # No provider call of any kind.
+        assert script.counters == {"insert_calls": 0, "update_calls": 0, "thumbnail_calls": 0}
+        # No attempt row was created for the rejected request.
+        assert asyncio.run(_attempts_for(synthetic)) == []
+
+
+@pytest.mark.parametrize(
+    "bad_scheduled_at",
+    [
+        "not-a-date",  # 5. malformed
+        "2030-01-01T00:00:00",  # naive (no timezone)
+        "2030-01-01T00:00:00+05:00",  # 6. non-UTC offset
+        "2020-01-01T00:00:00Z",  # 7. past
+    ],
+)
+def test_f05a_invalid_scheduled_at_is_rejected_at_validation(monkeypatch, bad_scheduled_at):
+    """Matrix 5-7: malformed / naive / non-UTC / past timestamps fail
+    pydantic validation (HTTP 422 at the edge) for BOTH platforms."""
+    from pydantic import ValidationError
+
+    for platform in ("youtube", "postiz"):
+        with pytest.raises(ValidationError):
+            PublishRequest(
+                **{**_yt_payload_kwargs(_tmp_video()), "platform": platform,
+                   "scheduled_at": bad_scheduled_at}
+            )
+
+
+def test_f05a_current_timestamp_is_rejected(monkeypatch):
+    """Matrix 8: a current/immediate timestamp is not a future schedule."""
+    from datetime import datetime, timedelta, timezone
+
+    from pydantic import ValidationError
+
+    nowish = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+    with pytest.raises(ValidationError):
+        PublishRequest(**{**_yt_payload_kwargs(_tmp_video()), "scheduled_at": nowish})
+
+
+def test_f05a_postiz_future_scheduling_still_constructs_and_publishes(monkeypatch):
+    """Matrix 17/19: the validation and the YouTube refusal do NOT touch
+    Postiz scheduling — a valid future-UTC scheduled Postiz request is
+    accepted by the model (the F-03 scheduled e2e proves the full flow;
+    this proves the model edge stays open for Postiz)."""
+    req = PublishRequest(
+        asset_storage_path=_tmp_video(), platform="postiz",
+        publish_type="schedule", scheduled_at="2030-06-01T10:00:00Z",
+    )
+    assert req.scheduled_at == "2030-06-01T10:00:00Z"
+
+
+def test_f05a_inprocess_adapter_refuses_scheduling_parameters(monkeypatch):
+    """Matrix 10: the in-process safety boundary — the ADAPTER itself
+    refuses scheduling parameters (publish_type='schedule' or
+    scheduled_at) with a confirmed failure naming the unsupported
+    capability; never silently discards them; makes zero API calls.
+    Nothing was published, so the operator path records FAILED."""
+    script = _Script()
+    _install_real_youtube(monkeypatch, script)
+
+    async def _inner():
+        adapter = YouTubeAdapter(db=None, secrets=_FakeSecrets())
+        schedule_type = await adapter.publish(
+            content_id="yt-video-1", credentials={"api_key": "k"},
+            publish_type="schedule",
+        )
+        with_time = await adapter.publish(
+            content_id="yt-video-1", credentials={"api_key": "k"},
+            scheduled_at="2030-01-01T00:00:00Z",
+        )
+        return schedule_type, with_time
+
+    schedule_type, with_time = asyncio.run(_inner())
+    for result in (schedule_type, with_time):
+        assert result.success is False
+        assert "Scheduling is not supported on youtube" in result.error
+    assert script.counters == {"insert_calls": 0, "update_calls": 0, "thumbnail_calls": 0}
+
+
+def test_f05a_unscheduled_youtube_publication_remains_unchanged(monkeypatch):
+    """Matrix 11/12/13: unscheduled YouTube publication still follows
+    F-04a (omitted -> public; explicit values verbatim) — re-asserted on
+    top of the unchanged F-04a matrix."""
+    from app.api.routers.publishing import _synthetic_video_id
+
+    for privacy_kw, expected in (
+        ({}, "public"),
+        ({"privacy_status": "private"}, "private"),
+        ({"privacy_status": "unlisted"}, "unlisted"),
+    ):
+        script = _Script()
+        _install_real_youtube(monkeypatch, script)
+        kwargs = {**_yt_payload_kwargs(_tmp_video()), **privacy_kw}
+        synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs)))
+        try:
+            resp = _publish_youtube(kwargs)
+            assert resp.success, resp.error
+            assert script.last_update_body["status"]["privacyStatus"] == expected
+            assert "publishAt" not in script.last_update_body["status"]
+        finally:
+            asyncio.run(_cleanup(synthetic))
