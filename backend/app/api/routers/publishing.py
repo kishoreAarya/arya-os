@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -43,6 +43,14 @@ class PublishRequest(BaseModel):
     integration_id: str | None = Field(default=None, description="Connected Postiz integration/channel ID")
     scheduled_at: str | None = Field(default=None, description="ISO 8601 UTC timestamp for scheduled release")
     publish_type: str = Field(default="draft", description="'now', 'schedule', or 'draft'")
+    # F-04a (ratified): publication visibility for providers that support
+    # it (YouTube: applied by the publish transition; uploads always
+    # stage privately). Inert for Postiz. NEVER participates in
+    # publication identity, admission, attempt state, or idempotency.
+    privacy_status: Literal["public", "private", "unlisted"] = Field(
+        default="public",
+        description="Publication visibility ('public', 'private', or 'unlisted'); YouTube-only — inert for Postiz",
+    )
     dry_run: bool = Field(default=False, description="If true, validates contract and simulates without external post")
     workflow_run_id: uuid.UUID | None = Field(default=None, description="Associated WorkflowRun ID for provenance")
     video_id: str | None = Field(default=None, description="Associated Video DB row ID")
@@ -164,6 +172,7 @@ async def publish_asset(
         "video_storage_path": payload.asset_storage_path,
         "title": payload.title,
         "description": payload.caption,
+        "privacy_status": payload.privacy_status,
         "caption": payload.caption,
         "social_platform": payload.social_platform,
         "integration_id": payload.integration_id,

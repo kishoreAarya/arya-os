@@ -25,6 +25,7 @@ import pytest
 from googleapiclient.errors import HttpError
 
 from app.agents.publishing import PublishingAgent
+from app.api.routers.publishing import PublishRequest, publish_asset
 from app.models.enums import PublicationAttemptStatus
 from app.models.publication import PublicationAttempt  # noqa: F401 — registers the table
 from app.platforms.youtube import YouTubeAdapter
@@ -110,10 +111,14 @@ class _Videos:
 
     def insert(self, *, part, body, media_body):
         self._counters["insert_calls"] += 1
+        # F-04a: record the dispatch body (upload staging visibility).
+        self._script.last_insert_body = body
         return _InsertRequest(self._script.upload_behavior)
 
     def update(self, *, part, body):
         self._counters["update_calls"] += 1
+        # F-04a: record the dispatch body (publication visibility).
+        self._script.last_update_body = body
         return _UpdateRequest(self._script.publish_behavior)
 
     def list(self, *, part, id):
@@ -178,6 +183,9 @@ class _Script:
         self.list_calls = 0
         self.last_list_part = None
         self.last_list_id = None
+        # F-04a dispatch-body recording (kept OFF the counters dict).
+        self.last_insert_body = None
+        self.last_update_body = None
         self.counters = {"insert_calls": 0, "update_calls": 0, "thumbnail_calls": 0}
 
 
@@ -821,3 +829,92 @@ def test_f02a_youtube_evidence_api_error_allows_failed(monkeypatch):
         assert audit["verification"]["gate"] == "failed_resolution_evidence"
     finally:
         asyncio.run(_cleanup(vu))
+
+
+# ---------------------------------------------------------------------------
+# F-04a: YouTube publication visibility (ratified: public default on the
+# request contract; uploads stage privately; the publish transition applies
+# the REQUESTED visibility; privacy never participates in identity/state)
+# ---------------------------------------------------------------------------
+
+
+def _yt_payload_kwargs(video_path):
+    return {
+        "asset_storage_path": video_path,
+        "title": "t",
+        "caption": "d",
+        "platform": "youtube",
+    }
+
+
+def _publish_youtube(payload_kwargs):
+    async def _inner():
+        engine, session = await _session()
+        try:
+            return await publish_asset(PublishRequest(**payload_kwargs), session)
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    return asyncio.run(_inner())
+
+
+@pytest.mark.parametrize(
+    "privacy_kw,expected",
+    [
+        ({}, "public"),  # 1. omitted -> ratified default public
+        ({"privacy_status": "public"}, "public"),  # 2. explicit public
+        ({"privacy_status": "private"}, "private"),  # 3. explicit private
+        ({"privacy_status": "unlisted"}, "unlisted"),  # 4. explicit unlisted
+    ],
+)
+def test_f04a_router_privacy_reaches_youtube_publish_transition(
+    monkeypatch, privacy_kw, expected
+):
+    """The requested visibility is applied VERBATIM by the publication
+    transition (videos.update), while upload staging remains PRIVATE
+    (ratified two-phase)."""
+    from app.api.routers.publishing import _synthetic_video_id
+
+    script = _Script()
+    _install_real_youtube(monkeypatch, script)
+    kwargs = {**_yt_payload_kwargs(_tmp_video()), **privacy_kw}
+    synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs)))
+    try:
+        resp = _publish_youtube(kwargs)
+        assert resp.success, resp.error
+        assert resp.attempt_status == "succeeded"
+        # Publication transition applies the REQUESTED visibility...
+        assert script.last_update_body["status"]["privacyStatus"] == expected
+        # ...while the upload always stages privately.
+        assert script.last_insert_body["status"]["privacyStatus"] == "private"
+    finally:
+        asyncio.run(_cleanup(synthetic))
+
+
+def test_f04a_invalid_privacy_is_rejected_at_the_api_edge():
+    """5. Values outside public|private|unlisted fail validation (422 at
+    the HTTP edge; ValidationError at the model edge)."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        PublishRequest(**_yt_payload_kwargs(_tmp_video()), privacy_status="friends")
+
+
+def test_f04a_public_publication_converges_with_f08_evidence(monkeypatch):
+    """8. With the ratified public default, an agent-side SUCCEEDED
+    publication is corroborated by the F-08 evidence lookup (ready)."""
+    from app.api.routers.publishing import _synthetic_video_id
+
+    script = _Script(list_response=_evidence_items("succeeded", "public"))
+    _install_real_youtube(monkeypatch, script)
+    kwargs = _yt_payload_kwargs(_tmp_video())
+    synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs)))
+    try:
+        resp = _publish_youtube(kwargs)  # privacy omitted -> public
+        assert resp.success and resp.attempt_status == "succeeded"
+        processing = _yt_check(content_id="yt-video-1")  # the scripted upload id
+        assert processing.status == "ready"
+        assert processing.error is None
+    finally:
+        asyncio.run(_cleanup(synthetic))

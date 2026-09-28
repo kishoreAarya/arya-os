@@ -733,3 +733,41 @@ def test_f01_e2e_alias_submission_while_pending_resolves_same_family(monkeypatch
         assert len(_attempts_sync(synthetic)) == 1  # same family, no new row
     finally:
         _cleanup_sync(synthetic)
+
+
+# ---------------------------------------------------------------------------
+# F-04a: privacy never participates in identity; inert for Postiz
+# ---------------------------------------------------------------------------
+
+
+def test_f04a_privacy_status_never_participates_in_identity():
+    """6. The visibility field is a MUTABLE publication parameter: all
+    values (and omission) derive the identical synthetic id."""
+    base = _payload(asset_storage_path="data/storage/v1.mp4")
+    ids = {
+        _synthetic_video_id(PublishRequest(**{**base, "privacy_status": p}))
+        for p in ("public", "private", "unlisted")
+    }
+    ids.add(_synthetic_video_id(PublishRequest(**base)))  # field omitted
+    assert len(ids) == 1
+
+
+def test_f04a_privacy_status_is_inert_for_postiz(monkeypatch):
+    """10. A privacy_status-bearing request through the Postiz path
+    publishes normally — the field is inert for Postiz."""
+    provider, _, _, _ = _make_provider_root()
+    _install_provider(monkeypatch, provider)
+    transport = _ScriptedTransport()
+    _install_real_postiz(monkeypatch, transport)
+    kwargs = _payload(
+        asset_storage_path="data/storage/v1.mp4", privacy_status="unlisted"
+    )
+    synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs)))
+    try:
+        resp = _publish(kwargs)
+        assert resp.success, resp.error
+        assert transport.posts_calls == 1
+        rows = _attempts_sync(synthetic)
+        assert [r.status for r in rows] == [PublicationAttemptStatus.SUCCEEDED]
+    finally:
+        _cleanup_sync(synthetic)
