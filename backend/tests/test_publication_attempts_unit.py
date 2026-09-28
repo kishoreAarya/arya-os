@@ -829,3 +829,265 @@ def test_normal_success_output_unchanged_without_warnings(monkeypatch):
         assert result.output["public_url"] == "provider-post-123"
     finally:
         asyncio.run(_cleanup_attempts(video_uuid))
+
+
+# ---------------------------------------------------------------------------
+# F-10a: duplicate-path Video writeback self-heal (ratified: idempotent,
+# staleness-guarded, no-op for synthetic identities, never a provider call)
+# ---------------------------------------------------------------------------
+
+
+async def _make_video_row():
+    from app.models.core import Project, WorkflowRun
+    from app.models.media import Video as VideoRow
+
+    engine, session = await _session()
+    try:
+        project = Project(name=f"f10a-{uuid.uuid4()}")
+        session.add(project)
+        await session.flush()
+        run = WorkflowRun(project_id=project.id, topic="f10a")
+        session.add(run)
+        await session.flush()
+        video = VideoRow(
+            workflow_run_id=run.id, title="F-10a subject", storage_path=_tmp_video()
+        )
+        session.add(video)
+        await session.commit()
+        return project.id, run.id, video.id
+    finally:
+        await session.close()
+        await engine.dispose()
+
+
+async def _read_video_row(video_uuid):
+    from sqlalchemy import select
+
+    from app.models.media import Video as VideoRow
+
+    engine, session = await _session()
+    try:
+        v = (
+            (await session.execute(select(VideoRow).where(VideoRow.id == video_uuid)))
+            .scalars()
+            .one()
+        )
+        return v.youtube_video_id, v.publish_status
+    finally:
+        await session.close()
+        await engine.dispose()
+
+
+async def _wipe_video_row(project_id, run_id, video_uuid):
+    from sqlalchemy import delete
+
+    from app.models.core import Project, WorkflowRun
+    from app.models.media import Video as VideoRow
+
+    engine, session = await _session()
+    try:
+        await session.execute(delete(VideoRow).where(VideoRow.id == video_uuid))
+        await session.execute(delete(WorkflowRun).where(WorkflowRun.id == run_id))
+        await session.execute(delete(Project).where(Project.id == project_id))
+        await session.commit()
+    finally:
+        await session.close()
+        await engine.dispose()
+
+
+def _run_with_video_update_failure(agent_context):
+    """Run the agent with ONLY the videos-table UPDATE failing (the F-10
+    loss scenario: publication SUCCEEDED, writeback lost)."""
+
+    async def _inner():
+        from sqlalchemy import Update
+
+        engine, session = await _session()
+        original_execute = session.execute
+
+        async def _failing_execute(statement, *args, **kwargs):
+            if isinstance(statement, Update) and statement.table.name == "videos":
+                raise RuntimeError("simulated writeback persistence failure")
+            return await original_execute(statement, *args, **kwargs)
+
+        session.execute = _failing_execute
+        try:
+            return await PublishingAgent(db=session).run(agent_context)
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    return asyncio.run(_inner())
+
+
+def test_f10a_duplicate_path_heals_stale_video_row(monkeypatch):
+    """The F-10 scenario end-to-end: publication SUCCEEDED, Video
+    writeback lost (F-07 surfaces it), and the idempotent-duplicate
+    retry now HEALS the stale row from the attempt's authoritative
+    external ids — with zero provider re-publication."""
+    from app.models.enums import PublishStatus
+
+    video_uuid = uuid.uuid4()
+    adapter = StubAdapter(None)
+    adapter._video_uuid = video_uuid
+    _install_adapter(monkeypatch, adapter)
+    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    made = None
+    try:
+        made = asyncio.run(_make_video_row())
+        _, _, real_video_id = made
+
+        # Attempt 1: SUCCEEDED, writeback lost.
+        first = _run_with_video_update_failure(
+            _context(real_video_id, video_storage_path=_tmp_video())
+        )
+        assert first.success
+        assert first.output.get("writeback_warnings")
+        assert asyncio.run(_read_video_row(real_video_id)) == (None, PublishStatus.DRAFT)
+
+        # Attempt 2 (identical intent, real Video id): duplicate + HEAL.
+        second = _run(_context(real_video_id, video_storage_path=_tmp_video()))
+        assert second.success and second.output.get("duplicate") is True
+        assert asyncio.run(_read_video_row(real_video_id)) == (
+            "provider-post-123",
+            PublishStatus.PUBLISHED,
+        )
+        assert adapter.calls["publish"] == 1  # no second provider publication
+    finally:
+        if made:
+            asyncio.run(_wipe_video_row(*made))
+            asyncio.run(_cleanup_attempts(video_uuid))
+            asyncio.run(_cleanup_attempts(made[2]))
+
+
+def test_f10a_heal_uses_scheduled_status_for_scheduled_attempts(monkeypatch):
+    """A SUCCEEDED scheduled-dispatch attempt heals the Video row to
+    SCHEDULED (the attempt's persisted scheduled_at is the signal)."""
+    from app.models.enums import PublishStatus
+
+    video_uuid = uuid.uuid4()
+    adapter = StubAdapter(None)
+    adapter._video_uuid = video_uuid
+    _install_adapter(monkeypatch, adapter)
+    made = None
+    try:
+        made = asyncio.run(_make_video_row())
+        _, _, real_video_id = made
+
+        first = _run_with_video_update_failure(
+            _context(
+                real_video_id,
+                video_storage_path=_tmp_video(),
+                scheduled_at="2030-01-01T00:00:00Z",
+            )
+        )
+        assert first.success
+        assert asyncio.run(_read_video_row(real_video_id)) == (None, PublishStatus.DRAFT)
+
+        second = _run(
+            _context(
+                real_video_id,
+                video_storage_path=_tmp_video(),
+                scheduled_at="2030-01-01T00:00:00Z",
+            )
+        )
+        assert second.success and second.output.get("duplicate") is True
+        assert asyncio.run(_read_video_row(real_video_id)) == (
+            "provider-post-123",
+            PublishStatus.SCHEDULED,
+        )
+    finally:
+        if made:
+            asyncio.run(_wipe_video_row(*made))
+            asyncio.run(_cleanup_attempts(made[2]))
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_f10a_heal_is_noop_when_row_already_current(monkeypatch):
+    """When the original writeback landed, the duplicate path leaves the
+    row untouched (staleness guard: no regression of a current value)."""
+    from app.models.enums import PublishStatus
+
+    video_uuid = uuid.uuid4()
+    adapter = StubAdapter(None)
+    adapter._video_uuid = video_uuid
+    _install_adapter(monkeypatch, adapter)
+    made = None
+    try:
+        made = asyncio.run(_make_video_row())
+        _, _, real_video_id = made
+
+        first = _run(_context(real_video_id, video_storage_path=_tmp_video()))
+        assert first.success
+        assert asyncio.run(_read_video_row(real_video_id)) == (
+            "provider-post-123",
+            PublishStatus.PUBLISHED,
+        )
+
+        second = _run(_context(real_video_id, video_storage_path=_tmp_video()))
+        assert second.success and second.output.get("duplicate") is True
+        assert asyncio.run(_read_video_row(real_video_id)) == (
+            "provider-post-123",
+            PublishStatus.PUBLISHED,
+        )
+        assert adapter.calls["publish"] == 1
+    finally:
+        if made:
+            asyncio.run(_wipe_video_row(*made))
+            asyncio.run(_cleanup_attempts(made[2]))
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_f10a_synthetic_identity_without_video_row_is_safe_noop(monkeypatch):
+    """Synthetic/no-row video ids: the heal UPDATE matches zero rows —
+    deliberate no-op, no error, duplicate response unchanged."""
+    video_uuid = uuid.uuid4()  # a UUID with NO Video row (synthetic shape)
+    adapter = StubAdapter(None)
+    adapter._video_uuid = video_uuid
+    _install_adapter(monkeypatch, adapter)
+    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    try:
+        first = _run(ctx)
+        assert first.success
+        second = _run(ctx)
+        assert second.success and second.output.get("duplicate") is True
+        assert adapter.calls["publish"] == 1
+        assert asyncio.run(_attempts_for(video_uuid))[0].status == (
+            PublicationAttemptStatus.SUCCEEDED
+        )
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_f10a_heal_failure_is_nonfatal_on_duplicate(monkeypatch):
+    """If the heal UPDATE itself fails on the duplicate path, the
+    response stays truthful (duplicate success) and the failure is
+    surfaced as a warning — never a false publication failure."""
+    from app.models.enums import PublishStatus
+
+    video_uuid = uuid.uuid4()
+    adapter = StubAdapter(None)
+    adapter._video_uuid = video_uuid
+    _install_adapter(monkeypatch, adapter)
+    made = None
+    try:
+        made = asyncio.run(_make_video_row())
+        _, _, real_video_id = made
+
+        first = _run_with_video_update_failure(
+            _context(real_video_id, video_storage_path=_tmp_video())
+        )
+        assert first.success
+
+        second = _run_with_video_update_failure(
+            _context(real_video_id, video_storage_path=_tmp_video())
+        )
+        assert second.success and second.output.get("duplicate") is True
+        # Row remains stale; the heal failure did not falsify anything.
+        assert asyncio.run(_read_video_row(real_video_id)) == (None, PublishStatus.DRAFT)
+        assert adapter.calls["publish"] == 1
+    finally:
+        if made:
+            asyncio.run(_wipe_video_row(*made))
+            asyncio.run(_cleanup_attempts(made[2]))
+        asyncio.run(_cleanup_attempts(video_uuid))

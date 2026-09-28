@@ -21,7 +21,7 @@ from app.utils.asset_manager import ensure_local_asset
 
 from uuid import UUID
 
-from sqlalchemy import update
+from sqlalchemy import or_, update
 
 from app.models.enums import PublishStatus
 from app.models.media import Video
@@ -124,6 +124,70 @@ class PublishingAgent(BaseAgent):
                 )
                 if not created:
                     if attempt.status == PublicationAttemptStatus.SUCCEEDED:
+                        # F-10a (ratified): duplicate-path Video writeback
+                        # self-heal. The attempt row is authoritative; if
+                        # the original post-success writeback never landed
+                        # (transient failure or crash before it), re-attempt
+                        # it now — an idempotent, STALENESS-GUARDED update
+                        # (only rows still missing the external id) that is
+                        # a deliberate no-op for synthetic identities (no
+                        # Video row exists) and never a provider call,
+                        # publication attempt, or state transition. Heal
+                        # failures are non-fatal: surfaced as a warning,
+                        # and the duplicate response remains truthful.
+                        if attempt.external_post_id:
+                            try:
+                                heal_uuid = UUID(str(video_id))
+                            except (ValueError, TypeError):
+                                heal_uuid = None
+                            if heal_uuid is not None:
+                                # Captured BEFORE any rollback can expire
+                                # the ORM instance (logging-only value).
+                                attempt_id_str = str(attempt.id)
+                                healed_status = (
+                                    PublishStatus.SCHEDULED
+                                    if attempt.scheduled_at
+                                    else PublishStatus.PUBLISHED
+                                )
+                                try:
+                                    heal_result = await self._db.execute(
+                                        update(Video)
+                                        .where(
+                                            Video.id == heal_uuid,
+                                            or_(
+                                                Video.youtube_video_id.is_(None),
+                                                Video.youtube_video_id == "",
+                                            ),
+                                        )
+                                        .values(
+                                            youtube_video_id=attempt.external_post_id,
+                                            publish_status=healed_status,
+                                        )
+                                    )
+                                    await self._db.commit()
+                                    if heal_result.rowcount == 1:
+                                        logger.info(
+                                            "publishing_agent_video_writeback_healed",
+                                            video_id=video_id,
+                                            youtube_video_id=attempt.external_post_id,
+                                            attempt_id=attempt_id_str,
+                                            publish_status=healed_status.value,
+                                        )
+                                except Exception as exc:  # noqa: BLE001 — heal is best-effort; the duplicate response stays truthful
+                                    try:
+                                        await self._db.rollback()
+                                        # Rollback expires ORM instances; rehydrate
+                                        # (best-effort) so the duplicate response
+                                        # below cannot trip a lazy load.
+                                        await self._db.refresh(attempt)
+                                    except Exception:  # noqa: BLE001, S110 — best-effort session recovery
+                                        pass
+                                    logger.warning(
+                                        "publishing_agent_video_writeback_heal_failed",
+                                        video_id=video_id,
+                                        attempt_id=attempt_id_str,
+                                        error=str(exc),
+                                    )
                         # Idempotent duplicate: the identical intent already
                         # published — return the existing outcome, no second
                         # external publication.
