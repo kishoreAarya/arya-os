@@ -329,3 +329,76 @@ def test_pre_dispatch_connect_error_is_failed_and_retryable(monkeypatch):
         ]
     finally:
         asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_f09_permit_denied_error_names_the_uploaded_media_id(monkeypatch):
+    """F-09 (Option 1, observability only): when an operator resolution
+    lands between the upload and the anchor write, the permit is
+    correctly denied (H1: zero publications) — and the denied execution
+    now NAMES the uploaded provider media id so the otherwise-untracked
+    orphan can be found and cleaned up manually."""
+    from datetime import datetime, timedelta, timezone
+
+    import app.services.publication_attempts as attempt_service
+    import app.services.publication_attempt_reconciliation as recon
+    from app.models.enums import PublicationAttemptStatus as Status
+
+    video_uuid = uuid.uuid4()
+    transport = _ScriptedTransport(
+        upload_behavior=("ok", "media-ORPHAN"),
+        publish_behavior=("ok", "post-never"),
+    )
+    _install_real_postiz(monkeypatch, transport)
+
+    real_mark_external_content = attempt_service.mark_external_content
+
+    async def _force_fail_aged(attempt_id):
+        from sqlalchemy import update
+
+        engine, session = await _session()
+        try:
+            await session.execute(
+                update(PublicationAttempt)
+                .where(PublicationAttempt.id == attempt_id)
+                .values(updated_at=datetime.now(timezone.utc) - timedelta(hours=1))
+            )
+            await session.commit()
+            await recon.resolve_attempt(
+                session,
+                attempt_id,
+                from_status=Status.PENDING,
+                to_status=Status.FAILED,
+                attestation="operator verified: execution stalled",
+                force=True,
+            )
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    async def _resolve_then_anchor(db, attempt, content_id):
+        # The operator lands mid-flight, right after the upload returned
+        # media-ORPHAN and before the anchor write can commit.
+        await _force_fail_aged(attempt.id)
+        return await real_mark_external_content(db, attempt, content_id)
+
+    monkeypatch.setattr(
+        attempt_service, "mark_external_content", _resolve_then_anchor
+    )
+    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    try:
+        result = _run(ctx)
+        assert not result.success
+        assert "permit" in result.error.lower()
+        # H1 held: no publication was dispatched.
+        assert transport.posts_calls == 0
+        assert transport.upload_calls == 1
+        # F-09 observability: the orphaning media id is named in the error.
+        assert "media-ORPHAN" in result.error
+        assert "no external publish was made" in result.error
+        # The row itself is FAILED with no anchor (the untracked-orphan
+        # case) — only the surfaced id makes the artifact findable.
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [Status.FAILED]
+        assert rows[0].external_content_id is None
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))

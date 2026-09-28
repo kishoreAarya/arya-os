@@ -270,8 +270,22 @@ class PublishingAgent(BaseAgent):
             )
         if attempt is not None and upload_result.content_id:
             # Persist the provider content id BEFORE the publish call —
-            # the crash-recovery anchor (ratified §9).
-            await mark_external_content(self._db, attempt, upload_result.content_id)
+            # the crash-recovery anchor (ratified §9). If the CAS refuses
+            # (the attempt was resolved underneath this execution), the
+            # uploaded media becomes an UNTRACKED provider-side artifact
+            # (F-09): surface its id so manual cleanup is possible.
+            anchor_persisted = await mark_external_content(
+                self._db, attempt, upload_result.content_id
+            )
+            if not anchor_persisted:
+                logger.warning(
+                    "publishing_agent_anchor_persist_refused",
+                    platform=platform,
+                    video_id=video_id,
+                    attempt_id=str(attempt.id),
+                    attempt_status=attempt.status.value,
+                    external_content_id=upload_result.content_id,
+                )
 
         # Upload thumbnail if provided. A resolution failure here is a
         # pre-permit local failure (F-07): the publish call has not been
@@ -344,12 +358,19 @@ class PublishingAgent(BaseAgent):
                     video_id=video_id,
                     attempt_id=str(attempt.id),
                     attempt_status=attempt.status.value,
+                    external_content_id=upload_result.content_id or None,
+                )
+                orphan_note = (
+                    f"; the uploaded provider media id {upload_result.content_id} was not "
+                    "published and remains at the provider (manual cleanup may be required)"
+                    if upload_result.content_id
+                    else ""
                 )
                 return AgentResult(
                     success=False,
                     error=f"Publication permit denied for attempt {attempt.attempt_number} of "
                     f"this intent: the attempt is now {attempt.status.value} (resolved by an "
-                    "operator or another execution); no external publish was made",
+                    f"operator or another execution); no external publish was made{orphan_note}",
                 )
         try:
             publish_result = await adapter.publish(
