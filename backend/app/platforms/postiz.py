@@ -40,6 +40,23 @@ from app.platforms.base import (
 
 logger = get_logger("arya.platforms.postiz")
 
+# F-13a (ratified): provider-derived response/exception text is bounded
+# and sanitized before it is embedded in any error string — control
+# characters stripped, length capped at 1000 characters with an explicit
+# deterministic truncation marker. Diagnostic prefixes and status codes
+# live OUTSIDE the sanitized component and are unaffected.
+_PROVIDER_TEXT_LIMIT = 1000
+
+
+def _provider_text(raw: object, *, limit: int = _PROVIDER_TEXT_LIMIT) -> str:
+    """Bounded, sanitized provider-derived text (F-13a)."""
+    text = "" if raw is None else str(raw)
+    cleaned = "".join(ch for ch in text if not (ch < "\x20" or "\x7f" <= ch <= "\x9f"))
+    if len(cleaned) > limit:
+        dropped = len(cleaned) - limit
+        return cleaned[:limit] + f"… [truncated {dropped} chars]"
+    return cleaned
+
 
 class PostizAdapter(PlatformAdapter):
     """Postiz PlatformAdapter using the official Postiz Public API v1."""
@@ -172,7 +189,7 @@ class PostizAdapter(PlatformAdapter):
                 if resp.status_code >= 400:
                     return UploadResult(
                         success=False,
-                        error=f"Postiz media upload failed with HTTP {resp.status_code}: {resp.text}",
+                        error=f"Postiz media upload failed with HTTP {resp.status_code}: {_provider_text(resp.text)}",
                     )
 
                 data = resp.json()
@@ -334,7 +351,7 @@ class PostizAdapter(PlatformAdapter):
                 if resp.status_code >= 400:
                     return PublishResult(
                         success=False,
-                        error=f"Postiz post creation failed with HTTP {resp.status_code}: {resp.text}",
+                        error=f"Postiz post creation failed with HTTP {resp.status_code}: {_provider_text(resp.text)}",
                     )
 
                 data = resp.json()
@@ -446,7 +463,7 @@ class PostizAdapter(PlatformAdapter):
                 if resp.status_code >= 400:
                     return ProcessingStatus(
                         status="unknown",
-                        error=f"HTTP {resp.status_code}: {resp.text}",
+                        error=f"HTTP {resp.status_code}: {_provider_text(resp.text)}",
                     )
 
                 data = resp.json()
@@ -466,7 +483,7 @@ class PostizAdapter(PlatformAdapter):
                     progress_percent=100.0 if normalized_status == "ready" else 50.0,
                 )
         except Exception as exc:
-            return ProcessingStatus(status="unknown", error=str(exc))
+            return ProcessingStatus(status="unknown", error=_provider_text(exc))
 
     async def fetch_url(
         self,
@@ -507,7 +524,7 @@ class PostizAdapter(PlatformAdapter):
                 if resp.status_code == 404:
                     return {"error": f"Postiz analytics not found for post {published_content_id}"}
                 if resp.status_code >= 400:
-                    return {"error": f"Postiz analytics error ({resp.status_code}): {resp.text}"}
+                    return {"error": f"Postiz analytics error ({resp.status_code}): {_provider_text(resp.text)}"}
 
                 raw_data = resp.json()
                 if isinstance(raw_data, dict) and raw_data.get("error"):

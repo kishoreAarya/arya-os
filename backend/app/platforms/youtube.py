@@ -77,6 +77,24 @@ _PRE_DISPATCH_TRANSPORT_ERRORS = (
 )
 
 
+# F-13a (ratified): provider-derived response/exception text is bounded
+# and sanitized before it is embedded in any error string — control
+# characters stripped, length capped at 1000 characters with an explicit
+# deterministic truncation marker. Diagnostic prefixes and status codes
+# live OUTSIDE the sanitized component and are unaffected.
+_PROVIDER_TEXT_LIMIT = 1000
+
+
+def _provider_text(raw: object, *, limit: int = _PROVIDER_TEXT_LIMIT) -> str:
+    """Bounded, sanitized provider-derived text (F-13a)."""
+    text = "" if raw is None else str(raw)
+    cleaned = "".join(ch for ch in text if not (ch < "\x20" or "\x7f" <= ch <= "\x9f"))
+    if len(cleaned) > limit:
+        dropped = len(cleaned) - limit
+        return cleaned[:limit] + f"… [truncated {dropped} chars]"
+    return cleaned
+
+
 class YouTubeAdapter(PlatformAdapter):
     """YouTube PlatformAdapter using Data API v3."""
 
@@ -212,7 +230,7 @@ class YouTubeAdapter(PlatformAdapter):
             )
             return AuthResult(
                 success=False,
-                error=f"YouTube authentication failed: {exc}",
+                error=f"YouTube authentication failed: {_provider_text(exc)}",
             )
 
     async def upload_content(
@@ -326,7 +344,7 @@ class YouTubeAdapter(PlatformAdapter):
                 )
                 return UploadResult(
                     success=False,
-                    error=f"YouTube upload rejected (HTTP {status_code}): {exc}",
+                    error=f"YouTube upload rejected (HTTP {status_code}): {_provider_text(exc)}",
                 )
             # 5xx after our submission reached the provider: the media may
             # be held — ambiguous. Raise so the operator path records UNKNOWN.
@@ -419,7 +437,7 @@ class YouTubeAdapter(PlatformAdapter):
                 )
                 return UploadResult(
                     success=False,
-                    error=f"YouTube thumbnail rejected (HTTP {status_code}): {exc}",
+                    error=f"YouTube thumbnail rejected (HTTP {status_code}): {_provider_text(exc)}",
                 )
             logger.error("youtube_adapter_thumbnail_ambiguous_http", status_code=status_code)
             raise
@@ -522,7 +540,7 @@ class YouTubeAdapter(PlatformAdapter):
                 )
                 return PublishResult(
                     success=False,
-                    error=f"YouTube publish rejected (HTTP {status_code}): {exc}",
+                    error=f"YouTube publish rejected (HTTP {status_code}): {_provider_text(exc)}",
                 )
             # 5xx after our submission reached the provider: the publish
             # may have been applied — ambiguous. Raise -> UNKNOWN.
@@ -639,7 +657,7 @@ class YouTubeAdapter(PlatformAdapter):
             )
             return ProcessingStatus(
                 status="failed",
-                error=f"YouTube processing check failed: {exc}",
+                error=f"YouTube processing check failed: {_provider_text(exc)}",
             )
 
     async def fetch_url(
@@ -709,4 +727,4 @@ class YouTubeAdapter(PlatformAdapter):
                 video_id=published_content_id,
                 error=str(exc),
             )
-            return {"error": f"YouTube analytics fetch failed: {exc}"}
+            return {"error": f"YouTube analytics fetch failed: {_provider_text(exc)}"}

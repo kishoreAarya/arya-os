@@ -1192,3 +1192,107 @@ def test_yt_hardening_timeout_classification_preserved(monkeypatch):
         assert script.counters["update_calls"] == 1  # never re-dispatched
     finally:
         asyncio.run(_cleanup(video_uuid))
+
+
+# ---------------------------------------------------------------------------
+# F-13a: bounded, sanitized provider error text (YouTube HttpError bodies)
+# ---------------------------------------------------------------------------
+
+
+def test_f13a_youtube_helper_matches_the_ratified_contract():
+    from app.platforms.youtube import _PROVIDER_TEXT_LIMIT, _provider_text
+
+    assert _provider_text("scripted") == "scripted"
+    dirty = "x\x00y\x1bz\x7fw\x9fv"
+    assert _provider_text(dirty) == "xyzwv"
+    big = "C" * (_PROVIDER_TEXT_LIMIT + 77)
+    out = _provider_text(big)
+    assert out == "C" * _PROVIDER_TEXT_LIMIT + "… [truncated 77 chars]"
+
+
+def test_f13a_youtube_oversized_error_body_is_capped_and_clean(monkeypatch):
+    """A provider 4xx whose HttpError body is oversized and carries
+    control characters is sanitized before persistence: bounded,
+    marker present, diagnostic prefix and status intact."""
+    from app.platforms.youtube import _PROVIDER_TEXT_LIMIT
+
+    markup = "<script>alert(1)</script>"
+    payload = ("D" * (_PROVIDER_TEXT_LIMIT + 250)) + "\x00" + markup
+
+    class _BigBodyVideos:
+        def __init__(self, script, counters):
+            self._script = script
+            self._counters = counters
+
+        def insert(self, *, part, body, media_body):
+            self._counters["insert_calls"] += 1
+            self._script.last_insert_body = body
+            return _InsertRequest(self._script.upload_behavior, self._script)
+
+        def update(self, *, part, body):
+            self._counters["update_calls"] += 1
+            self._script.last_update_body = body
+            return _BigBodyUpdate(self._script)
+
+        def list(self, *, part, id):
+            self._script.list_calls += 1
+            self._script.last_list_part = part
+            self._script.last_list_id = id
+            return _ListRequest(self._script)
+
+    class _BigBodyUpdate:
+        def __init__(self, script):
+            self._script = script
+
+        def execute(self, num_retries=None):
+            self._script.last_update_num_retries = num_retries
+            resp = httplib2.Response({"status": "400", "reason": "Bad Request"})
+            content = ('{"error":{"message":"' + payload + '"}}').encode()
+            raise HttpError(resp=resp, content=content)
+
+    class _BigBodyClient:
+        def __init__(self, script, counters):
+            self._videos = _BigBodyVideos(script, counters)
+
+        def videos(self):
+            return self._videos
+
+    script = _Script()
+    client = _BigBodyClient(script, script.counters)
+    monkeypatch.setattr(
+        "app.agents.publishing.get_platform_adapter",
+        lambda platform, db, secrets=None: YouTubeAdapter(db=db, secrets=_FakeSecrets()),
+    )
+    monkeypatch.setattr(YouTubeAdapter, "_build_credentials", lambda self: {"api_key": "k"})
+    monkeypatch.setattr(YouTubeAdapter, "_build_api_client", lambda self, credentials=None: client)
+
+    video_uuid = uuid.uuid4()
+    try:
+        result = _run_agent(_ctx(video_uuid))
+        assert not result.success
+        rows = asyncio.run(_attempts_for(video_uuid))
+        err = rows[0].error
+        # Expected sanitization computed from an identical error (the
+        # HttpError stringification wraps the content in its own
+        # scaffolding, which counts toward the provider-derived text).
+        from app.platforms.youtube import _provider_text
+
+        probe = HttpError(
+            resp=httplib2.Response({"status": "400", "reason": "Bad Request"}),
+            content=('{"error":{"message":"' + payload + '"}}').encode(),
+        )
+        expected = _provider_text(probe)
+        marker = expected[_PROVIDER_TEXT_LIMIT:]
+        # Diagnostic prefix and status preserved.
+        assert "YouTube publish rejected (HTTP 400)" in (result.error or "")
+        assert "publish rejected: YouTube publish rejected (HTTP 400)" in err
+        # Sanitized: no control characters, no markup beyond the cap.
+        assert "\x00" not in err and "<script>" not in err
+        assert marker in err
+        # Bounded provider component (identical to the computed expectation).
+        prefix = "publish rejected: YouTube publish rejected (HTTP 400): "
+        assert err == prefix + expected
+        assert len(err) <= len(prefix) + _PROVIDER_TEXT_LIMIT + len(marker)
+        assert "D" * 1200 not in err  # the unbounded body never leaks
+    finally:
+        asyncio.run(_cleanup(video_uuid))

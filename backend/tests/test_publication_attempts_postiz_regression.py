@@ -618,3 +618,147 @@ def test_f11a_unknown_refusal_unchanged(monkeypatch):
         assert rows[0].external_post_id == "post-operator"
     finally:
         asyncio.run(_cleanup_attempts(video_uuid))
+
+
+# ---------------------------------------------------------------------------
+# F-13a: bounded, sanitized provider error text — control characters
+# stripped, provider-derived component capped at 1000 characters with a
+# deterministic truncation marker; diagnostic prefixes/status codes intact.
+# ---------------------------------------------------------------------------
+
+
+def test_f13a_postiz_helper_sanitize_and_truncate():
+    from app.platforms.postiz import _PROVIDER_TEXT_LIMIT, _provider_text
+
+    # Small clean text passes through unchanged (idempotent no-op).
+    assert _provider_text("boom") == "boom"
+    assert _provider_text(None) == ""
+    # Control characters (C0, DEL, C1) are stripped.
+    dirty = "a\x00b\x1bc\x7fd\x9fe\nf\rg"
+    assert _provider_text(dirty) == "abcdefg"
+    # Oversized text is capped with a deterministic marker.
+    big = "A" * (_PROVIDER_TEXT_LIMIT + 4321)
+    out = _provider_text(big)
+    assert out == "A" * _PROVIDER_TEXT_LIMIT + "… [truncated 4321 chars]"
+    assert len(out) <= _PROVIDER_TEXT_LIMIT + len("… [truncated 4321 chars]")
+
+
+def test_f13a_postiz_oversized_4xx_body_is_capped_and_clean(monkeypatch):
+    """End-to-end through the REAL adapter + agent: a malicious/oversized
+    provider 4xx body is sanitized before persistence — bounded, control-
+    character-free, marker present, diagnostic prefix intact."""
+    from app.platforms.postiz import _PROVIDER_TEXT_LIMIT
+
+    video_uuid = uuid.uuid4()
+    markup = "<script>alert(1)</script>"
+    body = "B" * (_PROVIDER_TEXT_LIMIT + 5000) + "\x00\x1b" + markup
+    dropped = 5000 + len(markup)  # control chars stripped; markup counted
+    transport = _ScriptedTransport()
+    _install_real_postiz(monkeypatch, transport)
+
+    import httpx as _httpx
+
+    class _BigBodyClient(_ScriptedClient):
+        async def post(self, url, **kwargs):
+            if url.endswith("/public/v1/upload"):
+                return await super().post(url, **kwargs)
+            self._transport.posts_calls += 1
+            return _httpx.Response(400, text=body, request=_httpx.Request("POST", url))
+
+    import app.agents.publishing as _am
+    _orig = _httpx.AsyncClient
+    _httpx.AsyncClient = lambda **kw: _BigBodyClient(transport, **kw)
+    try:
+        ctx = _context(video_uuid, video_storage_path=_tmp_video())
+        result = _run(ctx)
+        assert not result.success
+        rows = asyncio.run(_attempts_for(video_uuid))
+        err = rows[0].error
+        # Diagnostic prefix and status preserved.
+        assert "Postiz post creation failed with HTTP 400" in (result.error or "")
+        assert "publish rejected: Postiz post creation failed with HTTP 400" in err
+        # Control characters gone; markup beyond the cap gone.
+        assert "\x00" not in err and "\x1b" not in err
+        assert "<script>" not in err
+        # Bounded provider component with a deterministic marker.
+        marker = f"… [truncated {dropped} chars]"
+        assert marker in err
+        assert len(err) <= len("publish rejected: Postiz post creation failed with HTTP 400: ") + _PROVIDER_TEXT_LIMIT + len(marker)
+    finally:
+        _httpx.AsyncClient = _orig
+        asyncio.run(_cleanup_attempts(video_uuid))
+
+
+def test_f13a_postiz_evidence_path_inherits_sanitized_text(monkeypatch):
+    """The evidence/verification path (check_processing >=400 ->
+    ProcessingStatus.error -> VerificationFailedError detail) inherits the
+    sanitized provider text."""
+    from app.services import publication_attempt_reconciliation as recon
+    from app.services.publication_attempts import admit_attempt, mark_unknown
+    from app.models.enums import PublicationAttemptStatus as S
+    from app.platforms.postiz import _PROVIDER_TEXT_LIMIT
+
+    import httpx as _httpx
+
+    body = "E" * (_PROVIDER_TEXT_LIMIT + 1234)
+    video_uuid = uuid.uuid4()
+
+    class _EvilGetClient(_ScriptedClient):
+        async def get(self, url, **kwargs):
+            if "/public/v1/posts" in url and not url.endswith("/public/v1/posts") and "startDate" not in kwargs.get("params", {}):
+                return _httpx.Response(503, text=body, request=_httpx.Request("GET", url))
+            return await super().get(url, **kwargs)
+
+    _install_real_postiz(monkeypatch, _ScriptedTransport())
+    monkeypatch.setattr(
+        "app.services.publication_attempt_reconciliation.get_platform_adapter",
+        lambda platform, db, secrets=None: PostizAdapter(db=db, secrets=_FakeSecrets()),
+    )
+    import app.platforms.postiz as _postiz_mod
+
+    class _Shim:
+        ConnectError = _httpx.ConnectError
+        ConnectTimeout = _httpx.ConnectTimeout
+        ReadTimeout = _httpx.ReadTimeout
+        TimeoutException = _httpx.TimeoutException
+        AsyncClient = staticmethod(lambda **kw: _EvilGetClient(_ScriptedTransport(), **kw))
+
+    monkeypatch.setattr(_postiz_mod, "httpx", _Shim)
+
+    async def _make():
+        engine, session = await _session()
+        try:
+            a, _ = await admit_attempt(session, video_id=video_uuid, platform="postiz",
+                                       social_platform="youtube", integration_id="i1")
+            a.external_content_id = "media-1"
+            await session.commit()
+            assert await mark_unknown(session, a, "publish exception: ReadTimeout") is True
+            return a.id
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    aid = asyncio.run(_make())
+
+    async def _check():
+        engine, session = await _session()
+        try:
+            ev = await recon.fetch_evidence(session, aid)
+            try:
+                await recon.resolve_attempt(session, aid, from_status=S.UNKNOWN,
+                                            to_status=S.SUCCEEDED, external_post_id="p")
+                return ev["provider_error"], None
+            except recon.VerificationFailedError as exc:
+                return ev["provider_error"], str(exc)
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    provider_error, detail = asyncio.run(_check())
+    try:
+        assert "… [truncated 1234 chars]" in provider_error
+        assert len(provider_error) <= _PROVIDER_TEXT_LIMIT + len("… [truncated 1234 chars]") + len("HTTP 503: ")
+        assert detail is not None and "… [truncated 1234 chars]" in detail
+        assert "E" * 1200 not in detail  # the unbounded body never leaks
+    finally:
+        asyncio.run(_cleanup_attempts(video_uuid))
