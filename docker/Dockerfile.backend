@@ -19,12 +19,16 @@ RUN groupadd -g 1001 appgroup && \
 
 WORKDIR /app
 
-# 4. Copy dependency specification and install dependencies first (layer cache optimization)
-COPY pyproject.toml ./
-RUN uv pip install --system --no-cache -e .
-
-# 5. Copy application source code, database migrations, and entrypoint
+# 4. Copy dependency spec, lockfile, vendored Hermes source, and app source,
+#    then install exactly the committed lockfile (no re-resolution).
+#    backend/ and vendor/ must exist before install: this project and
+#    hermes-agent are editable path sources ([tool.uv.sources] in pyproject.toml).
+COPY pyproject.toml uv.lock ./
+COPY vendor/ ./vendor/
 COPY backend/ ./backend/
+RUN uv sync --frozen --no-dev
+
+# 5. Copy database migrations and entrypoint
 COPY alembic/ ./alembic/
 COPY alembic.ini ./
 COPY docker/entrypoint.sh ./docker/entrypoint.sh
@@ -37,6 +41,7 @@ RUN mkdir -p /app/data/storage /app/data/temp && \
 # 7. Environment configuration
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/backend \
+    PATH=/app/.venv/bin:$PATH \
     STORAGE_LOCAL_PATH=/app/data/storage \
     APP_ENV=production
 
