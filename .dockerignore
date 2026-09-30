@@ -6,6 +6,7 @@
 # Environment & Secrets (NEVER bake secrets into Docker images!)
 .env
 .env.*
+backend/.env
 *.pem
 *.key
 *.token

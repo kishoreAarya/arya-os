@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     container_name: arya-postgres
     restart: unless-stopped
     environment:
@@ -20,7 +20,7 @@ services:
       retries: 10
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     container_name: arya-redis
     restart: unless-stopped
     ports:
@@ -34,9 +34,11 @@ services:
       retries: 10
 
   backend:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.backend
+    # Phase 22: run the validated, digest-reproducible image instead of an
+    # implicit build + host bind mount (see Phases 19-21). Rebuilds are now
+    # an explicit decision: docker build -f docker/Dockerfile.backend \
+    #   -t arya-os-backend:phase20-pinned .
+    image: arya-os-backend:phase20-pinned
     container_name: arya-backend
     restart: unless-stopped
     env_file:
@@ -54,11 +56,10 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./backend:/app/backend
       - arya_storage_data:/app/data/storage
 
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:2.30.8@sha256:11524034450080bd0032754892b23ff20be43d72cf320ce75640f7c5475fdca8
     container_name: arya-n8n
     restart: unless-stopped
     environment:
