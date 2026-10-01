@@ -36,13 +36,16 @@ and data integrity in this backend.
 cp .env.example .env
 # edit .env with real Postgres/Redis passwords and provider keys as you get them
 
-docker compose up --build
+docker compose up
+# the backend runs the validated pinned image arya-os-backend:phase20-pinned;
+# `docker compose up` does not rebuild it — rebuild explicitly when needed:
+#   docker build -f docker/Dockerfile.backend -t arya-os-backend:phase20-pinned .
 ```
 
 Then check:
 - `http://localhost:8000/` → `{"service": "arya-os", "status": "running", "sprint": 1}`
 - `http://localhost:8000/health` → confirms Postgres + Redis connectivity
-- `http://localhost:5678` → n8n dashboard (login with N8N_BASIC_AUTH_USER/PASSWORD)
+- `http://localhost:5678` → n8n dashboard (complete the first-run owner setup in the UI, then log in with that owner account)
 
 ## Local dev (without Docker, for fast iteration)
 
