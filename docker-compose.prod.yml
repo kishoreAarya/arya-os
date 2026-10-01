@@ -137,9 +137,11 @@ services:
       start_period: 20s
 
 volumes:
+  # Phase 34: explicit environment-scoped physical names so dev and prod can
+  # never resolve to the same volume, even if run from the same project dir.
   arya_postgres_data:
-    name: arya_postgres_data
+    name: arya_os_prod_postgres_data
   arya_redis_data:
-    name: arya_redis_data
+    name: arya_os_prod_redis_data
   arya_storage_data:
-    name: arya_storage_data
+    name: arya_os_prod_storage_data

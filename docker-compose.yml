@@ -150,7 +150,13 @@ services:
       - arya_n8n_data:/home/node/.n8n
 
 volumes:
+  # Phase 34: explicit environment-scoped physical names so dev and prod can
+  # never resolve to the same volume, even if run from the same project dir.
   arya_postgres_data:
+    name: arya_os_dev_postgres_data
   arya_redis_data:
+    name: arya_os_dev_redis_data
   arya_storage_data:
+    name: arya_os_dev_storage_data
   arya_n8n_data:
+    name: arya_os_dev_n8n_data
