@@ -70,8 +70,53 @@ services:
       REDIS_URL: redis://redis:6379/0
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
       STORAGE_LOCAL_PATH: /app/data/storage
-    env_file:
-      - .env
+      APP_NAME: ${APP_NAME:-arya-os}
+      # --- Scheduler / feature flags ---
+      ENABLE_BACKGROUND_SCHEDULER: ${ENABLE_BACKGROUND_SCHEDULER:-true}
+      ENABLE_LEARNING_LOOP: ${ENABLE_LEARNING_LOOP:-true}
+      ENABLE_AUTONOMOUS_PUBLISHING: ${ENABLE_AUTONOMOUS_PUBLISHING:-false}
+      ENABLE_EXPERIMENTAL_THUMBNAIL_AGENT: ${ENABLE_EXPERIMENTAL_THUMBNAIL_AGENT:-false}
+      ENABLE_NEW_IMAGE_MODEL: ${ENABLE_NEW_IMAGE_MODEL:-false}
+      ENABLE_NEW_VALIDATOR: ${ENABLE_NEW_VALIDATOR:-false}
+      # --- Storage (optional object storage) ---
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+      STORAGE_ENDPOINT_URL: ${STORAGE_ENDPOINT_URL:-}
+      STORAGE_REGION: ${STORAGE_REGION:-}
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-}
+      STORAGE_PUBLIC_BASE_URL: ${STORAGE_PUBLIC_BASE_URL:-}
+      # --- LLM providers (optional; empty = not configured) ---
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL:-deepseek/deepseek-chat}
+      # --- Media providers (optional) ---
+      RUNPOD_API_KEY: ${RUNPOD_API_KEY:-}
+      FAL_API_KEY: ${FAL_API_KEY:-}
+      REPLICATE_API_KEY: ${REPLICATE_API_KEY:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-JBFqnCBsd6RMkjVDRZzb}
+      ELEVENLABS_MODEL_ID: ${ELEVENLABS_MODEL_ID:-eleven_turbo_v2_5}
+      DEFAULT_VOICE_PROVIDER: ${DEFAULT_VOICE_PROVIDER:-elevenlabs}
+      DEFAULT_VIDEO_PROVIDER: ${DEFAULT_VIDEO_PROVIDER:-kling}
+      # --- Tunables ---
+      API_TIMEOUT_SECONDS: ${API_TIMEOUT_SECONDS:-60}
+      MAX_RETRY_ATTEMPTS: ${MAX_RETRY_ATTEMPTS:-3}
+      MAX_COST_PER_VIDEO_USD: ${MAX_COST_PER_VIDEO_USD:-5.00}
+      QUALITY_THRESHOLD: ${QUALITY_THRESHOLD:-70.0}
+      IMAGE_RESOLUTION: ${IMAGE_RESOLUTION:-1024x1024}
+      VIDEO_FPS: ${VIDEO_FPS:-30}
+      # --- Publishing integrations (optional) ---
+      POSTIZ_BASE_URL: ${POSTIZ_BASE_URL:-http://localhost:4007}
+      POSTIZ_API_KEY: ${POSTIZ_API_KEY:-}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID:-}
+      YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET:-}
+      YOUTUBE_REFRESH_TOKEN: ${YOUTUBE_REFRESH_TOKEN:-}
+      YOUTUBE_CHANNEL_ID: ${YOUTUBE_CHANNEL_ID:-}
+    # Phase 31: least-privilege environment (Phase 30 audit) — env_file
+    # removed so the backend no longer receives the entire .env.
     ports:
       - "${BACKEND_BIND_IP:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
     networks:

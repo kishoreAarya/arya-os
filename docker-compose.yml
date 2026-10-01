@@ -41,13 +41,79 @@ services:
     image: arya-os-backend:phase20-pinned
     container_name: arya-backend
     restart: unless-stopped
-    env_file:
-      - .env
+    # Phase 31: least-privilege environment (Phase 30 audit). env_file was
+    # removed — only variables the backend actually consumes are passed.
+    # Compose-only vars (POSTGRES_*, REDIS_HOST/PORT, N8N_HOST_PORT) and
+    # unconsumed credentials (KIMI_/NVIDIA_API_KEY, TELEGRAM_*) no longer
+    # enter the container. Optional secrets default to empty, which the app
+    # treats as "not configured" (SecretsManager falsy check).
     environment:
       # M1 (release hardening): the API key must be provided explicitly —
       # docker compose fails at configuration time if unset/empty, instead
       # of letting the app start with a placeholder credential.
       ARYA_API_KEY: ${ARYA_API_KEY:?ARYA_API_KEY must be set (generate a strong value; see .env.example)}
+      # --- Core runtime ---
+      APP_ENV: ${APP_ENV:-development}
+      APP_NAME: ${APP_NAME:-arya-os}
+      DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      BACKEND_HOST: ${BACKEND_HOST:-0.0.0.0}
+      BACKEND_PORT: ${BACKEND_PORT:-8000}
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
+      UVICORN_TIMEOUT_KEEP_ALIVE: ${UVICORN_TIMEOUT_KEEP_ALIVE:-65}
+      UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: ${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-60}
+      AUTO_RUN_MIGRATIONS: ${AUTO_RUN_MIGRATIONS:-true}
+      # --- Auth ---
+      API_AUTH_ENABLED: ${API_AUTH_ENABLED:-true}
+      # --- Data stores ---
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set (see .env.example)}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL must be set (see .env.example)}
+      # --- Scheduler / feature flags ---
+      ENABLE_BACKGROUND_SCHEDULER: ${ENABLE_BACKGROUND_SCHEDULER:-true}
+      ENABLE_LEARNING_LOOP: ${ENABLE_LEARNING_LOOP:-true}
+      ENABLE_AUTONOMOUS_PUBLISHING: ${ENABLE_AUTONOMOUS_PUBLISHING:-false}
+      ENABLE_EXPERIMENTAL_THUMBNAIL_AGENT: ${ENABLE_EXPERIMENTAL_THUMBNAIL_AGENT:-false}
+      ENABLE_NEW_IMAGE_MODEL: ${ENABLE_NEW_IMAGE_MODEL:-false}
+      ENABLE_NEW_VALIDATOR: ${ENABLE_NEW_VALIDATOR:-false}
+      # --- Storage ---
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_LOCAL_PATH: ${STORAGE_LOCAL_PATH:-./data/storage}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+      STORAGE_ENDPOINT_URL: ${STORAGE_ENDPOINT_URL:-}
+      STORAGE_REGION: ${STORAGE_REGION:-}
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-}
+      STORAGE_PUBLIC_BASE_URL: ${STORAGE_PUBLIC_BASE_URL:-}
+      # --- LLM providers (optional) ---
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL:-deepseek/deepseek-chat}
+      # --- Media providers (optional) ---
+      RUNPOD_API_KEY: ${RUNPOD_API_KEY:-}
+      FAL_API_KEY: ${FAL_API_KEY:-}
+      REPLICATE_API_KEY: ${REPLICATE_API_KEY:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-JBFqnCBsd6RMkjVDRZzb}
+      ELEVENLABS_MODEL_ID: ${ELEVENLABS_MODEL_ID:-eleven_turbo_v2_5}
+      DEFAULT_VOICE_PROVIDER: ${DEFAULT_VOICE_PROVIDER:-elevenlabs}
+      DEFAULT_VIDEO_PROVIDER: ${DEFAULT_VIDEO_PROVIDER:-kling}
+      # --- Tunables ---
+      API_TIMEOUT_SECONDS: ${API_TIMEOUT_SECONDS:-60}
+      MAX_RETRY_ATTEMPTS: ${MAX_RETRY_ATTEMPTS:-3}
+      MAX_COST_PER_VIDEO_USD: ${MAX_COST_PER_VIDEO_USD:-5.00}
+      QUALITY_THRESHOLD: ${QUALITY_THRESHOLD:-70.0}
+      IMAGE_RESOLUTION: ${IMAGE_RESOLUTION:-1024x1024}
+      VIDEO_FPS: ${VIDEO_FPS:-30}
+      # --- Publishing integrations (optional) ---
+      POSTIZ_BASE_URL: ${POSTIZ_BASE_URL:-http://localhost:4007}
+      POSTIZ_API_KEY: ${POSTIZ_API_KEY:-}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID:-}
+      YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET:-}
+      YOUTUBE_REFRESH_TOKEN: ${YOUTUBE_REFRESH_TOKEN:-}
+      YOUTUBE_CHANNEL_ID: ${YOUTUBE_CHANNEL_ID:-}
     ports:
       - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     depends_on:
