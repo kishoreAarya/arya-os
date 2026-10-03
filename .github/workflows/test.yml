@@ -36,22 +36,15 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     env:
       APP_ENV: test
       DEBUG: "false"
       LOG_LEVEL: WARNING
       DATABASE_URL: postgresql+asyncpg://arya:test_password@localhost:5432/arya_os_test
-      REDIS_URL: redis://localhost:6379/0
+      # L-7: authenticated Redis URL. The embedded password is a synthetic,
+      # non-secret test credential (same posture as POSTGRES_PASSWORD above)
+      # and is the single source of truth for the Redis started below.
+      REDIS_URL: redis://:arya-ci-synthetic-redis-password@localhost:6379/0
       STORAGE_BACKEND: local
       STORAGE_LOCAL_PATH: ./data/storage
 
@@ -87,6 +80,34 @@ jobs:
           done
         env:
           PGPASSWORD: test_password
+
+      - name: Start authenticated Redis
+        # L-7: the test Redis REQUIRES authentication (GitHub Actions
+        # service containers cannot append a server command, so Redis runs
+        # via docker run). The password is extracted from REDIS_URL — the
+        # same synthetic credential embedded above — so server and client
+        # can never drift. It is passed to the container as an environment
+        # variable (not on the healthcheck command line) and never echoed.
+        run: |
+          password="$(printf '%s' "$REDIS_URL" | sed -E 's#^redis://:([^@]+)@.*/#\1#')"
+          if [ -z "$password" ] || [ "$password" = "$REDIS_URL" ]; then
+            echo "REDIS_URL does not carry an embedded password"; exit 1;
+          fi
+          docker run -d --name arya-test-redis \
+            -p 6379:6379 \
+            -e REDIS_PASSWORD="$password" \
+            --health-cmd 'redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping | grep -q PONG' \
+            --health-interval 5s \
+            --health-timeout 5s \
+            --health-retries 10 \
+            redis:7-alpine --requirepass "$password"
+
+      - name: Wait for Redis
+        run: |
+          password="$(printf '%s' "$REDIS_URL" | sed -E 's#^redis://:([^@]+)@.*/#\1#')"
+          until docker exec arya-test-redis redis-cli --no-auth-warning -a "$password" ping 2>/dev/null | grep -q PONG; do
+            echo "waiting for redis..."; sleep 2;
+          done
 
       - name: Apply migrations
         # No migration files exist in alembic/versions/ yet (see

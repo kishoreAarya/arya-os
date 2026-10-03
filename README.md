@@ -182,6 +182,18 @@ No internal event bus was added. Redis is still only wired for
 caching/temporary state; the flow remains n8n -> REST -> FastAPI ->
 Database.
 
+Redis authentication contract (L-7): Redis requires a password in every
+environment (`REDIS_PASSWORD` in `.env`; compose fails fast if unset —
+generate it with `openssl rand -hex 32`, which is URL-safe). `REDIS_URL`
+remains the single application-level Redis contract and is constructed
+inside Compose from `REDIS_PASSWORD` (`redis://:<password>@redis:6379/0`);
+set it manually only for host-run (non-Compose) development. `REDIS_HOST` /
+`REDIS_PORT` are not application configuration and are not consumed by
+anything. Exposure is unchanged: dev Redis stays bound to `127.0.0.1:6379`,
+production Redis stays unpublished on the internal network. Never log a
+credential-bearing `REDIS_URL`, and it is deliberately scrubbed from the
+environment seen by Hermes (see `backend/app/hermes/env_scrub.py`).
+
 ## Hardening Pass 3 — Providers, Config, Ops
 
 This pass answers the 14-point final-architecture-hardening review.

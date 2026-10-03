@@ -360,7 +360,14 @@ HERMES_NAMESPACED_ENV_KNOWN: frozenset[str] = frozenset(
 # Hermes's own behavioral inventory (tests/conftest.py), but runtime code
 # does not read it at this commit — kept as a conservative scrub entry.
 # AryaOS itself reads none of these (verified against backend/app and
-# .env.example).
+# .env.example), with one deliberate exception: REDIS_URL. AryaOS reads
+# REDIS_URL exactly once, at Settings construction, and the module contract
+# above orders the scrub AFTER Settings construction and BEFORE any Hermes
+# import — so by the time this scrub runs, AryaOS holds its parsed settings
+# (lru-cached) and its Redis client (created from them), and nothing in
+# backend/app re-reads os.environ["REDIS_URL"]. REDIS_URL may carry the
+# Redis password since the L-7 authentication phase, so it must not remain
+# in the environment seen by Hermes.
 HERMES_EXTERNAL_ENV_SCRUB: frozenset[str] = frozenset(
     {
         # Gateway API server bind/auth (gateway/config_env.py,
@@ -473,6 +480,13 @@ HERMES_EXTERNAL_ENV_SCRUB: frozenset[str] = frozenset(
         "TOOL_GATEWAY_DOMAIN",
         "TOOL_GATEWAY_SCHEME",
         "TOOL_GATEWAY_USER_TOKEN",
+        # AryaOS infrastructure credential. Not a Hermes behavioral variable,
+        # but REDIS_URL embeds the Redis password since L-7 (Redis
+        # authentication). Safe to scrub for the same reason SUDO_PASSWORD
+        # is: the value is a pure credential, AryaOS consumes it only at
+        # Settings construction (which precedes this scrub by contract),
+        # and no Hermes code is authorized to reach AryaOS Redis.
+        "REDIS_URL",
     }
 )
 

@@ -25,12 +25,30 @@ services:
     image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     container_name: arya-redis
     restart: unless-stopped
+    # L-7: Redis REQUIRES authentication — no unauthenticated fallback.
+    # REDIS_PASSWORD must be set in .env; compose fails at configuration
+    # time if it is unset/empty (same M1 fail-fast convention as
+    # POSTGRES_PASSWORD). The password is visible to the container's own
+    # healthcheck below via container-local environment only.
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "${REDIS_PASSWORD:?REDIS_PASSWORD must be set (generate a strong value; see .env.example)}",
+      ]
+    environment:
+      # Consumed only by this container's healthcheck; never published.
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set (generate a strong value; see .env.example)}
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
       - arya_redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # L-7: authenticated PING — unauthenticated clients are rejected by
+      # the server, so the healthcheck must present the password. It reads
+      # the container-local REDIS_PASSWORD ($$ escapes compose
+      # interpolation); no secret is written into this file.
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -45,9 +63,9 @@ services:
     restart: unless-stopped
     # Phase 31: least-privilege environment (Phase 30 audit). env_file was
     # removed — only variables the backend actually consumes are passed.
-    # Compose-only vars (POSTGRES_*, REDIS_HOST/PORT, N8N_HOST_PORT) and
-    # unconsumed credentials (KIMI_/NVIDIA_API_KEY, TELEGRAM_*) no longer
-    # enter the container. Optional secrets default to empty, which the app
+    # Compose-only vars (POSTGRES_*, N8N_HOST_PORT) and unconsumed
+    # credentials (KIMI_/NVIDIA_API_KEY, TELEGRAM_*) no longer enter the
+    # container. Optional secrets default to empty, which the app
     # treats as "not configured" (SecretsManager falsy check).
     environment:
       # M1 (release hardening): the API key must be provided explicitly —
@@ -69,7 +87,12 @@ services:
       API_AUTH_ENABLED: ${API_AUTH_ENABLED:-true}
       # --- Data stores ---
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set (see .env.example)}
-      REDIS_URL: ${REDIS_URL:?REDIS_URL must be set (see .env.example)}
+      # L-7: the backend's REDIS_URL is CONSTRUCTED here from the same
+      # REDIS_PASSWORD the Redis server enforces above, so the client
+      # credential can never drift from the server credential. Generate
+      # the password with `openssl rand -hex 32` (hex is URL-safe; a
+      # password containing @:/#% would break URL parsing).
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (generate a strong value; see .env.example)}@redis:6379/0
       # --- Scheduler / feature flags ---
       ENABLE_BACKGROUND_SCHEDULER: ${ENABLE_BACKGROUND_SCHEDULER:-true}
       ENABLE_LEARNING_LOOP: ${ENABLE_LEARNING_LOOP:-true}

@@ -22,6 +22,12 @@ from app.hermes.env_scrub import (
 # AryaOS reads these in-process (provider stack / settings / storage) and
 # the spec §5.5 scrub must never touch them (see env_scrub module docstring
 # "Deliberately NOT scrubbed").
+#
+# REDIS_URL is deliberately ABSENT from this list since the L-7 Redis
+# authentication phase: REDIS_URL now embeds the Redis password, and AryaOS
+# consumes it only at Settings construction, which the scrub contract
+# (env_scrub.py module docstring) orders BEFORE the scrub. See the
+# section-5 regression tests below.
 ARYA_OS_PROCESS_ENV_MUST_SURVIVE = (
     "PATH",
     "HOME",
@@ -36,7 +42,6 @@ ARYA_OS_PROCESS_ENV_MUST_SURVIVE = (
     "ELEVENLABS_API_KEY",
     "TELEGRAM_BOT_TOKEN",
     "DATABASE_URL",
-    "REDIS_URL",
     "STORAGE_BACKEND",
     "ARYA_API_KEY",
     "SSL_CERT_FILE",
@@ -237,3 +242,55 @@ def test_scrub_module_does_not_import_hermes():
         [_sys.executable, "-c", code], capture_output=True, text=True, timeout=60
     )
     assert result.returncode == 0, result.stderr
+
+
+# ---------------------------------------------------------------------------
+# 5. L-7 regression: credential-bearing REDIS_URL must not reach Hermes
+# ---------------------------------------------------------------------------
+
+# Synthetic, non-secret test credential. Never printed by the tests below
+# (assertions are name/boolean checks only; no env dumps, no reprs of the
+# URL value).
+_SYNTHETIC_REDIS_PASSWORD = "synthetic-redis-password-do-not-print"
+
+
+def test_redis_url_is_in_external_scrub_contract():
+    """Frozen trip-wire: REDIS_URL is part of the exact-name scrub layer.
+    Removing it from the scrub (e.g. by reverting L-7) fails loudly here."""
+    assert "REDIS_URL" in HERMES_EXTERNAL_ENV_SCRUB
+
+
+def test_credential_bearing_redis_url_does_not_cross_hermes_boundary():
+    """A password-bearing REDIS_URL is removed by the scrub, and the
+    password value itself appears in NO surviving environment value."""
+    env = {
+        "REDIS_URL": f"redis://:{_SYNTHETIC_REDIS_PASSWORD}@redis:6379/0",
+        "PATH": "/usr/bin",
+        "DATABASE_URL": "postgresql+asyncpg://u:x@db:5432/arya_os",
+    }
+    result = scrub_hermes_environment(env)
+    assert "REDIS_URL" in result.removed
+    assert "REDIS_URL" not in env
+    # Belt and braces: the synthetic credential value must not survive in
+    # any remaining variable's value (checks accidental copies/aliases).
+    assert all(
+        _SYNTHETIC_REDIS_PASSWORD not in value for value in env.values()
+    ), "synthetic Redis password survived in some environment value"
+
+
+def test_credential_bearing_redis_url_removed_from_process_environ(monkeypatch):
+    """Default-target variant: the real process environment is scrubbed of
+    a credential-bearing REDIS_URL while ordinary AryaOS variables survive."""
+    import os
+
+    monkeypatch.setenv(
+        "REDIS_URL", f"redis://:{_SYNTHETIC_REDIS_PASSWORD}@redis:6379/0"
+    )
+    monkeypatch.setenv("STORAGE_BACKEND", "local")
+    result = scrub_hermes_environment()
+    assert "REDIS_URL" in result.removed
+    assert "REDIS_URL" not in os.environ
+    assert os.environ["STORAGE_BACKEND"] == "local"
+    assert all(
+        _SYNTHETIC_REDIS_PASSWORD not in value for value in os.environ.values()
+    ), "synthetic Redis password survived in the process environment"
