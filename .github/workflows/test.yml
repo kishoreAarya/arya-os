@@ -56,7 +56,7 @@ jobs:
       STORAGE_LOCAL_PATH: ./data/storage
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Hermes source (vendor/hermes-agent) is part of the test
           # environment: checkout fails closed if the pinned submodule
@@ -64,7 +64,7 @@ jobs:
           submodules: recursive
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           enable-cache: true
 
@@ -110,7 +110,7 @@ jobs:
             --cov-fail-under=0
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: coverage-report
