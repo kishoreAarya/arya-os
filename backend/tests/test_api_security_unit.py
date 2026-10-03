@@ -209,27 +209,44 @@ def override_settings(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_public_endpoints_accessible_without_token(override_settings):
+async def test_public_endpoints_accessible_without_token(override_settings, monkeypatch):
     """Public endpoints (/health, /ready, /, /docs, /openapi.json) require no auth."""
-    transport = ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        # Root endpoint
-        resp = await client.get("/")
-        assert resp.status_code == 200
+    # L-10 disables /docs, /redoc, /openapi.json in production builds only.
+    # Force a development app instance so the docs assertions are
+    # deterministic regardless of the ambient APP_ENV (the local .env may
+    # legitimately run production).
+    import importlib
 
-        # Health probes
-        resp_health = await client.get("/health")
-        assert resp_health.status_code == 200
+    import app.main as main_module
+    from app.core.config import get_settings as _get_settings
 
-        resp_ready = await client.get("/ready")
-        assert resp_ready.status_code == 200
+    monkeypatch.setenv("APP_ENV", "development")
+    _get_settings.cache_clear()
+    importlib.reload(main_module)
+    try:
+        transport = ASGITransport(app=main_module.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            # Root endpoint
+            resp = await client.get("/")
+            assert resp.status_code == 200
 
-        # OpenAPI documentation
-        resp_docs = await client.get("/docs")
-        assert resp_docs.status_code == 200
+            # Health probes
+            resp_health = await client.get("/health")
+            assert resp_health.status_code == 200
 
-        resp_openapi = await client.get("/openapi.json")
-        assert resp_openapi.status_code == 200
+            resp_ready = await client.get("/ready")
+            assert resp_ready.status_code == 200
+
+            # OpenAPI documentation (non-production build)
+            resp_docs = await client.get("/docs")
+            assert resp_docs.status_code == 200
+
+            resp_openapi = await client.get("/openapi.json")
+            assert resp_openapi.status_code == 200
+    finally:
+        monkeypatch.delenv("APP_ENV", raising=False)
+        _get_settings.cache_clear()
+        importlib.reload(main_module)
 
 
 @pytest.mark.asyncio

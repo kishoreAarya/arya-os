@@ -36,17 +36,29 @@ async def lifespan(app: FastAPI):
     logger.info("shutdown")
 
 
+# API docs/OpenAPI schema are dev/test conveniences; an anonymous caller
+# must not be able to enumerate the full route/schema surface in production.
+_is_production = (settings.app_env or "").lower() == "production"
+
 app = FastAPI(
     title="Project Arya OS",
     description="Personal AI Content Factory — backend services",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
 )
 
+# CORS: explicit origin allowlist only — no wildcard origins. Auth is a
+# Bearer header (no cookie sessions), so credentials are not exposed to
+# any origin. The Vite dev proxy and the backend's own static mount are
+# same-origin and unaffected.
+_cors_allowed_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_allowed_origins,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

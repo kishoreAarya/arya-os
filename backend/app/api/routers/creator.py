@@ -1049,6 +1049,7 @@ async def download_asset_proxy(
     import mimetypes
     import urllib.parse
     from pathlib import Path
+    from app.utils.asset_downloader import SSRFSecurityError, open_validated_stream
     from app.utils.asset_manager import is_safe_asset_url
 
     safe_filename = Path(filename).name.replace('"', '').strip() or "arya_asset"
@@ -1059,23 +1060,32 @@ async def download_asset_proxy(
             raise HTTPException(status_code=400, detail="Insecure or disallowed remote URL")
 
         try:
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-                resp = await client.get(url)
-                if resp.status_code >= 400:
-                    raise HTTPException(status_code=502, detail="Failed to fetch asset from upstream provider")
+            # Bounded, validated redirect handling: never follow redirects
+            # blindly — every hop target is revalidated with the same
+            # DNS-aware SSRF guard (see open_validated_stream).
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+                response = await open_validated_stream(client, url)
+                try:
+                    if response.status_code >= 400:
+                        raise HTTPException(status_code=502, detail="Failed to fetch asset from upstream provider")
 
-                content_type = resp.headers.get("Content-Type", "application/octet-stream")
-                return Response(
-                    content=resp.content,
-                    media_type=content_type,
-                    headers={
-                        "Content-Disposition": f'attachment; filename="{safe_filename}"',
-                        "Content-Length": str(len(resp.content)),
-                        "Cache-Control": "public, max-age=3600",
-                    },
-                )
+                    content_type = response.headers.get("Content-Type", "application/octet-stream")
+                    body = await response.aread()
+                    return Response(
+                        content=body,
+                        media_type=content_type,
+                        headers={
+                            "Content-Disposition": f'attachment; filename="{safe_filename}"',
+                            "Content-Length": str(len(body)),
+                            "Cache-Control": "public, max-age=3600",
+                        },
+                    )
+                finally:
+                    await response.aclose()
         except HTTPException:
             raise
+        except SSRFSecurityError:
+            raise HTTPException(status_code=400, detail="Insecure or disallowed redirect target")
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Download fetch failed: {exc}") from exc
 

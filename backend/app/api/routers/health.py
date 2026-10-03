@@ -18,6 +18,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.logging import get_logger
 from app.core.secrets import get_secrets_manager
 from app.core.security import verify_api_key
 from app.database.session import get_db
@@ -26,6 +27,8 @@ from app.models.provider import Provider
 from app.providers.capabilities import PROVIDER_CAPABILITIES
 from app.storage import get_storage_provider
 from app.validators import VALIDATOR_REGISTRY
+
+logger = get_logger(__name__)
 
 router = APIRouter(tags=["health"])
 
@@ -37,13 +40,17 @@ async def health(request: Request, db: AsyncSession = Depends(get_db)):
         await db.execute(text("SELECT 1"))
         checks["postgres"] = "ok"
     except Exception as exc:  # noqa: BLE001
-        checks["postgres"] = f"error: {exc}"
+        # Public endpoint: never echo internal exception details (DSNs,
+        # hostnames, credentials). Full detail goes to server-side logs only.
+        logger.warning("health_check_failed", component="postgres", error=str(exc))
+        checks["postgres"] = "error"
 
     try:
         pong = await request.app.state.redis.ping()
         checks["redis"] = "ok" if pong else "error: no pong"
     except Exception as exc:  # noqa: BLE001
-        checks["redis"] = f"error: {exc}"
+        logger.warning("health_check_failed", component="redis", error=str(exc))
+        checks["redis"] = "error"
 
     overall = "healthy" if all(v == "ok" for v in checks.values()) else "degraded"
     return {"status": overall, "checks": checks}
@@ -53,7 +60,6 @@ async def health(request: Request, db: AsyncSession = Depends(get_db)):
 async def ready(request: Request, db: AsyncSession = Depends(get_db)):
     liveness = await health(request, db)
     storage_ok = True
-    storage_error = None
     try:
         storage = get_storage_provider()
         test_key = "_health/ready_check.txt"
@@ -61,14 +67,15 @@ async def ready(request: Request, db: AsyncSession = Depends(get_db)):
         await storage.download(test_key)
         await storage.delete(test_key)
     except Exception as exc:  # noqa: BLE001
+        # Public endpoint: generic error only; detail stays in server logs.
+        logger.warning("health_check_failed", component="storage", error=str(exc))
         storage_ok = False
-        storage_error = str(exc)
 
     ready_state = liveness["status"] == "healthy" and storage_ok
     return {
         "ready": ready_state,
         "liveness": liveness,
-        "storage": "ok" if storage_ok else f"error: {storage_error}",
+        "storage": "ok" if storage_ok else "error",
     }
 
 

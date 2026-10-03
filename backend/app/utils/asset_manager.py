@@ -4,7 +4,6 @@ Asset manager — converts remote storage URLs into local filesystem paths.
 Adapters that expect local files (e.g. YouTubeAdapter via MediaFileUpload)
 call this helper so they can consume remote assets without modification.
 """
-import ipaddress
 import os
 import tempfile
 from pathlib import Path
@@ -14,28 +13,21 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.utils.asset_downloader import is_safe_remote_url
 
 logger = get_logger(__name__)
 
 
 def is_safe_asset_url(url: str) -> bool:
-    """Validate that the remote asset URL is safe from SSRF attacks."""
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        return False
-    hostname = parsed.hostname
-    if not hostname:
-        return False
-    lower_host = hostname.lower()
-    if lower_host in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
-        return False
-    try:
-        ip = ipaddress.ip_address(lower_host)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-            return False
-    except ValueError:
-        pass
-    return True
+    """Validate that the remote asset URL is safe from SSRF attacks.
+
+    Delegates to the DNS-aware ``is_safe_remote_url`` guard in
+    ``asset_downloader`` so hostname targets that resolve to private,
+    loopback, link-local, reserved, or multicast ranges (including
+    cloud metadata hosts) are rejected — not just literal IP hosts.
+    Single validator, shared by every asset URL entry point.
+    """
+    return is_safe_remote_url(url)
 
 
 async def ensure_local_asset(

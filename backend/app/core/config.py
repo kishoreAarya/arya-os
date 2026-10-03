@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     arya_api_key: str | None = None
     api_auth_enabled: bool = True
+    # Comma-separated allowlist of browser origins permitted by CORS.
+    # No wildcards: the API uses Bearer headers, not cookies, so
+    # allow_credentials stays False and only explicit origins are echoed.
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     # ------------------------------------------------------------------
     # Database
