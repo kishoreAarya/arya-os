@@ -433,4 +433,19 @@ response = client.get("/agents/")
 3. Keep `/health` and `/ready` mapped to orchestrator/Kubernetes liveness and readiness probes.
 4. Keep `APP_ENV=production` in all deployed environments.
 
+## Stability qualification (post-migration, Phase 37)
+
+The Phase 35 dev/prod volume migration remains qualified on the following
+evidence: 50h37m wall-clock container survival, ~18h observed awake runtime,
+a 7h longest continuous awake window, zero container restarts/OOM events,
+zero backend ERROR/CRITICAL/Traceback events, zero scheduler exceptions,
+18 successful scheduler executions, preserved database invariants (140
+tables, Alembic head `f6a7b8c9d0e1`, backup MD5 unchanged), and verified
+DEV/PROD volume isolation.
+
+24-hour continuous soak was NOT achieved because the development host
+enters sleep/suspension; wall-clock container age is not treated as
+equivalent to a continuous 24-hour soak. Qualified without a continuous
+24-hour soak.
+
 
