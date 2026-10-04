@@ -42,3 +42,20 @@ scratch/
 # OS Specific
 .DS_Store
 Thumbs.db
+
+# L-9: sensitive artifacts (demonstrated in working tree)
+client_secret.json
+*.sql
+*.db
+*.log
+**/*.log
+
+# L-9: depth-correct forms for wholesale COPY backend/ + COPY vendor/
+**/.env
+**/.env.*
+**/.envrc
+**/__pycache__/
+**/*.py[cod]
+**/.DS_Store
+**/Thumbs.db
+**/.git
