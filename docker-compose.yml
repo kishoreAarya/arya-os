@@ -3,6 +3,12 @@ services:
     image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     container_name: arya-postgres
     restart: unless-stopped
+    # Phase 49B (Tier-1): block privilege escalation via setuid bits and cap
+    # runaway process spawning. Runtime user/caps unchanged (init entrypoint
+    # needs its documented startup path).
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-arya}
       # M1 (release hardening): no silent default — startup fails fast with
@@ -25,6 +31,14 @@ services:
     image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     container_name: arya-redis
     restart: unless-stopped
+    # Phase 49B (Tier-1): privilege-escalation guard + process limit. User and
+    # cap_drop deliberately DEFERRED: the pinned image starts as root and
+    # demotes via its entrypoint; read-only metadata cannot prove a plain
+    # `user: redis` start is safe (fresh-volume ownership), so no capability
+    # change is made in this phase.
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
     # L-7: Redis REQUIRES authentication — no unauthenticated fallback.
     # REDIS_PASSWORD must be set in .env; compose fails at configuration
     # time if it is unset/empty (same M1 fail-fast convention as
@@ -61,6 +75,13 @@ services:
     image: arya-os-backend:phase20-pinned
     container_name: arya-backend
     restart: unless-stopped
+    # Phase 49B (Tier-1): the image already runs as non-root appuser
+    # (Dockerfile USER) and needs no Linux capabilities — drop all.
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    cap_drop:
+      - ALL
     # Phase 31: least-privilege environment (Phase 30 audit). env_file was
     # removed — only variables the backend actually consumes are passed.
     # Compose-only vars (POSTGRES_*, N8N_HOST_PORT) and unconsumed
@@ -153,6 +174,13 @@ services:
     image: n8nio/n8n:2.30.8@sha256:11524034450080bd0032754892b23ff20be43d72cf320ce75640f7c5475fdca8
     container_name: arya-n8n
     restart: unless-stopped
+    # Phase 49B (Tier-1): node runtime with volume-backed state needs no
+    # Linux capabilities — drop all.
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    cap_drop:
+      - ALL
     environment:
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
