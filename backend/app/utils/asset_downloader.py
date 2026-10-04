@@ -60,20 +60,22 @@ def is_safe_remote_url(url: str) -> bool:
     except ValueError:
         pass
 
-    # Resolve domain to IP to verify it does not point to private/internal network
+    # Resolve domain to IP to verify it does not point to private/internal
+    # network. Fail closed (Phase 47A): if DNS validation cannot establish
+    # that the destination is safe, reject the URL — a dotted, public-looking
+    # hostname must never pass merely because resolution failed at validation
+    # time (hardens against DNS-rebinding-style validation/connect skew).
     try:
         resolved_ips = socket.getaddrinfo(hostname, None)
-        for family, socktype, proto, canonname, sockaddr in resolved_ips:
-            ip_str = sockaddr[0]
-            ip = ipaddress.ip_address(ip_str)
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-                return False
-    except (socket.gaierror, ValueError):
-        # If DNS cannot be resolved (e.g. offline testing/mocking)
-        # reject un-dotted hostnames or local/internal suffixes
-        if "." not in lower_host or lower_host.endswith((".local", ".internal", ".lan", ".localhost", ".test")):
+    except socket.gaierror:
+        return False
+    for family, socktype, proto, canonname, sockaddr in resolved_ips:
+        try:
+            ip = ipaddress.ip_address(sockaddr[0])
+        except ValueError:
             return False
-        return True
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            return False
 
     return True
 

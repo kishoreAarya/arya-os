@@ -13,7 +13,11 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.utils.asset_downloader import is_safe_remote_url
+from app.utils.asset_downloader import (
+    SSRFSecurityError,
+    is_safe_remote_url,
+    open_validated_stream,
+)
 
 logger = get_logger(__name__)
 
@@ -41,7 +45,8 @@ async def ensure_local_asset(
     * If ``storage_path`` is ``None``, return ``None``.
     * If it is already a valid local path, return it unchanged.
     * If it is an HTTP(S) URL, validate against SSRF, stream-download
-      it up to ``max_bytes`` to a temporary file, and return the path.
+      it up to ``max_bytes`` to a temporary file via bounded, revalidated
+      redirects (Phase 47A), and return the path.
     * On download or write failure the partially-written file is deleted.
     * If the downloaded file is zero bytes it is deleted and a
       RuntimeError is raised.
@@ -91,11 +96,16 @@ async def ensure_local_asset(
     effective_timeout = timeout_seconds if timeout_seconds is not None else float(settings.api_timeout_seconds)
 
     try:
+        # Phase 47A: never follow redirects automatically. Reuse the shared
+        # bounded redirect walker so every redirect Location is revalidated
+        # with the DNS-aware SSRF guard BEFORE it is requested; loops and
+        # chains longer than the walker's hop limit are rejected there.
         async with httpx.AsyncClient(
             timeout=effective_timeout,
-            follow_redirects=True,
+            follow_redirects=False,
         ) as client:
-            async with client.stream("GET", storage_path) as response:
+            response = await open_validated_stream(client, storage_path)
+            try:
                 response.raise_for_status()
 
                 fd, local_path = tempfile.mkstemp(
@@ -114,7 +124,14 @@ async def ensure_local_asset(
                         f.write(chunk)
 
                 download_ok = True
+            finally:
+                await response.aclose()
 
+    except SSRFSecurityError:
+        # Unsafe redirect destination (or initial URL race): re-raise the
+        # distinct security signal unwrapped so callers can classify it.
+        log.warning("asset_redirect_rejected_ssrf")
+        raise
     except httpx.TimeoutException as exc:
         log.error("asset_download_timeout", error=str(exc))
         raise RuntimeError(f"Asset download timed out: {storage_path}") from exc
