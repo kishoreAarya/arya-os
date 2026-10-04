@@ -93,6 +93,12 @@ jobs:
           if [ -z "$password" ] || [ "$password" = "$REDIS_URL" ]; then
             echo "REDIS_URL does not carry an embedded password"; exit 1;
           fi
+          # R4/Phase 50C: immutable multi-architecture OCI index digest
+          # (linux/amd64 + linux/arm64/v8 verified via registry metadata),
+          # aligned with the dev/prod Compose pin. Manually maintained:
+          # Dependabot's docker ecosystem covers /docker (Dockerfile) only,
+          # so tag movement is NOT tracked here — update deliberately,
+          # together with docker-compose*.yml.
           docker run -d --name arya-test-redis \
             -p 6379:6379 \
             -e REDIS_PASSWORD="$password" \
@@ -100,7 +106,7 @@ jobs:
             --health-interval 5s \
             --health-timeout 5s \
             --health-retries 10 \
-            redis:7-alpine --requirepass "$password"
+            redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99 --requirepass "$password"
 
       - name: Wait for Redis
         run: |
