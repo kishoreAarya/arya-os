@@ -31,11 +31,10 @@ from app.storage.local import LocalStorageProvider
 
 
 @pytest.fixture
-def auth_client():
-    """Client authenticated with the system API key."""
-    settings = get_settings()
+def auth_client(synthetic_api_key):
+    """Client authenticated with the synthetic test API key (Phase 48B)."""
     client = TestClient(app)
-    client.headers.update({"Authorization": f"Bearer {settings.arya_api_key}"})
+    client.headers.update({"Authorization": f"Bearer {synthetic_api_key}"})
     return client
 
 

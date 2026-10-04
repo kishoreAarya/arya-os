@@ -13,7 +13,6 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 
 from app.database.session import AsyncSessionLocal
-from app.core.config import get_settings
 from app.main import app
 from app.models.system import SystemLog
 from app.services.trend_sources.base import TrendSignal
@@ -319,9 +318,9 @@ async def test_research_api_requires_auth():
 
 
 @pytest.mark.asyncio
-async def test_research_api_rejects_empty_query():
+async def test_research_api_rejects_empty_query(synthetic_api_key):
     transport = ASGITransport(app=app)
-    headers = {"Authorization": f"Bearer {get_settings().arya_api_key}"}
+    headers = {"Authorization": f"Bearer {synthetic_api_key}"}
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         # Neither topic nor subreddit provided -> 422
         resp = await c.get("/research/reddit", headers=headers)
@@ -329,9 +328,9 @@ async def test_research_api_rejects_empty_query():
 
 
 @pytest.mark.asyncio
-async def test_research_api_get_success_mocked():
+async def test_research_api_get_success_mocked(synthetic_api_key):
     transport = ASGITransport(app=app)
-    headers = {"Authorization": f"Bearer {get_settings().arya_api_key}"}
+    headers = {"Authorization": f"Bearer {synthetic_api_key}"}
 
     sample_signal = TrendSignal(
         topic="FastAPI v2 release",
@@ -361,7 +360,7 @@ async def test_research_api_get_success_mocked():
 
 
 @pytest.mark.asyncio
-async def test_research_api_post_with_persistence():
+async def test_research_api_post_with_persistence(synthetic_api_key):
     from app.models.core import Project, WorkflowRun
     from app.models.enums import WorkflowMode, WorkflowStatus
 
@@ -389,7 +388,7 @@ async def test_research_api_post_with_persistence():
         test_run_id = run.id
 
     transport = ASGITransport(app=app)
-    headers = {"Authorization": f"Bearer {get_settings().arya_api_key}"}
+    headers = {"Authorization": f"Bearer {synthetic_api_key}"}
 
     sample_signal = TrendSignal(
         topic="Claude Code vs Codex",

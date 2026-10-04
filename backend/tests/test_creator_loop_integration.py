@@ -32,7 +32,6 @@ from app.api.routers.creator import (
     GenerationType,
     _execute_creator_job_background,
 )
-from app.core.config import get_settings
 from app.database.session import AsyncSessionLocal
 from app.main import app
 from app.models.analytics import Analytics
@@ -48,9 +47,8 @@ from app.storage.local import LocalStorageProvider
 
 
 @pytest.fixture
-def auth_headers():
-    settings = get_settings()
-    return {"Authorization": f"Bearer {settings.arya_api_key}"}
+def auth_headers(synthetic_api_key):
+    return {"Authorization": f"Bearer {synthetic_api_key}"}
 
 
 @pytest.fixture

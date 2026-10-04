@@ -18,7 +18,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.agents.publishing import PublishingAgent
-from app.core.config import get_settings
 from app.core.secrets import SecretsManager
 from app.main import app
 from app.models.enums import PublishStatus
@@ -29,10 +28,9 @@ from app.platforms.postiz import PostizAdapter
 
 
 @pytest.fixture
-def auth_client():
-    settings = get_settings()
+def auth_client(synthetic_api_key):
     client = TestClient(app)
-    client.headers.update({"Authorization": f"Bearer {settings.arya_api_key}"})
+    client.headers.update({"Authorization": f"Bearer {synthetic_api_key}"})
     return client
 
 

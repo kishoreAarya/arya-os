@@ -39,6 +39,15 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+
+@pytest.fixture(autouse=True)
+def _synthetic_auth(synthetic_api_key: str):
+    """Phase 48B: every test in this module authenticates with the shared
+    synthetic credential (the cached Settings object is patched, so the
+    app's Bearer validation and the _http helper below both see it). The
+    live ARYA_API_KEY is never read or transmitted."""
+    return synthetic_api_key
+
 from app.agents.publishing import PublishingAgent
 from app.core.config import get_settings
 from app.main import app
@@ -344,7 +353,9 @@ def _http(method, path, payload=None, auth=True):
         from app.database.session import engine
 
         settings = get_settings()
-        key = settings.arya_api_key or "test-arya-api-key"
+        # Phase 48B: the module autouse _synthetic_auth fixture has pinned
+        # this to the shared synthetic credential — never the live key.
+        key = settings.arya_api_key
         headers = {"Authorization": f"Bearer {key}"} if auth else {}
         try:
             async with app.router.lifespan_context(app):

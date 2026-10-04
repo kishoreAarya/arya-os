@@ -20,7 +20,6 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.config import get_settings
 from app.database.session import AsyncSessionLocal
 from app.main import app
 from app.models.analytics import Analytics
@@ -331,11 +330,10 @@ async def test_postiz_adapter_fetch_analytics_success():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_analytics_router_ingest_and_query():
+async def test_analytics_router_ingest_and_query(synthetic_api_key):
     """Verify POST /analytics/ingest persists metrics and GET /analytics/snapshots retrieves them."""
-    settings = get_settings()
     transport = httpx.ASGITransport(app=app)
-    headers = {"Authorization": f"Bearer {settings.arya_api_key}"}
+    headers = {"Authorization": f"Bearer {synthetic_api_key}"}
     unique_post_id = f"ext_post_{uuid.uuid4().hex[:8]}"
 
     ingest_payload = {
@@ -383,11 +381,10 @@ async def test_analytics_router_ingest_and_query():
 
 
 @pytest.mark.asyncio
-async def test_analytics_router_validation_error_400():
+async def test_analytics_router_validation_error_400(synthetic_api_key):
     """POST /analytics/ingest with invalid negative metrics returns HTTP 400 Bad Request."""
-    settings = get_settings()
     transport = httpx.ASGITransport(app=app)
-    headers = {"Authorization": f"Bearer {settings.arya_api_key}"}
+    headers = {"Authorization": f"Bearer {synthetic_api_key}"}
     bad_payload = {
         "platform": "youtube",
         "metrics": {
@@ -401,11 +398,10 @@ async def test_analytics_router_validation_error_400():
 
 
 @pytest.mark.asyncio
-async def test_analytics_router_latest_404_when_not_found():
+async def test_analytics_router_latest_404_when_not_found(synthetic_api_key):
     """GET /analytics/latest returns 404 when no snapshot matches."""
-    settings = get_settings()
     transport = httpx.ASGITransport(app=app)
-    headers = {"Authorization": f"Bearer {settings.arya_api_key}"}
+    headers = {"Authorization": f"Bearer {synthetic_api_key}"}
     non_existent_id = f"non_existent_{uuid.uuid4().hex}"
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
         res = await c.get(f"/analytics/latest?external_post_id={non_existent_id}", headers=headers)
