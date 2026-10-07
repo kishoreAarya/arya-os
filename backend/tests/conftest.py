@@ -31,6 +31,38 @@ from sqlalchemy.ext.asyncio import AsyncSession
 TEST_API_KEY = "synthetic-test-bearer-key"
 
 
+@pytest.fixture(autouse=True)
+def _isolate_process_tempdir():
+    """CI Test Remediation Phase 1 (52-failure cause): the vendored
+    Hermes runtime's boot hook (hermes_bootstrap ->
+    hermes_constants.export_scratch_tmp_env) repoints the PROCESS-GLOBAL
+    temp state (TMPDIR/TEMP/TMP env + tempfile.tempdir) at a per-job
+    scratch directory under HERMES_HOME. Any test that boots Hermes
+    therefore leaks that state; when the job's scratch directory is
+    later removed, every subsequent bare tempfile.mkstemp() /
+    NamedTemporaryFile in ANY test raises FileNotFoundError into a
+    deleted directory (the GitHub-CI failure mode across the i7/i8/i11
+    and image-validator suites). Snapshot the process temp state before
+    each test and restore it after, so no test can leak it to another —
+    regardless of whether the leaking test passed or failed."""
+    import os
+    import tempfile
+
+    saved_tempdir = tempfile.tempdir
+    saved_env = {
+        key: os.environ[key]
+        for key in ("TMPDIR", "TEMP", "TMP")
+        if key in os.environ
+    }
+    yield
+    tempfile.tempdir = saved_tempdir
+    for key in ("TMPDIR", "TEMP", "TMP"):
+        if key in saved_env:
+            os.environ[key] = saved_env[key]
+        else:
+            os.environ.pop(key, None)
+
+
 @pytest.fixture
 def synthetic_api_key(monkeypatch) -> str:
     """Pin the cached Settings object (the same instance the application's
