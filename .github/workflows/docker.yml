@@ -11,6 +11,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Least privilege: checkout is the only GITHUB_TOKEN consumer (buildx
+# GHA caching and artifact-free builds use the Actions runtime token).
+permissions:
+  contents: read
+
 concurrency:
   group: docker-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

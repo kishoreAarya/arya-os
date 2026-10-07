@@ -52,8 +52,20 @@ class PublishRequest(BaseModel):
         description="Publication visibility ('public', 'private', or 'unlisted'); YouTube-only — inert for Postiz",
     )
     dry_run: bool = Field(default=False, description="If true, validates contract and simulates without external post")
-    workflow_run_id: uuid.UUID | None = Field(default=None, description="Associated WorkflowRun ID for provenance")
-    video_id: str | None = Field(default=None, description="Associated Video DB row ID")
+    # Phase 53B (53A-01): REQUIRED for real publishing — the server-side
+    # approval gate binds authorization to the exact (workflow run, video)
+    # pair. This is an API contract change: requests that previously
+    # derived a synthetic identity for a real (non-dry-run) publish now
+    # fail closed with 422 at the edge. Dry-run requests (validation
+    # only, zero external calls) may still omit them.
+    workflow_run_id: uuid.UUID | None = Field(
+        default=None,
+        description="Associated WorkflowRun ID — REQUIRED unless dry_run",
+    )
+    video_id: str | None = Field(
+        default=None,
+        description="Associated Video DB row ID — REQUIRED unless dry_run",
+    )
 
     @field_validator("scheduled_at")
     @classmethod
@@ -200,6 +212,17 @@ async def publish_asset(
             "or use a platform that supports scheduling (e.g. postiz).",
         )
 
+    # Phase 53B (53A-01): fail closed at the edge — a REAL publish must
+    # identify its exact (workflow run, video); no synthetic identity is
+    # inferred for dispatchable requests. Dry-run keeps the synthetic
+    # path (validation only, zero external calls).
+    if not payload.dry_run and (payload.workflow_run_id is None or not payload.video_id):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="workflow_run_id and video_id are required for publishing "
+            "(dry_run requests may omit them)",
+        )
+
     agent = PublishingAgent(db=db)
     context = {
         "platform": payload.platform,
@@ -262,6 +285,167 @@ async def get_post_status(
         "progress_percent": status_result.progress_percent,
         "error": status_result.error,
     }
+
+
+# ---------------------------------------------------------------------------
+# Phase 54B-I4: immutable publication-content manifests — creation,
+# checkpoint binding, and read-only review. Router-level authentication
+# is inherited from the app's include_router(verify_api_key) dependency.
+# This surface does NOT enforce manifests at dispatch (a later phase).
+# ---------------------------------------------------------------------------
+
+
+class ManifestCreateRequest(BaseModel):
+    """Server-side manifest creation. Caller supplies ONLY the intended
+    dispatch destination parameters — artifact identity, bytes, digests,
+    and sizes are derived from the persisted Video/Thumbnail rows and
+    the artifacts themselves; there is deliberately NO path/URL/digest
+    field to trust."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    workflow_run_id: uuid.UUID
+    video_id: uuid.UUID
+    platform: str = Field(min_length=1, description="Target platform adapter ('postiz' or 'youtube')")
+    social_platform: str = Field(
+        default="youtube", min_length=1, description="Social destination ('youtube', 'tiktok', ...)"
+    )
+    integration_id: str | None = Field(
+        default=None, max_length=255, description="Destination account/integration id"
+    )
+    privacy_status: Literal["public", "private", "unlisted"] = Field(default="public")
+    publish_type: Literal["now", "schedule", "draft"] = Field(default="now")
+    scheduled_at: str | None = Field(
+        default=None,
+        description="ISO-8601 UTC scheduled release (structural validation here; "
+        "freshness is enforced at dispatch by the existing F-05a rules)",
+    )
+
+
+class BoundCheckpointView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    stage: str
+    action: str | None = None
+    decided_at: str | None = None
+    created_at: str | None = None
+
+
+class PublicationManifestView(BaseModel):
+    """Reviewer-facing projection of one immutable manifest. Exposes
+    storage KEYS (persisted identity), digests, sizes, and effective
+    parameters — never absolute filesystem paths, credentials, or
+    unbounded artifact URLs (presigned review URLs are deferred until a
+    storage backend exposes them safely)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    schema_version: int
+    manifest_digest: str
+    workflow_run_id: str
+    video_id: str
+    created_at: str | None = None
+    video_storage_key: str
+    video_sha256: str
+    video_size_bytes: int
+    thumbnail_storage_key: str | None = None
+    thumbnail_sha256: str | None = None
+    thumbnail_size_bytes: int | None = None
+    effective_parameters: dict[str, Any]
+    checkpoint: BoundCheckpointView | None = None
+
+
+def _manifest_view(
+    manifest, parsed: dict[str, Any], checkpoint
+) -> PublicationManifestView:
+    return PublicationManifestView(
+        id=str(manifest.id),
+        schema_version=manifest.schema_version,
+        manifest_digest=manifest.manifest_digest,
+        workflow_run_id=str(manifest.workflow_run_id),
+        video_id=str(manifest.video_id),
+        created_at=manifest.created_at.isoformat() if manifest.created_at else None,
+        video_storage_key=manifest.video_storage_path,
+        video_sha256=manifest.video_sha256,
+        video_size_bytes=manifest.video_size_bytes,
+        thumbnail_storage_key=manifest.thumbnail_storage_path,
+        thumbnail_sha256=manifest.thumbnail_sha256,
+        thumbnail_size_bytes=manifest.thumbnail_size_bytes,
+        effective_parameters=parsed,
+        checkpoint=(
+            BoundCheckpointView(
+                id=str(checkpoint.id),
+                stage=checkpoint.stage.value,
+                action=checkpoint.action.value if checkpoint.action else None,
+                decided_at=(
+                    checkpoint.decided_at.isoformat() if checkpoint.decided_at else None
+                ),
+                created_at=(
+                    checkpoint.created_at.isoformat() if checkpoint.created_at else None
+                ),
+            )
+            if checkpoint is not None
+            else None
+        ),
+    )
+
+
+@router.post("/manifests", response_model=PublicationManifestView)
+async def create_publication_manifest(
+    payload: ManifestCreateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Derive an immutable publication-content manifest from the
+    authoritative persisted records and bind it to the run's pending
+    THUMBNAIL approval checkpoint (or open a new pending cycle when the
+    latest is already decided). Fail closed on unknown videos, run
+    mismatches, and missing/unreadable artifacts — no partial manifests."""
+    from app.services.publication_manifest_service import (
+        ManifestCreationError,
+        create_and_bind_manifest,
+    )
+
+    try:
+        manifest, checkpoint = await create_and_bind_manifest(
+            db,
+            workflow_run_id=payload.workflow_run_id,
+            video_id=payload.video_id,
+            platform=payload.platform,
+            social_platform=payload.social_platform,
+            integration_id=payload.integration_id,
+            privacy_status=payload.privacy_status,
+            publish_type=payload.publish_type,
+            scheduled_at=payload.scheduled_at,
+        )
+    except ManifestCreationError as exc:
+        raise HTTPException(status_code=exc.http_status, detail=exc.detail) from None
+
+    from app.services.publication_manifest import verify_stored_manifest
+
+    parsed = verify_stored_manifest(manifest.canonical_bytes, manifest.manifest_digest)
+    return _manifest_view(manifest, parsed, checkpoint)
+
+
+@router.get("/manifests/{manifest_id}", response_model=PublicationManifestView)
+async def get_publication_manifest(
+    manifest_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Read-only review projection of one manifest and the latest
+    checkpoint bound to it. The stored canonical bytes and digest are
+    re-verified (fail closed) on every read."""
+    from app.services.publication_manifest_service import (
+        ManifestCreationError,
+        get_manifest_with_binding,
+    )
+
+    try:
+        manifest, parsed, checkpoint = await get_manifest_with_binding(db, manifest_id)
+    except ManifestCreationError as exc:
+        raise HTTPException(status_code=exc.http_status, detail=exc.detail) from None
+    return _manifest_view(manifest, parsed, checkpoint)
 
 
 # ---------------------------------------------------------------------------

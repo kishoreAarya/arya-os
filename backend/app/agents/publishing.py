@@ -78,6 +78,42 @@ class PublishingAgent(BaseAgent):
                 error=f"Missing required context field(s): {', '.join(missing)}",
             )
 
+        is_dry_run = bool(context.get("dry_run") or context.get("is_dry_run"))
+
+        # Phase 53B (finding 53A-01): AryaOS enforces its own approval
+        # policy at this single boundary — every dispatch path (the
+        # /publishing/publish route, the orchestrator pipeline, and direct
+        # agent construction) crosses run(). Dry-run requests bypass the
+        # human gate: adapters perform validation only with ZERO external
+        # API calls when is_dry_run is set (verified per adapter), so no
+        # external side effect can occur. Everything else must present an
+        # authorized THUMBNAIL checkpoint for the exact (workflow run,
+        # video) pair. Fail closed — denial never dispatches.
+        if not is_dry_run:
+            from app.services.publish_gate import (
+                PublishApprovalDenied,
+                assert_publish_authorized,
+            )
+
+            if not context.get("workflow_run_id"):
+                return AgentResult(
+                    success=False,
+                    error="publish_approval_denied: missing_workflow_run_id",
+                )
+            try:
+                await assert_publish_authorized(
+                    self._db, context["workflow_run_id"], video_id
+                )
+            except PublishApprovalDenied as exc:
+                logger.warning(
+                    "publishing_agent_blocked_by_approval_gate",
+                    reason_code=exc.reason_code,
+                )
+                return AgentResult(
+                    success=False,
+                    error=f"publish_approval_denied: {exc.reason_code}",
+                )
+
         # Resolve platform adapter via factory
         try:
             adapter = get_platform_adapter(platform, self._db)
@@ -94,7 +130,7 @@ class PublishingAgent(BaseAgent):
         # intent. Written BEFORE any external call. Dry-run validates
         # only and records no attempt. Duplicate intents resolve to the
         # existing attempt — never a second external publication.
-        is_dry_run = bool(context.get("dry_run") or context.get("is_dry_run"))
+        # (is_dry_run computed above, before the Phase 53B approval gate.)
         social_platform = context.get("social_platform") or context.get("platform_type") or "youtube"
         attempt = None
         if not is_dry_run:
@@ -108,6 +144,20 @@ class PublishingAgent(BaseAgent):
                 # (the Video writeback skips them the same way); they get
                 # no attempt record rather than failing the publication.
                 attempt_video_uuid = None
+            if attempt_video_uuid is None:
+                # Phase 54B-I2 belt-and-braces: a real (non-dry-run)
+                # dispatch with no durable attempt row has no anchor
+                # surface at all, so adapter.publish() would be
+                # untrackable. The 53B gate already denies non-UUID ids
+                # on every API path; this covers direct agent
+                # construction only. Refuse — never publish untracked.
+                return AgentResult(
+                    success=False,
+                    error="Publication refused: no durable publication-attempt "
+                    "record can be created for this video id, so the external "
+                    "content anchor cannot be persisted; publication requires a "
+                    "trackable attempt (dry_run requests are unaffected)",
+                )
             if attempt_video_uuid is not None:
                 attempt, created = await admit_attempt(
                     self._db,
@@ -219,6 +269,201 @@ class PublishingAgent(BaseAgent):
                         f"is {attempt.status.value}: {reason}",
                     )
 
+        # Phase 54B-I5: dispatch-time manifest verification. Fail closed
+        # (recorded FAILED on the admitted attempt, ZERO external calls)
+        # unless the authorizing checkpoint is content-bound to a
+        # verified manifest whose video/thumbnail bytes, destination, and
+        # effective parameters exactly match what will be dispatched.
+        # Legacy unbound approvals are denied here for real publishing.
+        prepared = None
+        if not is_dry_run:
+            prepared = await self._verify_publication_manifest(context, attempt)
+            if isinstance(prepared, AgentResult):
+                return prepared
+
+        try:
+            return await self._dispatch(
+                context=context,
+                adapter=adapter,
+                platform=platform,
+                video_id=video_id,
+                social_platform=social_platform,
+                is_dry_run=is_dry_run,
+                attempt=attempt,
+                prepared=prepared,
+            )
+        finally:
+            # Snapshot cleanup on EVERY path (success, failure, abort):
+            # only this execution's private snapshots are removed — the
+            # user-owned source artifacts are never touched.
+            if prepared is not None:
+                from app.services.publication_manifest_service import cleanup_snapshot
+
+                cleanup_snapshot(prepared.video_snapshot_path)
+                cleanup_snapshot(prepared.thumbnail_snapshot_path)
+
+    async def _verify_publication_manifest(self, context: dict, attempt):
+        """Phase 54B-I5 verification: manifest binding and integrity,
+        destination/content drift, path authority, and stable verified
+        artifact snapshots. Returns a prepared namespace on success, or
+        an AgentResult denial (attempt recorded FAILED; no external
+        call was possible)."""
+        from types import SimpleNamespace
+        from uuid import UUID as _UUID
+
+        from sqlalchemy import select as _select
+
+        from app.models.media import Video
+        from app.services.publication_attempts import mark_failed
+        from app.services.publication_manifest_service import (
+            THUMBNAIL_HASH_MAX_BYTES,
+            VIDEO_HASH_MAX_BYTES,
+            ArtifactVerificationError,
+            DispatchBlocked,
+            canonical_asset_reference,
+            cleanup_snapshot,
+            destination_parameter_drift,
+            derive_effective_parameters,
+            effective_parameter_drift,
+            load_authorizing_manifest,
+            snapshot_and_verify_artifact,
+        )
+
+        run_uuid = _UUID(str(context["workflow_run_id"]))
+        video_uuid = _UUID(str(context["video_id"]))
+
+        async def _deny(reason_code: str, detail: str, snapshots=()):
+            for path in snapshots:
+                cleanup_snapshot(path)
+            if attempt is not None:
+                await mark_failed(
+                    self._db, attempt, f"publication_blocked: {reason_code}"
+                )
+            logger.warning(
+                "publishing_dispatch_blocked", reason_code=reason_code
+            )
+            return AgentResult(
+                success=False,
+                error=f"publication_blocked: {reason_code}: {detail}",
+            )
+
+        try:
+            _checkpoint, manifest, parsed = await load_authorizing_manifest(
+                self._db, workflow_run_id=run_uuid, video_id=video_uuid
+            )
+        except DispatchBlocked as exc:
+            return await _deny(exc.reason_code, exc.detail)
+
+        drift = destination_parameter_drift(context, parsed)
+        if drift is not None:
+            return await _deny(
+                f"parameter_drift:{drift}",
+                f"the request {drift} differs from the approved manifest; "
+                "the approved manifest is authoritative",
+            )
+
+        ctx_video_path = context.get("video_storage_path")
+        if ctx_video_path and canonical_asset_reference(ctx_video_path) != canonical_asset_reference(
+            manifest.video_storage_path
+        ):
+            return await _deny(
+                "manifest_path_mismatch",
+                "the request asset path differs from the approved manifest's "
+                "authoritative artifact",
+            )
+        ctx_thumb_path = context.get("thumbnail_storage_path")
+        if manifest.thumbnail_storage_path:
+            if ctx_thumb_path and canonical_asset_reference(
+                ctx_thumb_path
+            ) != canonical_asset_reference(manifest.thumbnail_storage_path):
+                return await _deny(
+                    "manifest_path_mismatch",
+                    "the request thumbnail path differs from the approved "
+                    "manifest's authoritative artifact",
+                )
+        elif ctx_thumb_path:
+            return await _deny(
+                "thumbnail_not_in_manifest",
+                "a thumbnail was supplied but the approved manifest has none",
+            )
+
+        video_row = (
+            await self._db.execute(_select(Video).where(Video.id == video_uuid))
+        ).scalar_one_or_none()
+        if video_row is None:
+            return await _deny("unknown_video", "the video row no longer exists")
+
+        derived = derive_effective_parameters(
+            video_row,
+            platform=context.get("platform") or parsed["platform"],
+            social_platform=context.get("social_platform") or parsed["social_platform"],
+            integration_id=(
+                context.get("integration_id")
+                if context.get("integration_id") is not None
+                else parsed.get("integration_id")
+            ),
+            privacy_status=context.get("privacy_status") or parsed["privacy_status"],
+            publish_type=context.get("publish_type") or parsed["publish_type"],
+            scheduled_at=(
+                context.get("scheduled_at")
+                if context.get("scheduled_at") is not None
+                else parsed.get("scheduled_at")
+            ),
+        )
+        drift = effective_parameter_drift(derived, parsed)
+        if drift is not None:
+            return await _deny(
+                f"content_drift:{drift}",
+                "the persisted content or effective parameters changed since "
+                "approval; a fresh manifest and approval are required",
+            )
+
+        try:
+            video_snapshot = await snapshot_and_verify_artifact(
+                manifest.video_storage_path,
+                expected_sha256=manifest.video_sha256,
+                expected_size_bytes=manifest.video_size_bytes,
+                max_bytes=VIDEO_HASH_MAX_BYTES,
+            )
+        except ArtifactVerificationError as exc:
+            return await _deny(exc.reason_code, exc.detail)
+        thumbnail_snapshot = None
+        if manifest.thumbnail_storage_path:
+            try:
+                thumbnail_snapshot = await snapshot_and_verify_artifact(
+                    manifest.thumbnail_storage_path,
+                    expected_sha256=manifest.thumbnail_sha256,
+                    expected_size_bytes=manifest.thumbnail_size_bytes,
+                    max_bytes=THUMBNAIL_HASH_MAX_BYTES,
+                )
+            except ArtifactVerificationError as exc:
+                return await _deny(exc.reason_code, exc.detail, [video_snapshot])
+
+        return SimpleNamespace(
+            manifest=manifest,
+            parsed=parsed,
+            derived=derived,
+            video_snapshot_path=video_snapshot,
+            thumbnail_snapshot_path=thumbnail_snapshot,
+        )
+
+    async def _dispatch(
+        self,
+        *,
+        context: dict,
+        adapter,
+        platform: str,
+        video_id,
+        social_platform: str,
+        is_dry_run: bool,
+        attempt,
+        prepared,
+    ):
+        """The post-verification dispatch flow: authenticate, acquire the
+        authorization-bound permit (I3/I5), upload the VERIFIED snapshot
+        bytes, persist the anchor (I2), and publish with the approved
+        parameters. `prepared` is None only for dry-run (legacy
+        context-derived path, zero external calls)."""
         # Authenticate with the platform
         from app.services.publication_attempts import mark_failed as _attempt_failed
 
@@ -244,53 +489,137 @@ class PublishingAgent(BaseAgent):
                 error=f"Authentication failed for '{platform}': {auth_result.error}",
             )
 
-        aspect_ratio = context.get("aspect_ratio", "16:9")
-        title = context.get("title")
-        description = context.get("description")
-        tags_raw = context.get("tags")
-        tags = [t.strip() for t in tags_raw.split(",")] if tags_raw else []
+        if prepared is not None:
+            # Phase 54B-I5: the approved manifest's effective parameters
+            # (derived once, shared with manifest creation) are THE
+            # dispatch parameters; request content fields are inert.
+            aspect_ratio = prepared.derived["aspect_ratio"]
+            title = prepared.derived["title"]
+            description = prepared.derived["description"]
+            tags = prepared.derived["tags"]
+        else:
+            aspect_ratio = context.get("aspect_ratio", "16:9")
+            title = context.get("title")
+            description = context.get("description")
+            tags_raw = context.get("tags")
+            tags = [t.strip() for t in tags_raw.split(",")] if tags_raw else []
 
-        if aspect_ratio == "9:16":
-            if "#Shorts" not in (title or "") and "#Shorts" not in (description or ""):
-                description = f"{description or ''}\n\n#Shorts".strip()
-            if "Shorts" not in tags:
-                tags.append("Shorts")
+            if aspect_ratio == "9:16":
+                if "#Shorts" not in (title or "") and "#Shorts" not in (description or ""):
+                    description = f"{description or ''}\n\n#Shorts".strip()
+                if "Shorts" not in tags:
+                    tags.append("Shorts")
 
-        try:
-            local_video_path = await ensure_local_asset(video_storage_path)
-        except (RuntimeError, ValueError, OSError) as exc:
-            # Known local asset-resolution/validation failures only
-            # (missing file, SSRF-rejected remote URL, size/download/
-            # zero-byte guards, filesystem errors). This happens BEFORE
-            # any adapter submission call: evidence supports "no public
-            # post was created" — FAILED (F-07), never a stranded
-            # PENDING row and never UNKNOWN (nothing external was
-            # attempted). Deliberately NARROW: unexpected programming
-            # errors (AttributeError/KeyError/...) stay loud — they are
-            # defects to observe, not business-level FAILED
-            # classifications.
-            logger.error(
-                "publishing_agent_asset_error",
-                platform=platform,
-                video_id=video_id,
-                error=str(exc),
-            )
-            if attempt is not None:
-                await _attempt_failed(
-                    self._db, attempt, f"asset resolution failed: {type(exc).__name__}: {exc}"
-                )
-            return AgentResult(
-                success=False,
-                error=f"Asset resolution failed for '{platform}': {exc}",
-            )
-
+        from app.models.enums import PublicationAttemptStatus
         from app.services.publication_attempts import (
-            mark_external_content,
+            TransitionOutcome,
             mark_failed,
-            mark_in_progress,
             mark_succeeded,
             mark_unknown,
+            persist_external_content_anchor,
         )
+
+        if prepared is not None:
+            # Phase 54B-I5: authorization + permit in ONE transaction.
+            # Under the authorizing checkpoint's row lock: re-evaluate
+            # the cached action, the latest append-only decision, and
+            # TTL; re-verify the manifest binding, target, and digest;
+            # then CAS PENDING -> IN_PROGRESS stamping the manifest id
+            # and digest atomically with the permit. This preserves the
+            # I3 ordering (permit precedes EVERY upload) and closes the
+            # 53B gate-to-permit window against REVOKE/REJECT/expiry.
+            # Residual (documented): a revocation committing after this
+            # transaction cannot stop in-flight external calls.
+            from app.services.publication_manifest_service import (
+                DispatchBlocked,
+                authorize_and_permit,
+            )
+
+            # Captured BEFORE the transaction: a denial-path rollback
+            # expires the ORM instance (attribute access would trip a
+            # lazy refresh outside the async context).
+            attempt_id_str = str(attempt.id)
+            attempt_number = attempt.attempt_number
+            try:
+                _manifest, parsed = await authorize_and_permit(
+                    self._db,
+                    attempt,
+                    workflow_run_id=UUID(str(context["workflow_run_id"])),
+                    video_id=UUID(str(video_id)),
+                    manifest_id=prepared.manifest.id,
+                    manifest_digest=prepared.manifest.manifest_digest,
+                )
+                prepared.parsed = parsed
+            except DispatchBlocked as exc:
+                logger.error(
+                    "publishing_agent_permit_denied",
+                    platform=platform,
+                    video_id=video_id,
+                    attempt_id=attempt_id_str,
+                    reason_code=exc.reason_code,
+                )
+                # Durably record the refusal on the attempt (best-effort:
+                # if the CAS itself refused because an operator already
+                # resolved the row, that resolution stands).
+                try:
+                    await self._db.refresh(attempt)
+                except Exception:  # noqa: BLE001, S110 — refresh best-effort
+                    pass
+                try:
+                    await mark_failed(
+                        self._db, attempt, f"permit denied: {exc.reason_code}"
+                    )
+                except Exception:  # noqa: BLE001 — the denial stands regardless
+                    logger.warning(
+                        "publishing_agent_permit_denial_state_write_failed",
+                        attempt_id=attempt_id_str,
+                    )
+                try:
+                    current_status = attempt.status.value
+                except Exception:  # noqa: BLE001 — reporting must never break the abort
+                    current_status = "unavailable"
+                return AgentResult(
+                    success=False,
+                    error=f"Publication permit denied for attempt {attempt_number} of "
+                    f"this intent ({exc.reason_code}; the attempt is now {current_status}); "
+                    "no external upload or publish was made",
+                )
+
+        if prepared is not None:
+            # The VERIFIED private snapshot — the only bytes the adapter
+            # may upload (Phase 54B-I5 TOCTOU closure). The original
+            # mutable artifact is never re-resolved after verification.
+            local_video_path = prepared.video_snapshot_path
+        else:
+            try:
+                local_video_path = await ensure_local_asset(
+                    context.get("video_storage_path")
+                )
+            except (RuntimeError, ValueError, OSError) as exc:
+                # Known local asset-resolution/validation failures only
+                # (missing file, SSRF-rejected remote URL, size/download/
+                # zero-byte guards, filesystem errors). This happens BEFORE
+                # any adapter submission call: evidence supports "no public
+                # post was created" — FAILED (F-07), never a stranded
+                # PENDING row and never UNKNOWN (nothing external was
+                # attempted). Deliberately NARROW: unexpected programming
+                # errors (AttributeError/KeyError/...) stay loud — they are
+                # defects to observe, not business-level FAILED
+                # classifications.
+                logger.error(
+                    "publishing_agent_asset_error",
+                    platform=platform,
+                    video_id=video_id,
+                    error=str(exc),
+                )
+                if attempt is not None:
+                    await _attempt_failed(
+                        self._db, attempt, f"asset resolution failed: {type(exc).__name__}: {exc}"
+                    )
+                return AgentResult(
+                    success=False,
+                    error=f"Asset resolution failed for '{platform}': {exc}",
+                )
 
         try:
             upload_result = await adapter.upload_content(
@@ -332,50 +661,157 @@ class PublishingAgent(BaseAgent):
                 success=False,
                 error=f"Upload failed for '{platform}': {upload_result.error}",
             )
-        if attempt is not None and upload_result.content_id:
-            # Persist the provider content id BEFORE the publish call —
-            # the crash-recovery anchor (ratified §9). If the CAS refuses
-            # (the attempt was resolved underneath this execution), the
-            # uploaded media becomes an UNTRACKED provider-side artifact
-            # (F-09): surface its id so manual cleanup is possible.
-            anchor_persisted = await mark_external_content(
-                self._db, attempt, upload_result.content_id
-            )
-            if not anchor_persisted:
-                logger.warning(
-                    "publishing_agent_anchor_persist_refused",
+        if attempt is not None:
+            # Phase 54B-I2: MANDATORY external-content anchor
+            # precondition. adapter.publish() (and the thumbnail upload)
+            # are UNREACHABLE unless the provider media id is positively
+            # confirmed persisted (row matched AND committed). A provider
+            # upload that returned success may still have landed even
+            # when its anchor could not be persisted — the media id is
+            # surfaced for manual cleanup; this is NOT exactly-once and
+            # is NEVER auto-retried.
+            if not upload_result.content_id:
+                # Upload signalled success but produced no provider
+                # media id: an anchor is impossible, so publish is
+                # unreachable (fail closed). Epistemic twin of the
+                # adapters' F-15a: the provider may hold media whose
+                # identity is unknown → UNKNOWN, never FAILED.
+                recorded_unknown = await mark_unknown(
+                    self._db,
+                    attempt,
+                    "upload succeeded without a provider media id; anchor impossible",
+                )
+                logger.error(
+                    "publishing_agent_anchor_missing_media_id",
                     platform=platform,
                     video_id=video_id,
                     attempt_id=str(attempt.id),
-                    attempt_status=attempt.status.value,
+                )
+                suffix = (
+                    " (attempt recorded UNKNOWN; manual reconciliation required)"
+                    if recorded_unknown
+                    else " (attempt already resolved — transition refused)"
+                )
+                return AgentResult(
+                    success=False,
+                    error=f"Upload for '{platform}' returned success but no provider "
+                    f"media id; publication aborted before any thumbnail upload or "
+                    f"publish call{suffix}",
+                )
+            try:
+                anchor_outcome = await persist_external_content_anchor(
+                    self._db, attempt, upload_result.content_id
+                )
+            except Exception as exc:  # noqa: BLE001 — persistence itself raised: fail closed
+                # The persistence layer normally converts execute/commit
+                # failures into UNCERTAIN; a raise escaping it is treated
+                # identically — never as success, never retried.
+                logger.error(
+                    "publishing_agent_anchor_persistence_raised",
+                    platform=platform,
+                    video_id=video_id,
+                    attempt_id=str(attempt.id),
+                    error_type=type(exc).__name__,
+                )
+                anchor_outcome = TransitionOutcome.UNCERTAIN
+            if anchor_outcome is not TransitionOutcome.PERSISTED:
+                # Abort publication: no thumbnail upload and no
+                # adapter.publish(). The uploaded media may exist at the
+                # provider — surface its id for manual cleanup.
+                try:
+                    current_status = attempt.status.value
+                except Exception:  # noqa: BLE001 — never let reporting break the abort
+                    current_status = "unavailable"
+                if anchor_outcome is TransitionOutcome.REFUSED:
+                    # The attempt was resolved underneath this execution
+                    # (operator resolution or concurrent transition) —
+                    # that resolution STANDS (H1); no state is written.
+                    logger.error(
+                        "publishing_agent_anchor_refused_publication_aborted",
+                        platform=platform,
+                        video_id=video_id,
+                        attempt_id=str(attempt.id),
+                        attempt_status=current_status,
+                        external_content_id=upload_result.content_id,
+                    )
+                    return AgentResult(
+                        success=False,
+                        error=f"Publication aborted for attempt {attempt.attempt_number} of "
+                        f"this intent: the attempt is now {current_status} (resolved by an "
+                        "operator or another execution), so the external-content anchor "
+                        "could not be persisted; no thumbnail upload or external publish "
+                        f"was made; the uploaded provider media id {upload_result.content_id} "
+                        "was not published and remains at the provider (manual cleanup may "
+                        "be required)",
+                    )
+                # UNCERTAIN: execute/commit raised — the anchor may or may
+                # not be recorded. Fail closed, record the ambiguity
+                # best-effort, and preserve operator reconciliation
+                # evidence. Never auto-retry.
+                recorded_unknown = await mark_unknown(
+                    self._db,
+                    attempt,
+                    "external-content anchor persistence failed with an uncertain "
+                    "database outcome after a successful upload; publication aborted "
+                    "before publish",
+                )
+                logger.error(
+                    "publishing_agent_anchor_uncertain_publication_aborted",
+                    platform=platform,
+                    video_id=video_id,
+                    attempt_id=str(attempt.id),
                     external_content_id=upload_result.content_id,
+                    anchor_recorded_unknown=recorded_unknown,
+                )
+                suffix = (
+                    " (attempt recorded UNKNOWN; manual reconciliation required)"
+                    if recorded_unknown
+                    else " (attempt state could not be updated — manual reconciliation required)"
+                )
+                return AgentResult(
+                    success=False,
+                    error=f"Publication aborted for attempt {attempt.attempt_number} of "
+                    "this intent: persistence of the external-content anchor failed "
+                    "with an UNCERTAIN database outcome (the anchor may or may not be "
+                    "recorded); no thumbnail upload or external publish was made; the "
+                    f"uploaded provider media id {upload_result.content_id} remains at "
+                    f"the provider{suffix}",
                 )
 
         # Upload thumbnail if provided. A resolution failure here is a
-        # pre-permit local failure (F-07): the publish call has not been
-        # made, so no post can exist — FAILED, never a stranded PENDING.
-        # Same NARROW exception set as the main asset resolver (the same
+        # post-permit, pre-publish local failure (F-07): the publish call
+        # has not been made, so no post can exist — FAILED, never a
+        # stranded in-flight row and never UNKNOWN (nothing external was
+        # attempted beyond the already-anchored video upload). Same
+        # NARROW exception set as the main asset resolver (the same
         # ensure_local_asset code path): unexpected programming errors
         # stay loud.
-        try:
-            thumbnail_path = await ensure_local_asset(
-                context.get("thumbnail_storage_path")
-            )
-        except (RuntimeError, ValueError, OSError) as exc:
-            logger.error(
-                "publishing_agent_thumbnail_asset_error",
-                platform=platform,
-                video_id=video_id,
-                error=str(exc),
-            )
-            if attempt is not None:
-                await mark_failed(
-                    self._db, attempt, f"thumbnail resolution failed: {type(exc).__name__}: {exc}"
+        if prepared is not None:
+            # Phase 54B-I5: the manifest's verified thumbnail snapshot
+            # (prepared pre-permit) — or no thumbnail at all when the
+            # manifest approved none. Request thumbnail paths were
+            # denied earlier if they differed.
+            thumbnail_path = prepared.thumbnail_snapshot_path
+        else:
+            try:
+                thumbnail_path = await ensure_local_asset(
+                    context.get("thumbnail_storage_path")
                 )
-            return AgentResult(
-                success=False,
-                error=f"Thumbnail resolution failed for '{platform}': {exc}",
-            )
+            except (RuntimeError, ValueError, OSError) as exc:
+                logger.error(
+                    "publishing_agent_thumbnail_asset_error",
+                    platform=platform,
+                    video_id=video_id,
+                    error=str(exc),
+                )
+                if attempt is not None:
+                    await mark_failed(
+                        self._db, attempt, f"thumbnail resolution failed: {type(exc).__name__}: {exc}"
+                    )
+                return AgentResult(
+                    success=False,
+                    error=f"Thumbnail resolution failed for '{platform}': {exc}",
+                )
 
         if thumbnail_path and upload_result.content_id:
             try:
@@ -404,38 +840,30 @@ class PublishingAgent(BaseAgent):
                     error=str(exc),
                 )
 
-        # Publish or schedule the video. IN_PROGRESS is persisted
-        # immediately BEFORE this — the first irreversible external call.
-        # The PENDING -> IN_PROGRESS CAS is the publication PERMIT (H1):
-        # if it refuses, the attempt was resolved underneath this
-        # execution and the irreversible external call must NOT happen.
-        privacy_status = context.get("privacy_status") or (context.get("metadata") or {}).get("privacy_status") or "private"
-        default_pub_type = "schedule" if context.get("scheduled_at") else ("draft" if is_dry_run else "now")
-        publish_type = context.get("publish_type") or default_pub_type
+        # Publish or schedule the video — the final irreversible
+        # external call. Reachable only on the established chain of
+        # proof: authorization gate (53B) → admission → verified
+        # content-bound manifest (I5) → dispatch permit acquired BEFORE
+        # every upload under the checkpoint lock (I3/I5) → verified
+        # snapshot bytes uploaded → external-content anchor positively
+        # persisted (I2 precondition). The permit stays valid through
+        # this call because every execution transition below is
+        # CAS-guarded; a mid-flight operator resolution refuses the
+        # SUCCEEDED write and stands.
+        if prepared is not None:
+            privacy_status = prepared.parsed["privacy_status"]
+            publish_type = prepared.parsed["publish_type"]
+            scheduled_at = prepared.parsed.get("scheduled_at")
+            integration_id = prepared.parsed.get("integration_id")
+            platform_type = prepared.parsed["social_platform"]
+        else:
+            privacy_status = context.get("privacy_status") or (context.get("metadata") or {}).get("privacy_status") or "private"
+            default_pub_type = "schedule" if context.get("scheduled_at") else ("draft" if is_dry_run else "now")
+            publish_type = context.get("publish_type") or default_pub_type
+            scheduled_at = context.get("scheduled_at")
+            integration_id = context.get("integration_id")
+            platform_type = context.get("social_platform") or context.get("platform_type") or "youtube"
 
-        if attempt is not None:
-            permit_granted = await mark_in_progress(self._db, attempt)
-            if not permit_granted:
-                logger.error(
-                    "publishing_agent_permit_denied",
-                    platform=platform,
-                    video_id=video_id,
-                    attempt_id=str(attempt.id),
-                    attempt_status=attempt.status.value,
-                    external_content_id=upload_result.content_id or None,
-                )
-                orphan_note = (
-                    f"; the uploaded provider media id {upload_result.content_id} was not "
-                    "published and remains at the provider (manual cleanup may be required)"
-                    if upload_result.content_id
-                    else ""
-                )
-                return AgentResult(
-                    success=False,
-                    error=f"Publication permit denied for attempt {attempt.attempt_number} of "
-                    f"this intent: the attempt is now {attempt.status.value} (resolved by an "
-                    f"operator or another execution); no external publish was made{orphan_note}",
-                )
         try:
             publish_result = await adapter.publish(
                 content_id=upload_result.content_id,
@@ -445,10 +873,10 @@ class PublishingAgent(BaseAgent):
                 description=description,
                 caption=description or title,
                 tags=tags or None,
-                integration_id=context.get("integration_id"),
-                platform_type=context.get("social_platform") or context.get("platform_type") or "youtube",
+                integration_id=integration_id,
+                platform_type=platform_type,
                 publish_type=publish_type,
-                scheduled_at=context.get("scheduled_at"),
+                scheduled_at=scheduled_at,
                 is_dry_run=is_dry_run,
             )
         except Exception as exc:  # noqa: BLE001 — ambiguity after possible submission → UNKNOWN

@@ -48,7 +48,9 @@ class Settings(BaseSettings):
     app_env: str = "development"
     debug: bool = True
     log_level: str = "INFO"
-    backend_host: str = "0.0.0.0"
+    # Standard container bind default; host port exposure is pinned
+    # per-interface by docker-compose (127.0.0.1 bindings).
+    backend_host: str = "0.0.0.0"  # nosec B104
     backend_port: int = 8000
     uvicorn_workers: int = 1
     uvicorn_timeout_keep_alive: int = 65

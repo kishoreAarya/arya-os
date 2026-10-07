@@ -3733,9 +3733,32 @@ def test_ttl_legacy_rows_perpetual_and_policy_defaults(seeded_run):
 
     (project_id, run_id), _ = seeded_run
     _set_ttl_policy("script", 3600)
+
+    async def _legacy_rows():
+        engine = _make_capability_engine()
+        try:
+            async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                from app.models.approval import ApprovalCheckpoint
+
+                rows = (
+                    await session.execute(
+                        _select(ApprovalCheckpoint).where(
+                            ApprovalCheckpoint.workflow_run_id == run_id,
+                            ApprovalCheckpoint.decided_at.is_(None),
+                            ApprovalCheckpoint.action.is_not(None),
+                        )
+                    )
+                ).scalars().all()
+                return rows
+        finally:
+            await engine.dispose()
+
+    # Phase 54B-I8: seed the test's OWN anchor-less legacy rows (the
+    # pre-Model-B shape: APPROVE, decided_at NULL) — no dependence on
+    # rows left behind by a developer database or a previous run.
+    legacy_ids = [asyncio.run(_seed_checkpoint(run_id, "script", "approve")) for _ in range(6)]
     try:
         # Anchor-less legacy row (decided_at NULL): perpetual.
-        asyncio.run(_seed_checkpoint(run_id, "script", "approve"))
         set_active_authorization_context(_run_context(project_id, run_id))
         try:
             granted = asyncio.run(execute_capability("story.create", {"content": "any params"}))
@@ -3743,7 +3766,17 @@ def test_ttl_legacy_rows_perpetual_and_policy_defaults(seeded_run):
             set_active_authorization_context(None)
         assert granted["script_id"]
 
-        # NULL-digest approval WITH an aged timestamp: participates -> pends.
+        # The seeded legacy rows: untouched by the capability execution
+        # above, still APPROVE, perpetual under the TTL predicate.
+        six = asyncio.run(_legacy_rows())
+        assert {c.id for c in six} == set(legacy_ids)
+        assert len(six) == 6
+        assert all(c.action.value == "approve" for c in six)
+        assert all(_approval_ttl_valid(c, 1, datetime.now(UTC).replace(tzinfo=None)) for c in six)
+
+        # NULL-digest approval WITH an aged timestamp: participates -> pends
+        # (the legacy rows are removed first — a perpetual legacy APPROVE
+        # would legitimately satisfy the request instead).
         asyncio.run(_cleanup_checkpoints(run_id))
         asyncio.run(_cleanup_scripts(run_id))
         aged_legacy_id = asyncio.run(_seed_checkpoint(run_id, "script", "approve"))
@@ -3776,29 +3809,6 @@ def test_ttl_legacy_rows_perpetual_and_policy_defaults(seeded_run):
         assert by_stage.get(None) == 604800
         assert by_stage.get("script") == 3600  # per-stage override wins
         assert all(ttl > 0 for ttl in by_stage.values())
-        # The six anchor-less legacy rows: untouched, APPROVE, perpetual.
-        async def _six():
-            engine = _make_capability_engine()
-            try:
-                async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
-                    from app.models.approval import ApprovalCheckpoint
-
-                    rows = (
-                        await session.execute(
-                            _select(ApprovalCheckpoint).where(
-                                ApprovalCheckpoint.decided_at.is_(None),
-                                ApprovalCheckpoint.action.is_not(None),
-                            )
-                        )
-                    ).scalars().all()
-                    return rows
-            finally:
-                await engine.dispose()
-
-        six = asyncio.run(_six())
-        assert len(six) == 6
-        assert all(c.action.value == "approve" for c in six)
-        assert all(_approval_ttl_valid(c, 1, datetime.now(UTC).replace(tzinfo=None)) for c in six)
     finally:
         _clear_active_approval_pending()
         _clear_active_approval_mismatch()

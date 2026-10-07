@@ -13,6 +13,7 @@ Beginner note:
   lighting) -> Attempt 3 passed" and know exactly what it cost you to
   get there.
 """
+
 import uuid
 from datetime import datetime
 
@@ -64,6 +65,18 @@ class ApprovalCheckpoint(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # preview of the same validated parameter object the digest covers.
     # Never an authorization primitive — the digest is authoritative.
     parameter_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Phase 54B-I1: the immutable publication-content manifest this
+    # checkpoint's decision is content-bound to. Bound by AryaOS BEFORE
+    # the reviewer decides (never client-writable, never re-bound after
+    # a decision). NULL = legacy/unbound — real publishing under the
+    # Phase 54B gate fails closed for those (gate-integration phase).
+    # Distinct from parameter_digest: that is the Hermes Model-B
+    # capability digest and is NOT reused here.
+    publication_manifest_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("publication_manifests.id"),
+        nullable=True,
+    )
 
 
 class ApprovalDecision(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -90,7 +103,11 @@ class ApprovalDecision(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     __tablename__ = "approval_decisions"
     __table_args__ = (
-        UniqueConstraint("checkpoint_id", "sequence_number", name="uq_approval_decisions_checkpoint_seq"),
+        UniqueConstraint(
+            "checkpoint_id",
+            "sequence_number",
+            name="uq_approval_decisions_checkpoint_seq",
+        ),
     )
 
     checkpoint_id: Mapped[uuid.UUID] = mapped_column(

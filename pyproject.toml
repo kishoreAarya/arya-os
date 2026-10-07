@@ -26,6 +26,16 @@ dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
     "httpx>=0.27.0",
+    # CI tooling (.github/workflows/{lint,test,security}.yml all install
+    # `uv sync --extra dev` and then invoke these through `uv run`):
+    # lint.yml -> ruff/black; test.yml -> pytest-cov (--cov flags);
+    # security.yml -> bandit/pip-audit. Previously undeclared, so a
+    # clean runner could not provide them.
+    "ruff>=0.15.10",
+    "black>=25.1.0",
+    "pytest-cov>=7.0.0",
+    "bandit>=1.8.0",
+    "pip-audit>=2.9.0",
 ]
 storage-s3 = [
     "boto3>=1.35.0",  # only needed when STORAGE_BACKEND=s3 or r2
@@ -34,6 +44,38 @@ storage-s3 = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["backend/tests"]
+
+# Bandit policy (referenced by .github/workflows/security.yml's
+# `bandit -c pyproject.toml -r backend/app`). Repository-wide skips below
+# are ACCEPTED-POLICY decisions, each with its justification; everything
+# else — including B310 (unguarded URL fetch) — stays ACTIVE.
+[tool.bandit]
+skips = [
+    # B101: internal invariant asserts in the Hermes runtime/config
+    # boundary — not authentication/authorization paths.
+    "B101",
+    # B110/B112: best-effort exception swallowing is a documented
+    # codebase convention for fail-closed bookkeeping (cleanup,
+    # rollback, refresh-after-rollback); the affected blocks carry
+    # explanatory comments and never gate security decisions.
+    "B110",
+    "B112",
+    # B404/B405: bare `import subprocess`/`import ast` — imports alone
+    # carry no risk; actual invocations remain covered by B602-B607.
+    "B404",
+    "B405",
+    # B603/B607: subprocess WITHOUT shell=True is this repository's
+    # REQUIRED safe-invocation pattern (bandit flags it anyway as
+    # review-worthy); partial-path calls are limited to the pinned
+    # `git` invocation in app/hermes/source.py.
+    "B603",
+    "B607",
+    # B106: the hardcoded-password-kwarg heuristic misfires on provider
+    # capability metadata (model tuples, token limits) and on
+    # pass-through of runtime variables; every instance was
+    # source-verified in Phase 54B-I10 to carry no credential literal.
+    "B106",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -44,3 +86,15 @@ packages = ["backend/app"]
 
 [tool.uv.sources]
 hermes-agent = { path = "vendor/hermes-agent", editable = true }
+
+# Phase 54B-I13: the vendored Hermes agent pins pyjwt[crypto]==2.13.0,
+# which carries known advisories (PYSEC-2026-4142/4147/4150/4151/4183;
+# safe >= 2.15.0). The vendored tree is integrity-locked (submodule with
+# approved commit/tree SHA pins verified by app.hermes.source), so the
+# pin cannot be edited in place. This ROOT-project override — the
+# documented uv mechanism for transitive constraint conflicts — raises
+# the floor to the first safe release while keeping the [crypto] extra.
+# PyJWT 2.x API is stable (jwt.encode/decode); Hermes' dashboard-auth
+# usage is unaffected. Track the upstream Hermes pin bump for removal.
+[tool.uv]
+override-dependencies = ["pyjwt[crypto]>=2.15.0"]

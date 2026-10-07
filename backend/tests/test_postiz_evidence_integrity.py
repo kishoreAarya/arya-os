@@ -192,16 +192,54 @@ def _tmp_video():
 
 
 def _ctx(video_id):
-    return {
+    base = {
         "platform": "postiz",
         "video_id": str(video_id),
-        "video_storage_path": _tmp_video(),
+        # Phase 54B-I8: the seeded manifest's authoritative artifact.
+        "video_storage_path": _SEED_STATE.get("asset") or _tmp_video(),
         "title": "t",
         "description": "d",
         "social_platform": "youtube",
         "integration_id": "integ-1",
+        "workflow_run_id": (
+            str(_SEED_STATE["run_id"]) if _SEED_STATE.get("run_id") else None
+        ),
         "dry_run": False,
     }
+    return base
+
+
+# ---------------------------------------------------------------------------
+# Phase 54B-I8: manifest-bound approved publish-target seeding (the
+# minimum authorization state the 53B/I5 dispatch contract accepts).
+# ---------------------------------------------------------------------------
+
+_SEED_STATE = {}
+
+
+def _seed_target():
+    from tests._dispatch_manifest_fixtures import seed_manifest_bound_target
+
+    run_id, video_id, _mid, vpath, _thumb = seed_manifest_bound_target(
+        platform="postiz",
+        social_platform="youtube",
+        integration_id="integ-1",
+        privacy_status="public",
+        publish_type="now",
+    )
+    _SEED_STATE.clear()
+    _SEED_STATE.update(run_id=run_id, video_id=video_id, asset=vpath)
+    return run_id, video_id
+
+
+def _cleanup_target():
+    from tests._dispatch_manifest_fixtures import cleanup_manifest_bound_target
+
+    if _SEED_STATE.get("run_id") is not None:
+        cleanup_manifest_bound_target(
+            _SEED_STATE["run_id"], _SEED_STATE["video_id"], _SEED_STATE["asset"]
+        )
+    _SEED_STATE.clear()
 
 
 def _check_processing(script):
@@ -348,7 +386,7 @@ def test_publish_success_without_parseable_id_records_unknown_and_blocks_retry(m
     automatic re-dispatch (exactly one /posts call ever)."""
     script = _PostizScript(publish=("json", {"unrelated": True}))
     _install_real_postiz(monkeypatch, script)
-    video_uuid = uuid_mod.uuid4()
+    _, video_uuid = _seed_target()
     ctx = _ctx(video_uuid)
     try:
         first = _run(ctx)
@@ -367,13 +405,14 @@ def test_publish_success_without_parseable_id_records_unknown_and_blocks_retry(m
         assert script.posts_calls == 1
         assert len(asyncio.run(_attempts_for(video_uuid))) == 1
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
 def test_publish_success_with_empty_string_id_records_unknown(monkeypatch):
     script = _PostizScript(publish=("json", {"id": ""}))
     _install_real_postiz(monkeypatch, script)
-    video_uuid = uuid_mod.uuid4()
+    _, video_uuid = _seed_target()
     try:
         result = _run(_ctx(video_uuid))
         assert not result.success and "UNKNOWN" in result.error
@@ -381,6 +420,7 @@ def test_publish_success_with_empty_string_id_records_unknown(monkeypatch):
         assert rows[0].status == PublicationAttemptStatus.UNKNOWN
         assert rows[0].external_post_id is None
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -392,7 +432,7 @@ def test_publish_success_with_empty_string_id_records_unknown(monkeypatch):
 def test_publish_success_with_valid_id_still_succeeds(monkeypatch):
     script = _PostizScript(publish=("json", {"id": "post-42"}))
     _install_real_postiz(monkeypatch, script)
-    video_uuid = uuid_mod.uuid4()
+    _, video_uuid = _seed_target()
     try:
         result = _run(_ctx(video_uuid))
         assert result.success, result.error
@@ -401,6 +441,7 @@ def test_publish_success_with_valid_id_still_succeeds(monkeypatch):
         assert rows[0].external_post_id == "post-42"
         assert rows[0].public_url is not None
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 

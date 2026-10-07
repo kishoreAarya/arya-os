@@ -37,6 +37,14 @@ class DecideCheckpointRequest(BaseModel):
     # invented: this field is non-authoritative metadata, exactly like the
     # jobs-surface user_id (D3). Blank is stored as NULL.
     decided_by: str | None = None
+    # Phase 54B-I4: STRICT consistency echo, never a selector. When the
+    # checkpoint is content-bound to a publication manifest, a decision
+    # MUST echo the server-bound manifest_id; a mismatched or stale id is
+    # rejected (409) BEFORE any decision event is written. Omitting the
+    # echo on a bound checkpoint is rejected (422). Unbound checkpoints
+    # (all other stages, legacy rows) are unaffected; sending an echo to
+    # an unbound checkpoint is a 409 mismatch.
+    manifest_id: uuid.UUID | None = None
 
 
 @router.post("/")
@@ -100,6 +108,34 @@ async def decide_checkpoint(
     checkpoint = result.scalar_one_or_none()
     if not checkpoint:
         raise HTTPException(status_code=404, detail="Checkpoint not found")
+
+    # Phase 54B-I4: manifest consistency — verified UNDER the row lock
+    # and BEFORE any event is appended, so a stale review can never
+    # become a confusing decision in the append-only history. The
+    # server's pre-bound manifest stays authoritative; the client can
+    # neither select nor replace it.
+    if checkpoint.publication_manifest_id is not None:
+        if payload.manifest_id is None:
+            raise HTTPException(
+                status_code=422,
+                detail="this checkpoint is content-bound to a publication "
+                "manifest; the decision must echo that manifest_id for "
+                "consistency (fetch the current review state first)",
+            )
+        if payload.manifest_id != checkpoint.publication_manifest_id:
+            raise HTTPException(
+                status_code=409,
+                detail="manifest_id does not match the manifest bound to this "
+                "checkpoint; the server-bound manifest is authoritative — "
+                "the reviewed content changed, fetch the current review "
+                "state and re-review",
+            )
+    elif payload.manifest_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="manifest_id was provided but this checkpoint is not "
+            "content-bound to any publication manifest",
+        )
 
     next_sequence = (
         await db.execute(

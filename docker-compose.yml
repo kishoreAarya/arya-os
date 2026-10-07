@@ -4,11 +4,19 @@ services:
     container_name: arya-postgres
     restart: unless-stopped
     # Phase 49B (Tier-1): block privilege escalation via setuid bits and cap
-    # runaway process spawning. Runtime user/caps unchanged (init entrypoint
-    # needs its documented startup path).
+    # runaway process spawning.
     security_opt:
       - no-new-privileges:true
     pids_limit: 256
+    # Phase 52B-2 (Tier-2): run directly as the image's postgres user — the
+    # entrypoint's root path (chown + gosu demotion) is skipped for non-root
+    # starts, which it explicitly supports (52B-0 extracted-entrypoint
+    # evidence); PGDATA volume is already postgres-owned. read_only is
+    # deliberately DEFERRED: the /var/run/postgresql socket directory lives
+    # on the root filesystem.
+    user: postgres
+    cap_drop:
+      - ALL
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-arya}
       # M1 (release hardening): no silent default — startup fails fast with
@@ -31,14 +39,19 @@ services:
     image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     container_name: arya-redis
     restart: unless-stopped
-    # Phase 49B (Tier-1): privilege-escalation guard + process limit. User and
-    # cap_drop deliberately DEFERRED: the pinned image starts as root and
-    # demotes via its entrypoint; read-only metadata cannot prove a plain
-    # `user: redis` start is safe (fresh-volume ownership), so no capability
-    # change is made in this phase.
+    # Phase 49B (Tier-1): privilege-escalation guard + process limit.
     security_opt:
       - no-new-privileges:true
     pids_limit: 64
+    # Phase 52B-1 (Tier-2): run directly as the image's redis user (the
+    # entrypoint's root->setpriv demotion is skipped for non-root starts —
+    # extracted-entrypoint evidence in 52B-0), drop all capabilities, and
+    # keep the root filesystem read-only; Redis writes only to the /data
+    # volume (RDB snapshots), so no tmpfs is required.
+    user: redis
+    cap_drop:
+      - ALL
+    read_only: true
     # L-7: Redis REQUIRES authentication — no unauthenticated fallback.
     # REDIS_PASSWORD must be set in .env; compose fails at configuration
     # time if it is unset/empty (same M1 fail-fast convention as
@@ -82,6 +95,15 @@ services:
     pids_limit: 256
     cap_drop:
       - ALL
+    # Phase 52B-3 (Tier-2): read-only root filesystem — the only required
+    # writable paths are the /app/data/storage volume (persistent artifacts)
+    # and /tmp (asset tempfiles + ffmpeg scratch; sized against the 50 MB
+    # per-asset cap with headroom). mode=1777 because tmpfs mounts default
+    # to root-owned; appuser is uid 1001. pyc writes are silently skipped
+    # on RO rootfs (harmless). Migrations are a no-op at the applied head.
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m,mode=1777
     # Phase 31: least-privilege environment (Phase 30 audit). env_file was
     # removed — only variables the backend actually consumes are passed.
     # Compose-only vars (POSTGRES_*, N8N_HOST_PORT) and unconsumed
@@ -176,11 +198,22 @@ services:
     restart: unless-stopped
     # Phase 49B (Tier-1): node runtime with volume-backed state needs no
     # Linux capabilities — drop all.
+    # Phase 53E (Tier-2 retry): read-only root filesystem, re-attempted with
+    # the writable paths validated by the 53D-T-R2 disposable probe. n8n
+    # extracts the editor UI into /home/node/.cache at startup (~60 MB of a
+    # 64 MB tmpfs during the probe — sized 128m here for headroom); /tmp
+    # gets the same noexec tmpfs as the backend. uid/gid 1000 verified
+    # against the pinned image's node user. Persistent state (config,
+    # encryption key) stays on the arya_n8n_data volume below.
     security_opt:
       - no-new-privileges:true
     pids_limit: 256
     cap_drop:
       - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+      - /home/node/.cache:rw,noexec,nosuid,size=128m,uid=1000,gid=1000,mode=0700
     environment:
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres

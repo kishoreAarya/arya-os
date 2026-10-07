@@ -285,7 +285,10 @@ def _ctx(video_id, **overrides):
     base = {
         "platform": "youtube",
         "video_id": str(video_id),
-        "video_storage_path": _tmp_video(),
+        # Phase 54B-I5: the seeded manifest's authoritative artifact —
+        # dispatch verifies against (and uploads) the manifest-bound
+        # snapshot, not an arbitrary caller path.
+        "video_storage_path": _SEED_STATE.get("asset") or _tmp_video(),
         "title": "t",
         "description": "d",
         "social_platform": "youtube",
@@ -294,6 +297,52 @@ def _ctx(video_id, **overrides):
     }
     base.update(overrides)
     return base
+
+
+_SEED_STATE = {}
+
+
+def _seed_target(asset=None, **manifest_overrides):
+    """53B-T4/I5: seed a MANIFEST-BOUND approved publish target (real
+    artifact, real manifest through the I4 service, bound+approved
+    THUMBNAIL checkpoint) matching the youtube dispatch context. When
+    `asset` is given, the manifest's authoritative artifact IS that
+    path (the router payload's asset)."""
+    kwargs = dict(
+        video_path=asset,
+        platform="youtube",
+        social_platform="youtube",
+        integration_id=None,
+        privacy_status="public",
+        # Router parity: POST /publishing/publish defaults publish_type
+        # to "draft"; agent-level contexts omit it and defer to the
+        # manifest value.
+        publish_type="draft",
+    )
+    kwargs.update(manifest_overrides)
+
+    async def _inner():
+        from tests._dispatch_manifest_fixtures import _seed_manifest_bound_target
+
+        return await _seed_manifest_bound_target(**kwargs)
+
+    run_id, video_id, _mid, vpath, _thumb = asyncio.run(_inner())
+    _SEED_STATE.clear()
+    _SEED_STATE.update(run_id=run_id, video_id=video_id, asset=vpath)
+    return run_id, video_id
+
+def _cleanup_target(run_id):
+    """53B-T4/I5: remove the seeded manifest-bound publish-target chain."""
+
+    async def _inner():
+        from tests._dispatch_manifest_fixtures import _cleanup_manifest_bound_target
+
+        await _cleanup_manifest_bound_target(
+            run_id, _SEED_STATE.get("video_id"), _SEED_STATE.get("asset")
+        )
+
+    asyncio.run(_inner())
+    _SEED_STATE.clear()
 
 
 def _tmp_video():
@@ -373,8 +422,8 @@ def test_agent_dry_run_flow_makes_zero_external_calls(monkeypatch):
 def test_real_upload_and_publish_succeed(monkeypatch):
     script = _Script()
     _install_real_youtube(monkeypatch, script)
-    video_uuid = uuid.uuid4()
-    ctx = _ctx(video_uuid)
+    run_id, video_uuid = _seed_target()
+    ctx = _ctx(video_uuid, workflow_run_id=str(run_id))
     try:
         result = _run_agent(ctx)
         assert result.success, result.error
@@ -396,8 +445,8 @@ def test_real_upload_and_publish_succeed(monkeypatch):
 def test_confirmed_4xx_is_failed_and_retry_admits_new_attempt(monkeypatch):
     script = _Script(publish=("http_status", 409))
     _install_real_youtube(monkeypatch, script)
-    video_uuid = uuid.uuid4()
-    ctx = _ctx(video_uuid)
+    run_id, video_uuid = _seed_target()
+    ctx = _ctx(video_uuid, workflow_run_id=str(run_id))
     try:
         first = _run_agent(ctx)
         assert not first.success and "UNKNOWN" not in first.error
@@ -422,8 +471,8 @@ def test_confirmed_4xx_is_failed_and_retry_admits_new_attempt(monkeypatch):
 def test_pre_dispatch_transport_failure_is_failed_and_retryable(monkeypatch):
     script = _Script(publish=("raise", ConnectionRefusedError("connection refused")))
     _install_real_youtube(monkeypatch, script)
-    video_uuid = uuid.uuid4()
-    ctx = _ctx(video_uuid)
+    run_id, video_uuid = _seed_target()
+    ctx = _ctx(video_uuid, workflow_run_id=str(run_id))
     try:
         first = _run_agent(ctx)
         assert not first.success and "UNKNOWN" not in first.error
@@ -455,8 +504,8 @@ def test_timeout_after_dispatch_is_unknown_and_never_retryable_failed(monkeypatc
     FAILED attempt."""
     script = _Script(publish=("raise", TimeoutError("read timed out after submission")))
     _install_real_youtube(monkeypatch, script)
-    video_uuid = uuid.uuid4()
-    ctx = _ctx(video_uuid)
+    run_id, video_uuid = _seed_target()
+    ctx = _ctx(video_uuid, workflow_run_id=str(run_id))
     try:
         first = _run_agent(ctx)
         assert not first.success and "UNKNOWN" in first.error
@@ -478,8 +527,8 @@ def test_timeout_after_dispatch_is_unknown_and_never_retryable_failed(monkeypatc
 def test_5xx_after_submission_is_unknown_and_blocks_retry(monkeypatch):
     script = _Script(publish=("http_status", 503))
     _install_real_youtube(monkeypatch, script)
-    video_uuid = uuid.uuid4()
-    ctx = _ctx(video_uuid)
+    run_id, video_uuid = _seed_target()
+    ctx = _ctx(video_uuid, workflow_run_id=str(run_id))
     try:
         first = _run_agent(ctx)
         assert not first.success and "UNKNOWN" in first.error
@@ -496,8 +545,8 @@ def test_5xx_after_submission_is_unknown_and_blocks_retry(monkeypatch):
 def test_upload_timeout_is_unknown(monkeypatch):
     script = _Script(upload=("raise", TimeoutError("timed out mid resumable upload")))
     _install_real_youtube(monkeypatch, script)
-    video_uuid = uuid.uuid4()
-    ctx = _ctx(video_uuid)
+    run_id, video_uuid = _seed_target()
+    ctx = _ctx(video_uuid, workflow_run_id=str(run_id))
     try:
         result = _run_agent(ctx)
         assert not result.success and "UNKNOWN" in result.error
@@ -854,13 +903,18 @@ def test_f02a_youtube_evidence_api_error_allows_failed(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def _yt_payload_kwargs(video_path):
-    return {
+def _yt_payload_kwargs(video_path, video_id=None, workflow_run_id=None):
+    kwargs = {
         "asset_storage_path": video_path,
         "title": "t",
         "caption": "d",
         "platform": "youtube",
     }
+    if video_id:
+        kwargs["video_id"] = str(video_id)
+    if workflow_run_id:
+        kwargs["workflow_run_id"] = str(workflow_run_id)
+    return kwargs
 
 
 def _publish_youtube(payload_kwargs):
@@ -887,6 +941,8 @@ def _publish_youtube(payload_kwargs):
 def test_f04a_router_privacy_reaches_youtube_publish_transition(
     monkeypatch, privacy_kw, expected
 ):
+    """53B-T4: seeded (run, video) + approval — the visibility reaches the
+    YouTube publish transition verbatim."""
     """The requested visibility is applied VERBATIM by the publication
     transition (videos.update), while upload staging remains PRIVATE
     (ratified two-phase)."""
@@ -894,8 +950,12 @@ def test_f04a_router_privacy_reaches_youtube_publish_transition(
 
     script = _Script()
     _install_real_youtube(monkeypatch, script)
-    kwargs = {**_yt_payload_kwargs(_tmp_video()), **privacy_kw}
-    synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs)))
+    asset = _tmp_video()
+    run_id, video_id = _seed_target(asset, privacy_status=expected)
+    kwargs = {
+        **_yt_payload_kwargs(asset, video_id=video_id, workflow_run_id=run_id),
+        **privacy_kw,
+    }
     try:
         resp = _publish_youtube(kwargs)
         assert resp.success, resp.error
@@ -905,7 +965,7 @@ def test_f04a_router_privacy_reaches_youtube_publish_transition(
         # ...while the upload always stages privately.
         assert script.last_insert_body["status"]["privacyStatus"] == "private"
     finally:
-        asyncio.run(_cleanup(synthetic))
+        _cleanup_target(run_id)
 
 
 def test_f04a_invalid_privacy_is_rejected_at_the_api_edge():
@@ -918,14 +978,14 @@ def test_f04a_invalid_privacy_is_rejected_at_the_api_edge():
 
 
 def test_f04a_public_publication_converges_with_f08_evidence(monkeypatch):
+    """53B-T4: seeded (run, video) + approval."""
     """8. With the ratified public default, an agent-side SUCCEEDED
     publication is corroborated by the F-08 evidence lookup (ready)."""
-    from app.api.routers.publishing import _synthetic_video_id
-
     script = _Script(list_response=_evidence_items("succeeded", "public"))
     _install_real_youtube(monkeypatch, script)
-    kwargs = _yt_payload_kwargs(_tmp_video())
-    synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs)))
+    asset = _tmp_video()
+    run_id, video_id = _seed_target(asset)
+    kwargs = _yt_payload_kwargs(asset, video_id=video_id, workflow_run_id=run_id)
     try:
         resp = _publish_youtube(kwargs)  # privacy omitted -> public
         assert resp.success and resp.attempt_status == "succeeded"
@@ -933,7 +993,7 @@ def test_f04a_public_publication_converges_with_f08_evidence(monkeypatch):
         assert processing.status == "ready"
         assert processing.error is None
     finally:
-        asyncio.run(_cleanup(synthetic))
+        _cleanup_target(run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1055,15 +1115,17 @@ def test_f05a_unscheduled_youtube_publication_remains_unchanged(monkeypatch):
     ):
         script = _Script()
         _install_real_youtube(monkeypatch, script)
-        kwargs = {**_yt_payload_kwargs(_tmp_video()), **privacy_kw}
-        synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs)))
+        asset = _tmp_video()
+        run_id, video_id = _seed_target(asset, privacy_status=expected)
+        kwargs = {**_yt_payload_kwargs(asset, video_id=video_id, workflow_run_id=run_id), **privacy_kw}
         try:
             resp = _publish_youtube(kwargs)
             assert resp.success, resp.error
             assert script.last_update_body["status"]["privacyStatus"] == expected
             assert "publishAt" not in script.last_update_body["status"]
         finally:
-            asyncio.run(_cleanup(synthetic))
+            _cleanup_target(run_id)
+            _cleanup_target(run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1116,7 +1178,7 @@ def test_yt_hardening_event_loop_stays_responsive_during_slow_calls(monkeypatch)
         YouTubeAdapter, "_build_api_client", lambda self, credentials=None: client
     )
 
-    video_uuid = uuid.uuid4()
+    run_id, video_uuid = _seed_target()
     heartbeats = {"n": 0}
 
     async def _inner():
@@ -1131,7 +1193,7 @@ def test_yt_hardening_event_loop_stays_responsive_during_slow_calls(monkeypatch)
         t0 = time.monotonic()
         engine, session = await _session()
         try:
-            result = await PublishingAgent(db=session).run(_ctx(video_uuid))
+            result = await PublishingAgent(db=session).run(_ctx(video_uuid, workflow_run_id=str(run_id)))
         finally:
             await session.close()
             await engine.dispose()
@@ -1151,7 +1213,7 @@ def test_yt_hardening_event_loop_stays_responsive_during_slow_calls(monkeypatch)
         assert rows[0].status == PublicationAttemptStatus.SUCCEEDED
     finally:
         asyncio.run(_cleanup(video_uuid))
-
+        _cleanup_target(run_id)
 
 def test_yt_hardening_transport_auto_retry_disabled_wiring(monkeypatch):
     """num_retries=0 is passed EXPLICITLY at every dispatch site (insert
@@ -1159,9 +1221,9 @@ def test_yt_hardening_transport_auto_retry_disabled_wiring(monkeypatch):
     auto-retry can never silently re-dispatch a non-idempotent upload."""
     script = _Script()
     _install_real_youtube(monkeypatch, script)
-    video_uuid = uuid.uuid4()
+    run_id, video_uuid = _seed_target()
     try:
-        result = _run_agent(_ctx(video_uuid))
+        result = _run_agent(_ctx(video_uuid, workflow_run_id=str(run_id)))
         assert result.success, result.error
         assert script.last_insert_num_retries == 0
         assert script.last_update_num_retries == 0
@@ -1170,7 +1232,7 @@ def test_yt_hardening_transport_auto_retry_disabled_wiring(monkeypatch):
         assert script.last_list_num_retries == 0
     finally:
         asyncio.run(_cleanup(video_uuid))
-
+        _cleanup_target(run_id)
 
 def test_yt_hardening_timeout_classification_preserved(monkeypatch):
     """A transport timeout on the publish call (now surfacing through
@@ -1178,8 +1240,8 @@ def test_yt_hardening_timeout_classification_preserved(monkeypatch):
     ambiguity -> UNKNOWN, retry blocked, exactly one dispatch."""
     script = _Script(publish=("raise", TimeoutError("timed out mid-update")))
     _install_real_youtube(monkeypatch, script)
-    video_uuid = uuid.uuid4()
-    ctx = _ctx(video_uuid)
+    run_id, video_uuid = _seed_target()
+    ctx = _ctx(video_uuid, workflow_run_id=str(run_id))
     try:
         first = _run_agent(ctx)
         assert not first.success and "UNKNOWN" in first.error
@@ -1211,6 +1273,7 @@ def test_f13a_youtube_helper_matches_the_ratified_contract():
 
 
 def test_f13a_youtube_oversized_error_body_is_capped_and_clean(monkeypatch):
+    """53B-T4: seeded (run, video) + approval."""
     """A provider 4xx whose HttpError body is oversized and carries
     control characters is sanitized before persistence: bounded,
     marker present, diagnostic prefix and status intact."""
@@ -1266,9 +1329,9 @@ def test_f13a_youtube_oversized_error_body_is_capped_and_clean(monkeypatch):
     monkeypatch.setattr(YouTubeAdapter, "_build_credentials", lambda self: {"api_key": "k"})
     monkeypatch.setattr(YouTubeAdapter, "_build_api_client", lambda self, credentials=None: client)
 
-    video_uuid = uuid.uuid4()
+    run_id, video_uuid = _seed_target()
     try:
-        result = _run_agent(_ctx(video_uuid))
+        result = _run_agent(_ctx(video_uuid, workflow_run_id=str(run_id)))
         assert not result.success
         rows = asyncio.run(_attempts_for(video_uuid))
         err = rows[0].error
@@ -1296,3 +1359,4 @@ def test_f13a_youtube_oversized_error_body_is_capped_and_clean(monkeypatch):
         assert "D" * 1200 not in err  # the unbounded body never leaks
     finally:
         asyncio.run(_cleanup(video_uuid))
+        _cleanup_target(run_id)

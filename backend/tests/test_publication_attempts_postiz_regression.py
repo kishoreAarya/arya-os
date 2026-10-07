@@ -24,7 +24,7 @@ import pytest
 
 from app.agents.publishing import PublishingAgent
 from app.models.enums import PublicationAttemptStatus
-from app.models.publication import PublicationAttempt  # noqa: F401 — registers the table on Base.metadata
+from app.models.publication import PublicationAttempt
 from app.platforms.postiz import PostizAdapter
 
 
@@ -96,15 +96,66 @@ def _context(video_id, **overrides):
     base = {
         "platform": "postiz",
         "video_id": str(video_id),
-        "video_storage_path": None,  # filled per-test
+        # Phase 54B-I6: the seeded manifest's authoritative artifact —
+        # dispatch verifies against (and uploads) the manifest-bound
+        # snapshot, not an arbitrary caller path.
+        "video_storage_path": _SEED_STATE.get("asset") or _tmp_video(),
         "title": "t",
         "description": "d",
         "social_platform": "youtube",
         "integration_id": "integ-1",
+        "workflow_run_id": (
+            str(_SEED_STATE["run_id"]) if _SEED_STATE.get("run_id") else None
+        ),
         "dry_run": False,
     }
     base.update(overrides)
     return base
+
+
+# ---------------------------------------------------------------------------
+# Phase 54B-I6: manifest-bound approved publish-target seeding (the
+# minimum authorization state the Phase 54B-I5 dispatch contract accepts
+# for real publishing: real artifact, real manifest through the I4
+# service, bound + approved THUMBNAIL checkpoint).
+# ---------------------------------------------------------------------------
+
+_SEED_STATE = {}
+
+
+def _seed_target(**manifest_overrides):
+    kwargs = dict(
+        platform="postiz",
+        social_platform="youtube",
+        integration_id="integ-1",
+        privacy_status="public",
+        publish_type="now",
+    )
+    kwargs.update(manifest_overrides)
+
+    async def _inner():
+        from tests._dispatch_manifest_fixtures import _seed_manifest_bound_target
+
+        return await _seed_manifest_bound_target(**kwargs)
+
+    run_id, video_id, _mid, vpath, _thumb = asyncio.run(_inner())
+    _SEED_STATE.clear()
+    _SEED_STATE.update(run_id=run_id, video_id=video_id, asset=vpath)
+    return run_id, video_id
+
+
+def _cleanup_target():
+    async def _inner():
+        from tests._dispatch_manifest_fixtures import _cleanup_manifest_bound_target
+
+        await _cleanup_manifest_bound_target(
+            _SEED_STATE.get("run_id"), _SEED_STATE.get("video_id"),
+            _SEED_STATE.get("asset"),
+        )
+
+    if _SEED_STATE.get("run_id") is not None:
+        asyncio.run(_inner())
+    _SEED_STATE.clear()
 
 
 async def _session():
@@ -177,12 +228,12 @@ def test_publish_read_timeout_after_submission_is_unknown_and_blocks_retry(monke
     after POST /posts was dispatched (read timeout mid-exchange) must land
     UNKNOWN — and a re-submission of the same intent must NEVER invoke the
     provider /posts endpoint again (no duplicate publication)."""
-    video_uuid = uuid.uuid4()
     transport = _ScriptedTransport(
         publish_behavior=("raise", httpx.ReadTimeout("read timed out waiting for Postiz response"))
     )
     _install_real_postiz(monkeypatch, transport)
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    _, video_uuid = _seed_target()
+    ctx = _context(video_uuid)
     try:
         first = _run(ctx)
         assert not first.success and "UNKNOWN" in first.error
@@ -201,6 +252,7 @@ def test_publish_read_timeout_after_submission_is_unknown_and_blocks_retry(monke
         assert len(rows) == 1
         assert rows[0].status == PublicationAttemptStatus.UNKNOWN
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -208,10 +260,10 @@ def test_publish_5xx_after_submission_is_unknown_and_blocks_retry(monkeypatch):
     """A 5xx on POST /posts is a server-side failure after our submission
     reached Postiz (e.g. gateway timeout after the backend committed) —
     not a confirmed rejection: UNKNOWN, retry blocked."""
-    video_uuid = uuid.uuid4()
     transport = _ScriptedTransport(publish_behavior=("status", 504))
     _install_real_postiz(monkeypatch, transport)
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    _, video_uuid = _seed_target()
+    ctx = _context(video_uuid)
     try:
         first = _run(ctx)
         assert not first.success and "UNKNOWN" in first.error
@@ -222,6 +274,7 @@ def test_publish_5xx_after_submission_is_unknown_and_blocks_retry(monkeypatch):
         assert not second.success and "AMBIGUOUS" in second.error
         assert transport.posts_calls == 1
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -229,12 +282,12 @@ def test_upload_read_timeout_after_submission_is_unknown(monkeypatch):
     """A transport exception during POST /upload: the provider may hold
     the media — UNKNOWN (the agent must never re-dispatch after a
     possibly-accepted upload)."""
-    video_uuid = uuid.uuid4()
     transport = _ScriptedTransport(
         upload_behavior=("raise", httpx.ReadTimeout("read timed out during upload"))
     )
     _install_real_postiz(monkeypatch, transport)
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    _, video_uuid = _seed_target()
+    ctx = _context(video_uuid)
     try:
         result = _run(ctx)
         assert not result.success and "UNKNOWN" in result.error
@@ -246,16 +299,17 @@ def test_upload_read_timeout_after_submission_is_unknown(monkeypatch):
         assert not second.success and "AMBIGUOUS" in second.error
         assert transport.posts_calls == 0
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
 def test_upload_5xx_after_submission_is_unknown(monkeypatch):
     """A 5xx on POST /upload: the provider may still hold the media —
     UNKNOWN, retry blocked."""
-    video_uuid = uuid.uuid4()
     transport = _ScriptedTransport(upload_behavior=("status", 502))
     _install_real_postiz(monkeypatch, transport)
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    _, video_uuid = _seed_target()
+    ctx = _context(video_uuid)
     try:
         result = _run(ctx)
         assert not result.success and "UNKNOWN" in result.error
@@ -266,6 +320,7 @@ def test_upload_5xx_after_submission_is_unknown(monkeypatch):
         assert not second.success and "AMBIGUOUS" in second.error
         assert transport.posts_calls == 0
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -278,10 +333,10 @@ def test_confirmed_4xx_rejection_is_failed_and_retry_admits_new_attempt(monkeypa
     """HTTP 4xx on POST /posts is a confirmed provider rejection: FAILED,
     and a retry legitimately admits attempt_number+1 (the provider told us
     no post was created)."""
-    video_uuid = uuid.uuid4()
     transport = _ScriptedTransport(publish_behavior=("status", 400))
     _install_real_postiz(monkeypatch, transport)
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    _, video_uuid = _seed_target()
+    ctx = _context(video_uuid)
     try:
         first = _run(ctx)
         assert not first.success and "UNKNOWN" not in first.error
@@ -300,18 +355,19 @@ def test_confirmed_4xx_rejection_is_failed_and_retry_admits_new_attempt(monkeypa
         ]
         assert transport.posts_calls == 2  # the one legitimate retry
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
 def test_pre_dispatch_connect_error_is_failed_and_retryable(monkeypatch):
     """ConnectError means the request was never sent — no external side
     effect is possible: FAILED (retryable), not UNKNOWN."""
-    video_uuid = uuid.uuid4()
     transport = _ScriptedTransport(
         publish_behavior=("raise", httpx.ConnectError("connection refused"))
     )
     _install_real_postiz(monkeypatch, transport)
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    _, video_uuid = _seed_target()
+    ctx = _context(video_uuid)
     try:
         first = _run(ctx)
         assert not first.success and "UNKNOWN" not in first.error
@@ -329,29 +385,34 @@ def test_pre_dispatch_connect_error_is_failed_and_retryable(monkeypatch):
             PublicationAttemptStatus.SUCCEEDED,
         ]
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
 def test_f09_permit_denied_error_names_the_uploaded_media_id(monkeypatch):
     """F-09 (Option 1, observability only): when an operator resolution
-    lands between the upload and the anchor write, the permit is
-    correctly denied (H1: zero publications) — and the denied execution
-    now NAMES the uploaded provider media id so the otherwise-untracked
-    orphan can be found and cleaned up manually."""
+    lands between the upload and the anchor write, the anchor
+    persistence is correctly refused (H1/I2: zero publications) — and
+    the denied execution now NAMES the uploaded provider media id so the
+    otherwise-untracked orphan can be found and cleaned up manually.
+    Phase 54B-I6: the anchor write is the I2
+    persist_external_content_anchor precondition (publish is unreachable
+    unless it PERSISTS), and the attempt is IN_PROGRESS at upload time
+    (the I3/I5 permit precedes every upload)."""
     from datetime import datetime, timedelta, timezone
 
     import app.services.publication_attempts as attempt_service
     import app.services.publication_attempt_reconciliation as recon
     from app.models.enums import PublicationAttemptStatus as Status
 
-    video_uuid = uuid.uuid4()
     transport = _ScriptedTransport(
         upload_behavior=("ok", "media-ORPHAN"),
         publish_behavior=("ok", "post-never"),
     )
     _install_real_postiz(monkeypatch, transport)
+    _, video_uuid = _seed_target()
 
-    real_mark_external_content = attempt_service.mark_external_content
+    real_persist_anchor = attempt_service.persist_external_content_anchor
 
     async def _force_fail_aged(attempt_id):
         from sqlalchemy import update
@@ -367,7 +428,7 @@ def test_f09_permit_denied_error_names_the_uploaded_media_id(monkeypatch):
             await recon.resolve_attempt(
                 session,
                 attempt_id,
-                from_status=Status.PENDING,
+                from_status=Status.IN_PROGRESS,
                 to_status=Status.FAILED,
                 attestation="operator verified: execution stalled",
                 force=True,
@@ -380,28 +441,29 @@ def test_f09_permit_denied_error_names_the_uploaded_media_id(monkeypatch):
         # The operator lands mid-flight, right after the upload returned
         # media-ORPHAN and before the anchor write can commit.
         await _force_fail_aged(attempt.id)
-        return await real_mark_external_content(db, attempt, content_id)
+        return await real_persist_anchor(db, attempt, content_id)
 
     monkeypatch.setattr(
-        attempt_service, "mark_external_content", _resolve_then_anchor
+        attempt_service, "persist_external_content_anchor", _resolve_then_anchor
     )
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    ctx = _context(video_uuid)
     try:
         result = _run(ctx)
         assert not result.success
-        assert "permit" in result.error.lower()
+        assert "Publication aborted" in result.error
         # H1 held: no publication was dispatched.
         assert transport.posts_calls == 0
         assert transport.upload_calls == 1
         # F-09 observability: the orphaning media id is named in the error.
         assert "media-ORPHAN" in result.error
-        assert "no external publish was made" in result.error
+        assert "external publish was made" in result.error
         # The row itself is FAILED with no anchor (the untracked-orphan
         # case) — only the surfaced id makes the artifact findable.
         rows = asyncio.run(_attempts_for(video_uuid))
         assert [r.status for r in rows] == [Status.FAILED]
         assert rows[0].external_content_id is None
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -533,15 +595,15 @@ def test_f11a_concurrent_succeeded_resolution_is_agreement_not_failure(monkeypat
     in-flight publish is AGREEMENT: the agent returns success with the
     attempt ROW's ids, surfaces the agent-observed id as a warning, makes
     exactly one dispatch, and the duplicate retry stays zero-dispatch."""
-    video_uuid = uuid.uuid4()
     transport = _ScriptedTransport()  # upload ok media-1; publish ok post-1
+    _, video_uuid = _seed_target()
     _install_midflight_postiz(
         monkeypatch,
         transport,
         _operator_resolution_hook(video_uuid, to_status="succeeded", external_post_id="post-operator"),
         evidence="ready",
     )
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    ctx = _context(video_uuid)
     try:
         first = _run(ctx)
         # 1. Agreement, not failure.
@@ -565,6 +627,7 @@ def test_f11a_concurrent_succeeded_resolution_is_agreement_not_failure(monkeypat
         assert transport.posts_calls == 1
         assert len(asyncio.run(_attempts_for(video_uuid))) == 1
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -572,15 +635,15 @@ def test_f11a_failed_refusal_remains_fail_loud(monkeypatch):
     """Test 6: refusal under a FAILED resolution (non-public evidence,
     force) stays fail-loud byte-for-byte — that is the genuine duplicate-
     risk manual-review signal."""
-    video_uuid = uuid.uuid4()
     transport = _ScriptedTransport()
+    _, video_uuid = _seed_target()
     _install_midflight_postiz(
         monkeypatch,
         transport,
         _operator_resolution_hook(video_uuid, to_status="failed"),
         evidence="processing",
     )
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    ctx = _context(video_uuid)
     try:
         first = _run(ctx)
         assert not first.success
@@ -591,6 +654,7 @@ def test_f11a_failed_refusal_remains_fail_loud(monkeypatch):
         assert [r.status for r in rows] == [PublicationAttemptStatus.FAILED]
         assert rows[0].external_post_id is None
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -598,17 +662,17 @@ def test_f11a_unknown_refusal_unchanged(monkeypatch):
     """Test 7: a publish EXCEPTION after a concurrent SUCCEEDED resolution
     keeps the existing refused-transition behavior: failure naming the
     resolution, no UNKNOWN landing, row stays SUCCEEDED."""
-    video_uuid = uuid.uuid4()
     transport = _ScriptedTransport(
         publish_behavior=("raise", httpx.ReadTimeout("dropped after submit"))
     )
+    _, video_uuid = _seed_target()
     _install_midflight_postiz(
         monkeypatch,
         transport,
         _operator_resolution_hook(video_uuid, to_status="succeeded", external_post_id="post-operator"),
         evidence="ready",
     )
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    ctx = _context(video_uuid)
     try:
         first = _run(ctx)
         assert not first.success
@@ -618,6 +682,7 @@ def test_f11a_unknown_refusal_unchanged(monkeypatch):
         assert [r.status for r in rows] == [PublicationAttemptStatus.SUCCEEDED]
         assert rows[0].external_post_id == "post-operator"
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -650,10 +715,10 @@ def test_f13a_postiz_oversized_4xx_body_is_capped_and_clean(monkeypatch):
     character-free, marker present, diagnostic prefix intact."""
     from app.platforms.postiz import _PROVIDER_TEXT_LIMIT
 
-    video_uuid = uuid.uuid4()
     markup = "<script>alert(1)</script>"
     body = "B" * (_PROVIDER_TEXT_LIMIT + 5000) + "\x00\x1b" + markup
     dropped = 5000 + len(markup)  # control chars stripped; markup counted
+    _, video_uuid = _seed_target()
     transport = _ScriptedTransport()
     _install_real_postiz(monkeypatch, transport)
 
@@ -666,11 +731,10 @@ def test_f13a_postiz_oversized_4xx_body_is_capped_and_clean(monkeypatch):
             self._transport.posts_calls += 1
             return _httpx.Response(400, text=body, request=_httpx.Request("POST", url))
 
-    import app.agents.publishing as _am
     _orig = _httpx.AsyncClient
     _httpx.AsyncClient = lambda **kw: _BigBodyClient(transport, **kw)
     try:
-        ctx = _context(video_uuid, video_storage_path=_tmp_video())
+        ctx = _context(video_uuid)
         result = _run(ctx)
         assert not result.success
         rows = asyncio.run(_attempts_for(video_uuid))
@@ -687,6 +751,7 @@ def test_f13a_postiz_oversized_4xx_body_is_capped_and_clean(monkeypatch):
         assert len(err) <= len("publish rejected: Postiz post creation failed with HTTP 400: ") + _PROVIDER_TEXT_LIMIT + len(marker)
     finally:
         _httpx.AsyncClient = _orig
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -807,8 +872,6 @@ class _ScheduledProviderClient(_ScriptedClient):
 
 
 def _install_scheduled_provider(monkeypatch, provider_posts):
-    from app.services import publication_attempt_reconciliation as _recon
-
     class _Shim:
         ConnectError = httpx.ConnectError
         ConnectTimeout = httpx.ConnectTimeout
@@ -839,9 +902,11 @@ def test_f14a_three_leg_scenario_second_dispatch_blocked_without_ack(monkeypatch
 
     provider_posts = []
     _install_scheduled_provider(monkeypatch, provider_posts)
-    video_uuid = uuid.uuid4()
+    _, video_uuid = _seed_target(
+        scheduled_at="2030-06-01T10:00:00Z", publish_type="schedule"
+    )
     ctx = _context(
-        video_uuid, video_storage_path=_tmp_video(), scheduled_at="2030-06-01T10:00:00Z"
+        video_uuid, scheduled_at="2030-06-01T10:00:00Z"
     )
     try:
         # Leg 1: scheduled dispatch -> client timeout -> UNKNOWN.
@@ -863,6 +928,7 @@ def test_f14a_three_leg_scenario_second_dispatch_blocked_without_ack(monkeypatch
         assert len(provider_posts) == 1
         assert len(asyncio.run(_attempts_for(video_uuid))) == 1
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -871,8 +937,6 @@ async def _resolve_rows():
 
 
 def _resolve_via_http(attempt_id):
-    from datetime import datetime, timedelta, timezone
-
     from app.services import publication_attempt_reconciliation as recon
     from app.models.enums import PublicationAttemptStatus as Status
 
@@ -903,9 +967,11 @@ def test_f14a_operator_gated_escape_with_ack_proceeds(monkeypatch):
 
     provider_posts = []
     _install_scheduled_provider(monkeypatch, provider_posts)
-    video_uuid = uuid.uuid4()
+    _, video_uuid = _seed_target(
+        scheduled_at="2030-06-01T10:00:00Z", publish_type="schedule"
+    )
     ctx = _context(
-        video_uuid, video_storage_path=_tmp_video(), scheduled_at="2030-06-01T10:00:00Z"
+        video_uuid, scheduled_at="2030-06-01T10:00:00Z"
     )
 
     async def _resolve_with_ack(attempt_id):
@@ -938,11 +1004,12 @@ def test_f14a_operator_gated_escape_with_ack_proceeds(monkeypatch):
 
         # Retry admitted as n+1; the provider now holds the second
         # scheduled post (operator-gated escape, documented).
-        second = _run(ctx)
+        _run(ctx)
         rows = asyncio.run(_attempts_for(video_uuid))
         assert [r.attempt_number for r in rows] == [1, 2]
         assert len(provider_posts) == 2
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -994,9 +1061,9 @@ def _install_upload_body(monkeypatch, upload_body):
 def test_f15a_idless_upload_200_is_unknown_with_no_fabricated_anchor(monkeypatch):
     """Requirements: id-less 2xx upload -> ambiguity/UNKNOWN; NO fabricated
     anchor; NO publish dispatch; retry remains blocked (UNKNOWN is durable)."""
-    video_uuid = uuid.uuid4()
     transport = _install_upload_body(monkeypatch, {"unrelated": True})
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    _, video_uuid = _seed_target()
+    ctx = _context(video_uuid)
     try:
         first = _run(ctx)
         assert not first.success
@@ -1016,15 +1083,16 @@ def test_f15a_idless_upload_200_is_unknown_with_no_fabricated_anchor(monkeypatch
         assert transport.posts_calls == 0
         assert len(asyncio.run(_attempts_for(video_uuid))) == 1
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
 def test_f15a_path_only_upload_response_still_works(monkeypatch):
     """A 200 response carrying only `path` (no `id`) remains a valid,
     non-fabricated anchor — unchanged behavior."""
-    video_uuid = uuid.uuid4()
     transport = _install_upload_body(monkeypatch, {"path": "uploads/media-9.mp4"})
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    _, video_uuid = _seed_target()
+    ctx = _context(video_uuid)
     try:
         result = _run(ctx)
         assert result.success, result.error
@@ -1033,15 +1101,16 @@ def test_f15a_path_only_upload_response_still_works(monkeypatch):
         assert rows[0].external_content_id == "uploads/media-9.mp4"
         assert transport.posts_calls == 1
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
 def test_f15a_id_upload_response_still_works(monkeypatch):
     """A 200 response carrying `id` is unchanged (the default scripted
     behavior exercises exactly this)."""
-    video_uuid = uuid.uuid4()
-    transport = _install_upload_body(monkeypatch, {"id": "media-77"})
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    _install_upload_body(monkeypatch, {"id": "media-77"})
+    _, video_uuid = _seed_target()
+    ctx = _context(video_uuid)
     try:
         result = _run(ctx)
         assert result.success, result.error
@@ -1049,6 +1118,7 @@ def test_f15a_id_upload_response_still_works(monkeypatch):
         assert rows[0].external_content_id == "media-77"
         assert rows[0].status == PublicationAttemptStatus.SUCCEEDED
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 

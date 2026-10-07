@@ -9,6 +9,17 @@ external-ID persistence independent of the Video writeback, scheduled
 execution-time attempts, and credential non-persistence. The Hermes
 publishing capability remains dry-run and untouched (frozen boundary —
 covered by the Hermes suites).
+
+Phase 54B-I6: every real-dispatch test seeds a MANIFEST-BOUND approved
+publish target (real artifact, real manifest through the I4 service,
+bound + APPROVED THUMBNAIL checkpoint) and dispatches under the I5
+contract — the 53B approval gate, dispatch-time manifest verification,
+the permit transaction, and the verified-snapshot upload path are all
+exercised for real. The original behavioral assertions (upload/publish
+failure classification, anchor persistence, idempotency, ambiguous
+outcomes, CAS transition discipline) are preserved; the failure-window
+tests now reach their windows through the manifest-bound path (request
+paths and unverified artifacts are inert/denied by design since I5).
 """
 import asyncio
 import tempfile
@@ -31,19 +42,15 @@ class StubAdapter:
         self.db = db
         self.calls = {"authenticate": 0, "upload_content": 0, "publish": 0}
         self.publish_behavior = "success"
-        self.saw_pending_attempt_at_upload = None
+        self.saw_statuses_at_authenticate = None
+        self.saw_statuses_at_upload = None
 
     async def authenticate(self):
         from app.platforms.base import AuthResult
 
         self.calls["authenticate"] += 1
-        return AuthResult(success=True, credentials={"api_key": "SECRET-DO-NOT-PERSIST"})
-
-    async def upload_content(self, **kwargs):
-        from app.platforms.base import UploadResult
-
-        self.calls["upload_content"] += 1
-        # Prove the durable attempt exists BEFORE this external call.
+        # Prove the durable attempt exists (PENDING) BEFORE the first
+        # external call of any kind.
         from sqlalchemy import select
 
         rows = (
@@ -57,7 +64,29 @@ class StubAdapter:
             .scalars()
             .all()
         )
-        self.saw_pending_attempt_at_upload = [r.status for r in rows]
+        self.saw_statuses_at_authenticate = [r.status for r in rows]
+        return AuthResult(success=True, credentials={"api_key": "SECRET-DO-NOT-PERSIST"})
+
+    async def upload_content(self, **kwargs):
+        from app.platforms.base import UploadResult
+
+        self.calls["upload_content"] += 1
+        # Prove the PERMIT (PENDING -> IN_PROGRESS, I3/I5) was persisted
+        # before the first irreversible external call.
+        from sqlalchemy import select
+
+        rows = (
+            (
+                await self.db.execute(
+                    select(PublicationAttempt).where(
+                        PublicationAttempt.video_id == self._video_uuid
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        self.saw_statuses_at_upload = [r.status for r in rows]
         return UploadResult(success=True, content_id="provider-content-1")
 
     async def upload_thumbnail(self, **kwargs):
@@ -99,15 +128,70 @@ def _ready(adapter, db):
     return adapter
 
 
+# ---------------------------------------------------------------------------
+# Phase 54B-I6: manifest-bound approved publish-target seeding
+# ---------------------------------------------------------------------------
+
+_SEED_STATE = {}
+
+
+def _seed_target(**manifest_overrides):
+    """Seed a MANIFEST-BOUND approved publish target (real artifact, real
+    manifest through the I4 service, bound + approved THUMBNAIL
+    checkpoint) matching the unit-suite dispatch context. Returns
+    (run_id, video_id); the manifest's authoritative artifact path is
+    remembered for _context()."""
+    kwargs = dict(
+        platform="postiz",
+        social_platform="youtube",
+        integration_id=None,
+        privacy_status="public",
+        publish_type="now",
+    )
+    kwargs.update(manifest_overrides)
+
+    async def _inner():
+        from tests._dispatch_manifest_fixtures import _seed_manifest_bound_target
+
+        return await _seed_manifest_bound_target(**kwargs)
+
+    run_id, video_id, _mid, vpath, thumb = asyncio.run(_inner())
+    _SEED_STATE.clear()
+    _SEED_STATE.update(run_id=run_id, video_id=video_id, asset=vpath, thumb=thumb)
+    return run_id, video_id
+
+
+def _cleanup_target():
+    """Remove the seeded manifest-bound publish-target chain."""
+
+    async def _inner():
+        from tests._dispatch_manifest_fixtures import _cleanup_manifest_bound_target
+
+        await _cleanup_manifest_bound_target(
+            _SEED_STATE.get("run_id"), _SEED_STATE.get("video_id"),
+            _SEED_STATE.get("asset"), _SEED_STATE.get("thumb"),
+        )
+
+    if _SEED_STATE.get("run_id") is not None:
+        asyncio.run(_inner())
+    _SEED_STATE.clear()
+
+
 def _context(video_id, **overrides):
     base = {
         "platform": "postiz",
         "video_id": str(video_id),
-        "video_storage_path": None,  # filled per-test
+        # I6: the seeded manifest's authoritative artifact — dispatch
+        # verifies against (and uploads) the manifest-bound snapshot,
+        # not an arbitrary caller path.
+        "video_storage_path": _SEED_STATE.get("asset") or _tmp_video(),
         "title": "t",
         "description": "d",
         "social_platform": "youtube",
         "integration_id": None,
+        "workflow_run_id": (
+            str(_SEED_STATE["run_id"]) if _SEED_STATE.get("run_id") else None
+        ),
         "dry_run": False,
     }
     base.update(overrides)
@@ -183,23 +267,29 @@ def _tmp_video():
 
 def test_attempt_exists_before_external_call_and_succeeds(monkeypatch):
     """The durable attempt row exists (PENDING) BEFORE the first external
-    call (observed from inside the stub's upload), IN_PROGRESS is
-    persisted before publish, and a confirmed publication lands SUCCEEDED
+    call of any kind (observed from inside the stub's authenticate), the
+    PERMIT (IN_PROGRESS) is persisted before the first irreversible
+    external call (upload), and a confirmed publication lands SUCCEEDED
     with external ids persisted on the attempt — independent of any Video
-    writeback (no Video row exists here at all)."""
-    video_uuid = uuid.uuid4()
+    writeback."""
     adapter = StubAdapter(None)
-    adapter._video_uuid = video_uuid
     _install_adapter(monkeypatch, adapter)
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    _, video_uuid = _seed_target()
+    adapter._video_uuid = video_uuid
     try:
-        result = _run(ctx)
+        result = _run(_context(video_uuid))
         assert result.success, result.error
         rows = asyncio.run(_attempts_for(video_uuid))
         assert len(rows) == 1
         attempt = rows[0]
-        # Before the first external call the attempt already existed.
-        assert PublicationAttemptStatus.PENDING in adapter.saw_pending_attempt_at_upload
+        # Before the first external call the attempt already existed...
+        assert adapter.saw_statuses_at_authenticate == [
+            PublicationAttemptStatus.PENDING
+        ]
+        # ...and the permit (I3/I5) preceded the first upload.
+        assert adapter.saw_statuses_at_upload == [
+            PublicationAttemptStatus.IN_PROGRESS
+        ]
         assert attempt.status == PublicationAttemptStatus.SUCCEEDED
         assert attempt.external_content_id == "provider-content-1"
         assert attempt.external_post_id == "provider-post-123"
@@ -207,42 +297,51 @@ def test_attempt_exists_before_external_call_and_succeeds(monkeypatch):
         assert result.output["attempt_status"] == "succeeded"
         assert result.output["attempt_id"] == str(attempt.id)
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
 def test_confirmed_provider_rejection_is_failed(monkeypatch):
     """Adapter-confirmed publish rejection -> FAILED with the error."""
-    video_uuid = uuid.uuid4()
     adapter = StubAdapter(None)
-    adapter._video_uuid = video_uuid
     adapter.publish_behavior = "reject"
     _install_adapter(monkeypatch, adapter)
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    _, video_uuid = _seed_target()
+    adapter._video_uuid = video_uuid
     try:
-        result = _run(ctx)
+        result = _run(_context(video_uuid))
         assert not result.success
         rows = asyncio.run(_attempts_for(video_uuid))
         assert [r.status for r in rows] == [PublicationAttemptStatus.FAILED]
         assert "rejected" in rows[0].error
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
 def test_failure_before_external_call_is_failed(monkeypatch):
-    """Local validation failure (unresolvable asset) -> FAILED; no
-    external publish call was made."""
-    video_uuid = uuid.uuid4()
+    """Pre-dispatch artifact failure (the authoritative manifest artifact
+    became unresolvable) -> FAILED; no external call was made. I6 mapping:
+    the local-resolution window now lives inside dispatch-time snapshot
+    verification, which precedes every external call."""
     adapter = StubAdapter(None)
-    adapter._video_uuid = video_uuid
     _install_adapter(monkeypatch, adapter)
-    ctx = _context(video_uuid, video_storage_path="/nonexistent/no-such-file.mp4")
+    _, video_uuid = _seed_target()
+    adapter._video_uuid = video_uuid
     try:
-        result = _run(ctx)
+        # The manifest's authoritative artifact disappears after seeding:
+        # verification must fail closed BEFORE any external call.
+        Path(_SEED_STATE["asset"]).unlink()
+        result = _run(_context(video_uuid))
         assert not result.success
+        assert "artifact_resolution_failed" in result.error
         rows = asyncio.run(_attempts_for(video_uuid))
         assert [r.status for r in rows] == [PublicationAttemptStatus.FAILED]
+        assert "artifact_resolution_failed" in rows[0].error
         assert adapter.calls["publish"] == 0
+        assert adapter.calls["upload_content"] == 0
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -251,13 +350,13 @@ def test_ambiguity_after_possible_acceptance_is_unknown_and_blocks_retry(monkeyp
     (never FAILED without evidence); a second submission of the same
     intent resolves to the UNKNOWN attempt and NEVER invokes the provider
     again automatically."""
-    video_uuid = uuid.uuid4()
     adapter = StubAdapter(None)
-    adapter._video_uuid = video_uuid
     adapter.publish_behavior = "timeout-after-accept"
     _install_adapter(monkeypatch, adapter)
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    _, video_uuid = _seed_target()
+    adapter._video_uuid = video_uuid
     try:
+        ctx = _context(video_uuid)
         first = _run(ctx)
         assert not first.success and "UNKNOWN" in first.error
         rows = asyncio.run(_attempts_for(video_uuid))
@@ -271,19 +370,20 @@ def test_ambiguity_after_possible_acceptance_is_unknown_and_blocks_retry(monkeyp
         assert adapter.calls["publish"] == publish_calls_after_first  # no auto-retry
         assert len(asyncio.run(_attempts_for(video_uuid))) == 1  # same attempt owns the intent
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
 def test_failed_attempt_can_be_retried_as_new_attempt_number(monkeypatch):
     """Only FAILED admits a new attempt (deterministic attempt_number+1)
     within the same intent; the retry then succeeds."""
-    video_uuid = uuid.uuid4()
     adapter = StubAdapter(None)
-    adapter._video_uuid = video_uuid
     adapter.publish_behavior = "reject"
     _install_adapter(monkeypatch, adapter)
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    _, video_uuid = _seed_target()
+    adapter._video_uuid = video_uuid
     try:
+        ctx = _context(video_uuid)
         assert not _run(ctx).success
         adapter.publish_behavior = "success"
         result = _run(ctx)
@@ -292,6 +392,7 @@ def test_failed_attempt_can_be_retried_as_new_attempt_number(monkeypatch):
         assert [r.attempt_number for r in rows] == [1, 2]
         assert [r.status for r in rows] == [PublicationAttemptStatus.FAILED, PublicationAttemptStatus.SUCCEEDED]
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -299,12 +400,12 @@ def test_duplicate_succeeded_intent_never_publishes_twice(monkeypatch):
     """A second submission of an already-SUCCEEDED intent returns the
     existing outcome (idempotent duplicate success) with exactly ONE
     provider publish call."""
-    video_uuid = uuid.uuid4()
     adapter = StubAdapter(None)
-    adapter._video_uuid = video_uuid
     _install_adapter(monkeypatch, adapter)
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    _, video_uuid = _seed_target()
+    adapter._video_uuid = video_uuid
     try:
+        ctx = _context(video_uuid)
         first = _run(ctx)
         assert first.success
         second = _run(ctx)
@@ -314,6 +415,7 @@ def test_duplicate_succeeded_intent_never_publishes_twice(monkeypatch):
         assert adapter.calls["publish"] == 1
         assert len(asyncio.run(_attempts_for(video_uuid))) == 1
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -354,17 +456,17 @@ def test_concurrent_duplicate_admission_is_arbitrated_by_the_database():
 def test_scheduled_publication_attempts_at_execution_time(monkeypatch):
     """A scheduled publication records/starts its attempt when EXECUTION
     begins (the agent run), carrying the schedule reference — not as a
-    pre-completed publication."""
-    video_uuid = uuid.uuid4()
+    pre-completed publication. Phase 54B-I6: the persisted schedule is
+    the AUTHORITATIVE MANIFEST's canonical value."""
     adapter = StubAdapter(None)
-    adapter._video_uuid = video_uuid
     _install_adapter(monkeypatch, adapter)
-    ctx = _context(
-        video_uuid,
-        video_storage_path=_tmp_video(),
-        scheduled_at="2026-10-01T12:00:00Z",
-    )
+    _, video_uuid = _seed_target(scheduled_at="2026-10-01T12:00:00Z", publish_type="schedule")
+    adapter._video_uuid = video_uuid
     try:
+        ctx = _context(
+            video_uuid,
+            scheduled_at="2026-10-01T12:00:00Z",
+        )
         result = _run(ctx)
         assert result.success
         rows = asyncio.run(_attempts_for(video_uuid))
@@ -372,19 +474,19 @@ def test_scheduled_publication_attempts_at_execution_time(monkeypatch):
         assert rows[0].scheduled_at == "2026-10-01T12:00:00Z"
         assert rows[0].status == PublicationAttemptStatus.SUCCEEDED
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
 def test_credentials_never_persist(monkeypatch):
     """The adapter credential material never appears in ANY persisted
     attempt column."""
-    video_uuid = uuid.uuid4()
     adapter = StubAdapter(None)
-    adapter._video_uuid = video_uuid
     _install_adapter(monkeypatch, adapter)
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
+    _, video_uuid = _seed_target()
+    adapter._video_uuid = video_uuid
     try:
-        assert _run(ctx).success
+        assert _run(_context(video_uuid)).success
         for attempt in asyncio.run(_attempts_for(video_uuid)):
             for column in (
                 "platform", "social_platform", "integration_id", "intent_key",
@@ -394,6 +496,7 @@ def test_credentials_never_persist(monkeypatch):
                 value = getattr(attempt, column)
                 assert value is None or "SECRET-DO-NOT-PERSIST" not in str(value), column
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -404,8 +507,9 @@ def test_dry_run_records_no_attempt(monkeypatch):
     adapter = StubAdapter(None)
     adapter._video_uuid = video_uuid
     _install_adapter(monkeypatch, adapter)
-    ctx = _context(video_uuid, video_storage_path=_tmp_video(), dry_run=True)
     try:
+        ctx = _context(video_uuid, video_storage_path=_tmp_video(), dry_run=True)
+        ctx.pop("workflow_run_id")  # dry-run bypasses the gate by design
         result = _run(ctx)
         assert result.success
         assert asyncio.run(_attempts_for(video_uuid)) == []
@@ -608,18 +712,23 @@ def test_operator_resolution_rejects_every_late_execution_transition():
 # F-07: exception-window hardening — pre-permit local failures land FAILED
 # (never a stranded PENDING row, never a provider publish); post-success
 # bookkeeping failures never falsify an externally-successful publication.
+# I6: the local-asset windows are exercised through the manifest-bound
+# snapshot-verification path (the only asset resolution a real dispatch
+# performs since I5).
 # ---------------------------------------------------------------------------
 
 
 def test_ssrf_rejected_asset_url_is_failed_not_pending(monkeypatch):
-    """The identified window: ensure_local_asset raises ValueError for an
-    SSRF-rejected remote URL. Pre-dispatch local failure -> FAILED, zero
-    provider calls, and the existing FAILED -> n+1 admission admits the
-    retry."""
-    video_uuid = uuid.uuid4()
+    """The identified window, under the I5 contract: a caller-supplied
+    SSRF URL can never be resolved or fetched — it is denied as a path
+    override against the authoritative manifest BEFORE any external call
+    (the manifest's verified snapshot is the only upload source). The
+    denial lands FAILED (not a stranded PENDING row) with zero provider
+    calls, and the existing FAILED -> n+1 admission admits the retry."""
     adapter = StubAdapter(None)
-    adapter._video_uuid = video_uuid
     _install_adapter(monkeypatch, adapter)
+    _, video_uuid = _seed_target()
+    adapter._video_uuid = video_uuid
     try:
         result = _run(
             _context(
@@ -628,15 +737,15 @@ def test_ssrf_rejected_asset_url_is_failed_not_pending(monkeypatch):
             )
         )
         assert not result.success
-        assert "Asset resolution failed" in result.error
+        assert "manifest_path_mismatch" in result.error
         rows = asyncio.run(_attempts_for(video_uuid))
         assert [r.status for r in rows] == [PublicationAttemptStatus.FAILED]
-        assert "ValueError" in rows[0].error  # classified, not stranded
+        assert "manifest_path_mismatch" in rows[0].error  # classified, not stranded
         assert adapter.calls["publish"] == 0
         assert adapter.calls["upload_content"] == 0
 
         # The existing admission contract: FAILED admits attempt n+1.
-        second = _run(_context(video_uuid, video_storage_path=_tmp_video()))
+        second = _run(_context(video_uuid))
         assert second.success, second.error
         rows = asyncio.run(_attempts_for(video_uuid))
         assert [r.attempt_number for r in rows] == [1, 2]
@@ -646,91 +755,99 @@ def test_ssrf_rejected_asset_url_is_failed_not_pending(monkeypatch):
         ]
         assert adapter.calls["publish"] == 1  # exactly the one legitimate retry
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
 def test_local_asset_oserror_is_failed_not_pending(monkeypatch):
-    """Representative pre-permit local failure: OSError during asset
-    resolution -> FAILED, no provider publish call."""
-    video_uuid = uuid.uuid4()
+    """Representative pre-dispatch local failure: OSError while resolving
+    the AUTHORITATIVE artifact during snapshot verification -> FAILED, no
+    provider publish call."""
     adapter = StubAdapter(None)
-    adapter._video_uuid = video_uuid
     _install_adapter(monkeypatch, adapter)
+    _, video_uuid = _seed_target()
+    adapter._video_uuid = video_uuid
 
-    async def _oserror(path):
+    async def _oserror(path, **kwargs):
         raise OSError("disk I/O error while resolving asset")
 
-    monkeypatch.setattr("app.agents.publishing.ensure_local_asset", _oserror)
+    monkeypatch.setattr(
+        "app.services.publication_manifest_service.ensure_local_asset", _oserror
+    )
     try:
-        result = _run(_context(video_uuid, video_storage_path=_tmp_video()))
+        result = _run(_context(video_uuid))
         assert not result.success
-        assert "Asset resolution failed" in result.error
+        assert "artifact_resolution_failed" in result.error
+        assert "OSError" in result.error
         rows = asyncio.run(_attempts_for(video_uuid))
         assert [r.status for r in rows] == [PublicationAttemptStatus.FAILED]
-        assert "OSError" in rows[0].error
+        assert "artifact_resolution_failed" in rows[0].error
         assert adapter.calls["publish"] == 0
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
 def test_unexpected_asset_error_is_not_silently_classified_failed(monkeypatch):
     """Review-required: a genuine programming defect (KeyError) escaping
-    asset resolution must NOT be silently converted into the FAILED
+    artifact resolution must NOT be silently converted into the FAILED
     asset-resolution classification — it propagates for observability.
     No provider publish occurs; the attempt is left unclassified (the
     defect must be investigated, not papered over)."""
-    video_uuid = uuid.uuid4()
     adapter = StubAdapter(None)
-    adapter._video_uuid = video_uuid
     _install_adapter(monkeypatch, adapter)
+    _, video_uuid = _seed_target()
+    adapter._video_uuid = video_uuid
 
-    async def _defect(path):
+    async def _defect(path, **kwargs):
         raise KeyError("programming defect in resolution path")
 
-    monkeypatch.setattr("app.agents.publishing.ensure_local_asset", _defect)
+    monkeypatch.setattr(
+        "app.services.publication_manifest_service.ensure_local_asset", _defect
+    )
     try:
         with pytest.raises(KeyError):
-            _run(_context(video_uuid, video_storage_path=_tmp_video()))
+            _run(_context(video_uuid))
         rows = asyncio.run(_attempts_for(video_uuid))
         # NOT classified as an asset-resolution FAILED: the defect stays loud.
         assert [r.status for r in rows] == [PublicationAttemptStatus.PENDING]
         assert rows[0].error is None
         assert adapter.calls["publish"] == 0
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
 def test_thumbnail_resolution_failure_is_failed_not_pending(monkeypatch):
-    """Pre-permit local failure in the THUMBNAIL resolution window (after
-    upload, before permit/publish): no post can exist -> FAILED, no
-    adapter.publish call."""
-    video_uuid = uuid.uuid4()
+    """Pre-dispatch local failure in the THUMBNAIL resolution window: no
+    post can exist -> FAILED, no adapter.publish call. I6 mapping: since
+    I5 both artifacts are snapshotted and verified BEFORE any external
+    call (TOCTOU closure), so the failure now precedes the upload too —
+    the fail-closed classification is unchanged."""
     adapter = StubAdapter(None)
-    adapter._video_uuid = video_uuid
     _install_adapter(monkeypatch, adapter)
-    video_path = _tmp_video()
+    # Seed WITH a real thumbnail artifact (the default seed has none).
+    thumb_file = Path(tempfile.mkstemp(prefix="pub-attempt-thumb-", suffix=".png")[1])
+    thumb_file.write_bytes(b"thumb-bytes")
+    _, video_uuid = _seed_target(thumbnail_path=str(thumb_file))
+    adapter._video_uuid = video_uuid
 
-    async def _thumb_fails(path):
-        if path is None or path == video_path:
-            return path
-        raise ValueError("Insecure or invalid remote asset URL: http://169.254.169.254/t.png")
-
-    monkeypatch.setattr("app.agents.publishing.ensure_local_asset", _thumb_fails)
+    # The manifest's authoritative thumbnail artifact disappears after
+    # seeding: thumbnail verification fails (after the video snapshot
+    # succeeded — its private snapshot is cleaned up by the denial).
+    Path(_SEED_STATE["thumb"]).unlink()
     try:
         result = _run(
-            _context(
-                video_uuid,
-                video_storage_path=video_path,
-                thumbnail_storage_path="http://169.254.169.254/t.png",
-            )
+            _context(video_uuid, thumbnail_storage_path=_SEED_STATE["thumb"])
         )
         assert not result.success
-        assert "Thumbnail resolution failed" in result.error
+        assert "artifact_resolution_failed" in result.error
         rows = asyncio.run(_attempts_for(video_uuid))
         assert [r.status for r in rows] == [PublicationAttemptStatus.FAILED]
-        assert adapter.calls["upload_content"] == 1  # upload did happen
-        assert adapter.calls["publish"] == 0  # ...but no publish was dispatched
+        assert adapter.calls["upload_content"] == 0  # verification precedes upload (I5)
+        assert adapter.calls["publish"] == 0  # ...and no publish was dispatched
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -741,10 +858,10 @@ def test_video_writeback_failure_never_falsifies_succeeded_publication(monkeypat
     occurs, and the duplicate guard blocks any re-submission."""
     from sqlalchemy import Update
 
-    video_uuid = uuid.uuid4()
     adapter = StubAdapter(None)
-    adapter._video_uuid = video_uuid
     _install_adapter(monkeypatch, adapter)
+    _, video_uuid = _seed_target()
+    adapter._video_uuid = video_uuid
 
     def _run_with_failing_video_update(agent_context):
         async def _inner():
@@ -766,9 +883,7 @@ def test_video_writeback_failure_never_falsifies_succeeded_publication(monkeypat
         return asyncio.run(_inner())
 
     try:
-        result = _run_with_failing_video_update(
-            _context(video_uuid, video_storage_path=_tmp_video())
-        )
+        result = _run_with_failing_video_update(_context(video_uuid))
         # The external publication is authoritative: never a false failure.
         assert result.success, result.error
         warnings = result.output.get("writeback_warnings")
@@ -780,28 +895,29 @@ def test_video_writeback_failure_never_falsifies_succeeded_publication(monkeypat
 
         # Duplicate guard: the re-submission resolves to the SUCCEEDED
         # attempt — no second provider publication.
-        second = _run(_context(video_uuid, video_storage_path=_tmp_video()))
+        second = _run(_context(video_uuid))
         assert second.success and second.output.get("duplicate") is True
         assert adapter.calls["publish"] == 1
         assert len(asyncio.run(_attempts_for(video_uuid))) == 1
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
 def test_public_url_fetch_failure_is_surfaced_not_fatal(monkeypatch):
     """A post-success public-URL fetch failure is surfaced as a recovery
     warning; the publication remains successful and SUCCEEDED."""
-    video_uuid = uuid.uuid4()
     adapter = StubAdapter(None)
-    adapter._video_uuid = video_uuid
     _install_adapter(monkeypatch, adapter)
+    _, video_uuid = _seed_target()
+    adapter._video_uuid = video_uuid
 
     async def _fetch_url_raises(**kwargs):
         raise RuntimeError("url lookup unavailable")
 
     adapter.fetch_url = _fetch_url_raises
     try:
-        result = _run(_context(video_uuid, video_storage_path=_tmp_video()))
+        result = _run(_context(video_uuid))
         assert result.success, result.error
         warnings = result.output.get("writeback_warnings")
         assert warnings and any("public url fetch failed" in w for w in warnings)
@@ -809,18 +925,19 @@ def test_public_url_fetch_failure_is_surfaced_not_fatal(monkeypatch):
         assert [r.status for r in rows] == [PublicationAttemptStatus.SUCCEEDED]
         assert adapter.calls["publish"] == 1
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
 def test_normal_success_output_unchanged_without_warnings(monkeypatch):
     """Normal successful publication: response shape unchanged — no
     writeback_warnings key, no error, existing output fields intact."""
-    video_uuid = uuid.uuid4()
     adapter = StubAdapter(None)
-    adapter._video_uuid = video_uuid
     _install_adapter(monkeypatch, adapter)
+    _, video_uuid = _seed_target()
+    adapter._video_uuid = video_uuid
     try:
-        result = _run(_context(video_uuid, video_storage_path=_tmp_video()))
+        result = _run(_context(video_uuid))
         assert result.success
         assert "writeback_warnings" not in result.output
         assert result.error is None
@@ -828,6 +945,7 @@ def test_normal_success_output_unchanged_without_warnings(monkeypatch):
         assert result.output["attempt_status"] == "succeeded"
         assert result.output["public_url"] == "provider-post-123"
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -837,27 +955,11 @@ def test_normal_success_output_unchanged_without_warnings(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-async def _make_video_row():
-    from app.models.core import Project, WorkflowRun
-    from app.models.media import Video as VideoRow
-
-    engine, session = await _session()
-    try:
-        project = Project(name=f"f10a-{uuid.uuid4()}")
-        session.add(project)
-        await session.flush()
-        run = WorkflowRun(project_id=project.id, topic="f10a")
-        session.add(run)
-        await session.flush()
-        video = VideoRow(
-            workflow_run_id=run.id, title="F-10a subject", storage_path=_tmp_video()
-        )
-        session.add(video)
-        await session.commit()
-        return project.id, run.id, video.id
-    finally:
-        await session.close()
-        await engine.dispose()
+def _make_video_row(**manifest_overrides):
+    """I6: seed the REAL manifest-bound approved chain (Project -> Run ->
+    Video -> manifest -> bound approved THUMBNAIL checkpoint). Returns
+    (run_id, video_id)."""
+    return _seed_target(**manifest_overrides)
 
 
 async def _read_video_row(video_uuid):
@@ -873,23 +975,6 @@ async def _read_video_row(video_uuid):
             .one()
         )
         return v.youtube_video_id, v.publish_status
-    finally:
-        await session.close()
-        await engine.dispose()
-
-
-async def _wipe_video_row(project_id, run_id, video_uuid):
-    from sqlalchemy import delete
-
-    from app.models.core import Project, WorkflowRun
-    from app.models.media import Video as VideoRow
-
-    engine, session = await _session()
-    try:
-        await session.execute(delete(VideoRow).where(VideoRow.id == video_uuid))
-        await session.execute(delete(WorkflowRun).where(WorkflowRun.id == run_id))
-        await session.execute(delete(Project).where(Project.id == project_id))
-        await session.commit()
     finally:
         await session.close()
         await engine.dispose()
@@ -931,22 +1016,19 @@ def test_f10a_duplicate_path_heals_stale_video_row(monkeypatch):
     adapter = StubAdapter(None)
     adapter._video_uuid = video_uuid
     _install_adapter(monkeypatch, adapter)
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
     made = None
     try:
-        made = asyncio.run(_make_video_row())
-        _, _, real_video_id = made
+        made = _make_video_row()
+        _, real_video_id = made
 
         # Attempt 1: SUCCEEDED, writeback lost.
-        first = _run_with_video_update_failure(
-            _context(real_video_id, video_storage_path=_tmp_video())
-        )
+        first = _run_with_video_update_failure(_context(real_video_id))
         assert first.success
         assert first.output.get("writeback_warnings")
         assert asyncio.run(_read_video_row(real_video_id)) == (None, PublishStatus.DRAFT)
 
         # Attempt 2 (identical intent, real Video id): duplicate + HEAL.
-        second = _run(_context(real_video_id, video_storage_path=_tmp_video()))
+        second = _run(_context(real_video_id))
         assert second.success and second.output.get("duplicate") is True
         assert asyncio.run(_read_video_row(real_video_id)) == (
             "provider-post-123",
@@ -955,14 +1037,15 @@ def test_f10a_duplicate_path_heals_stale_video_row(monkeypatch):
         assert adapter.calls["publish"] == 1  # no second provider publication
     finally:
         if made:
-            asyncio.run(_wipe_video_row(*made))
+            _cleanup_target()
             asyncio.run(_cleanup_attempts(video_uuid))
-            asyncio.run(_cleanup_attempts(made[2]))
+            asyncio.run(_cleanup_attempts(real_video_id))
 
 
 def test_f10a_heal_uses_scheduled_status_for_scheduled_attempts(monkeypatch):
     """A SUCCEEDED scheduled-dispatch attempt heals the Video row to
-    SCHEDULED (the attempt's persisted scheduled_at is the signal)."""
+    SCHEDULED (the attempt's persisted scheduled_at — the manifest's
+    authoritative schedule since I6 — is the signal)."""
     from app.models.enums import PublishStatus
 
     video_uuid = uuid.uuid4()
@@ -971,25 +1054,17 @@ def test_f10a_heal_uses_scheduled_status_for_scheduled_attempts(monkeypatch):
     _install_adapter(monkeypatch, adapter)
     made = None
     try:
-        made = asyncio.run(_make_video_row())
-        _, _, real_video_id = made
+        made = _make_video_row(scheduled_at="2030-01-01T00:00:00Z", publish_type="schedule")
+        _, real_video_id = made
 
         first = _run_with_video_update_failure(
-            _context(
-                real_video_id,
-                video_storage_path=_tmp_video(),
-                scheduled_at="2030-01-01T00:00:00Z",
-            )
+            _context(real_video_id, scheduled_at="2030-01-01T00:00:00Z")
         )
         assert first.success
         assert asyncio.run(_read_video_row(real_video_id)) == (None, PublishStatus.DRAFT)
 
         second = _run(
-            _context(
-                real_video_id,
-                video_storage_path=_tmp_video(),
-                scheduled_at="2030-01-01T00:00:00Z",
-            )
+            _context(real_video_id, scheduled_at="2030-01-01T00:00:00Z")
         )
         assert second.success and second.output.get("duplicate") is True
         assert asyncio.run(_read_video_row(real_video_id)) == (
@@ -998,8 +1073,8 @@ def test_f10a_heal_uses_scheduled_status_for_scheduled_attempts(monkeypatch):
         )
     finally:
         if made:
-            asyncio.run(_wipe_video_row(*made))
-            asyncio.run(_cleanup_attempts(made[2]))
+            _cleanup_target()
+            asyncio.run(_cleanup_attempts(real_video_id))
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
@@ -1014,17 +1089,17 @@ def test_f10a_heal_is_noop_when_row_already_current(monkeypatch):
     _install_adapter(monkeypatch, adapter)
     made = None
     try:
-        made = asyncio.run(_make_video_row())
-        _, _, real_video_id = made
+        made = _make_video_row()
+        _, real_video_id = made
 
-        first = _run(_context(real_video_id, video_storage_path=_tmp_video()))
+        first = _run(_context(real_video_id))
         assert first.success
         assert asyncio.run(_read_video_row(real_video_id)) == (
             "provider-post-123",
             PublishStatus.PUBLISHED,
         )
 
-        second = _run(_context(real_video_id, video_storage_path=_tmp_video()))
+        second = _run(_context(real_video_id))
         assert second.success and second.output.get("duplicate") is True
         assert asyncio.run(_read_video_row(real_video_id)) == (
             "provider-post-123",
@@ -1033,28 +1108,34 @@ def test_f10a_heal_is_noop_when_row_already_current(monkeypatch):
         assert adapter.calls["publish"] == 1
     finally:
         if made:
-            asyncio.run(_wipe_video_row(*made))
-            asyncio.run(_cleanup_attempts(made[2]))
+            _cleanup_target()
+            asyncio.run(_cleanup_attempts(real_video_id))
         asyncio.run(_cleanup_attempts(video_uuid))
 
 
-def test_f10a_synthetic_identity_without_video_row_is_safe_noop(monkeypatch):
-    """Synthetic/no-row video ids: the heal UPDATE matches zero rows —
-    deliberate no-op, no error, duplicate response unchanged."""
+def test_f10a_synthetic_identity_is_refused_pre_admission(monkeypatch):
+    """I6 conversion of the synthetic-identity no-op scenario: under the
+    I5 contract a synthetic identity (a UUID with NO Video row) can no
+    longer be published or duplicated at all — the 53B gate refuses
+    unknown_video BEFORE any attempt is admitted, so no external call
+    and no heal surface exist. (The manifest FK pins every published
+    Video row, making the post-success row-absent heal race structurally
+    unreachable; the heal's staleness guard remains covered above.)"""
     video_uuid = uuid.uuid4()  # a UUID with NO Video row (synthetic shape)
     adapter = StubAdapter(None)
     adapter._video_uuid = video_uuid
     _install_adapter(monkeypatch, adapter)
-    ctx = _context(video_uuid, video_storage_path=_tmp_video())
     try:
-        first = _run(ctx)
-        assert first.success
-        second = _run(ctx)
-        assert second.success and second.output.get("duplicate") is True
-        assert adapter.calls["publish"] == 1
-        assert asyncio.run(_attempts_for(video_uuid))[0].status == (
-            PublicationAttemptStatus.SUCCEEDED
+        result = _run(
+            # A syntactically valid run id so the gate reaches the video
+            # lookup (which is what must refuse the synthetic identity).
+            _context(video_uuid, workflow_run_id=str(uuid.uuid4()))
         )
+        assert not result.success
+        assert "publish_approval_denied: unknown_video" in result.error
+        assert adapter.calls["publish"] == 0
+        assert adapter.calls["upload_content"] == 0
+        assert asyncio.run(_attempts_for(video_uuid)) == []
     finally:
         asyncio.run(_cleanup_attempts(video_uuid))
 
@@ -1071,25 +1152,21 @@ def test_f10a_heal_failure_is_nonfatal_on_duplicate(monkeypatch):
     _install_adapter(monkeypatch, adapter)
     made = None
     try:
-        made = asyncio.run(_make_video_row())
-        _, _, real_video_id = made
+        made = _make_video_row()
+        _, real_video_id = made
 
-        first = _run_with_video_update_failure(
-            _context(real_video_id, video_storage_path=_tmp_video())
-        )
+        first = _run_with_video_update_failure(_context(real_video_id))
         assert first.success
 
-        second = _run_with_video_update_failure(
-            _context(real_video_id, video_storage_path=_tmp_video())
-        )
+        second = _run_with_video_update_failure(_context(real_video_id))
         assert second.success and second.output.get("duplicate") is True
         # Row remains stale; the heal failure did not falsify anything.
         assert asyncio.run(_read_video_row(real_video_id)) == (None, PublishStatus.DRAFT)
         assert adapter.calls["publish"] == 1
     finally:
         if made:
-            asyncio.run(_wipe_video_row(*made))
-            asyncio.run(_cleanup_attempts(made[2]))
+            _cleanup_target()
+            asyncio.run(_cleanup_attempts(real_video_id))
         asyncio.run(_cleanup_attempts(video_uuid))
 
 

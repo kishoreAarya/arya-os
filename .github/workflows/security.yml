@@ -15,6 +15,11 @@ on:
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
+# Least privilege: checkout is the only GITHUB_TOKEN consumer. No SARIF
+# upload exists, so security-events: write is not needed.
+permissions:
+  contents: read
+
 concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -60,5 +65,21 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      - name: Export locked third-party dependencies
+        # `uv sync --extra dev` installs arya-os itself as an editable local
+        # package (and the vendored Hermes agent as an editable path
+        # dependency); environment-mode `pip-audit --strict` treats the
+        # unauditable local project as fatal. `pip-audit --locked` does not
+        # recognize uv.lock (and exits 0 without auditing anything). The
+        # strict gate therefore audits the LOCKED third-party graph itself:
+        # `--frozen` derives the export from uv.lock without re-resolution,
+        # `--no-emit-project`/`--no-emit-local` exclude the local projects
+        # while keeping every third-party pin (including Hermes' transitive
+        # dependencies), and the hashes satisfy `--disable-pip`'s pinned-set
+        # requirement so the audit runs directly on the locked versions.
+        run: >
+          uv export --format requirements-txt --extra dev --frozen
+          --no-emit-project --no-emit-local -o requirements-audit.txt
+
       - name: Run pip-audit
-        run: uv run pip-audit --strict
+        run: uv run pip-audit -r requirements-audit.txt --strict --disable-pip

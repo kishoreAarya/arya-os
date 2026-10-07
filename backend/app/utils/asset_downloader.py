@@ -48,7 +48,8 @@ def is_safe_remote_url(url: str) -> bool:
         return False
 
     lower_host = hostname.lower()
-    if lower_host in ("localhost", "127.0.0.1", "0.0.0.0", "::1", "metadata.google.internal"):
+    # This IS the SSRF guard: "0.0.0.0" is a blocklist entry.
+    if lower_host in ("localhost", "127.0.0.1", "0.0.0.0", "::1", "metadata.google.internal"):  # nosec B104
         return False
 
     # Check direct IP address

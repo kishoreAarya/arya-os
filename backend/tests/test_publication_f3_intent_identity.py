@@ -254,8 +254,14 @@ def test_f3_supplied_video_id_is_used_verbatim_and_idempotent(monkeypatch):
     transport = _ScriptedTransport()
     _install_real_postiz(monkeypatch, transport)
     asset = _tmp_video()
-    real_video_id = uuid.uuid4()
-    kwargs = _payload(asset_storage_path=asset, video_id=str(real_video_id))
+    # Phase 53B/I5: real publishing requires an authorized, manifest-
+    # bound (run, video) pair seeded through the real services.
+    run_id, real_video_id = _seed_target(asset)
+    kwargs = _payload(
+        asset_storage_path=asset,
+        video_id=str(real_video_id),
+        workflow_run_id=str(run_id),
+    )
     try:
         first = _publish(kwargs)
         second = _publish(kwargs)
@@ -271,6 +277,49 @@ def test_f3_supplied_video_id_is_used_verbatim_and_idempotent(monkeypatch):
         assert attempts[0].attempt_number == 1
     finally:
         _cleanup_sync(real_video_id)
+        _cleanup_target(run_id)
+
+
+def _cleanup_target(run_id):
+    async def _inner():
+        from tests._dispatch_manifest_fixtures import _cleanup_manifest_bound_target
+
+        target = _SEED_TARGETS.pop(run_id, (None, None))
+        await _cleanup_manifest_bound_target(run_id, target[0], target[1])
+
+    asyncio.run(_inner())
+
+
+_SEED_STATE = {}
+_SEED_TARGETS: dict = {}
+
+
+def _seed_target(asset=None, **manifest_overrides):
+    """53B-T3/I5: seed a MANIFEST-BOUND approved publish target whose
+    Video row points at the REAL asset the test dispatches, with the
+    destination parameters _payload() sends (postiz / integ-1 /
+    public / draft — the router's defaults)."""
+
+    kwargs = dict(
+        video_path=asset,
+        platform="postiz",
+        social_platform="youtube",
+        integration_id="integ-1",
+        privacy_status="public",
+        publish_type="draft",
+    )
+    kwargs.update(manifest_overrides)
+
+    async def _inner():
+        from tests._dispatch_manifest_fixtures import _seed_manifest_bound_target
+
+        return await _seed_manifest_bound_target(**kwargs)
+
+    run_id, video_id, _mid, vpath, _thumb = asyncio.run(_inner())
+    _SEED_STATE.clear()
+    _SEED_STATE.update(run_id=run_id, video_id=video_id, asset=vpath)
+    _SEED_TARGETS[run_id] = (video_id, vpath)
+    return run_id, video_id
 
 
 # ---------------------------------------------------------------------------
@@ -282,8 +331,10 @@ def test_f3_duplicate_succeeded_retry_resolves_existing_attempt(monkeypatch):
     transport = _ScriptedTransport()
     _install_real_postiz(monkeypatch, transport)
     asset = _tmp_video()
-    kwargs = _payload(asset_storage_path=asset)
-    synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs)))
+    run_id, video_id = _seed_target(asset)
+    kwargs = _payload(
+        asset_storage_path=asset, video_id=str(video_id), workflow_run_id=str(run_id)
+    )
     try:
         first = _publish(kwargs)
         second = _publish(kwargs)
@@ -293,12 +344,13 @@ def test_f3_duplicate_succeeded_retry_resolves_existing_attempt(monkeypatch):
         assert second.success is True  # idempotent duplicate, not a second post
         assert second.attempt_id == first.attempt_id  # SAME durable attempt
         assert transport.posts_calls == 1  # provider publish called ONCE
-        attempts = _attempts_sync(synthetic)
+        attempts = _attempts_sync(video_id)
         assert len(attempts) == 1
         assert attempts[0].attempt_number == 1
-        assert attempts[0].video_id == synthetic  # deterministic across requests
+        assert attempts[0].video_id == video_id  # deterministic across requests
     finally:
-        _cleanup_sync(synthetic)
+        _cleanup_sync(video_id)
+        _cleanup_target(run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -307,15 +359,17 @@ def test_f3_duplicate_succeeded_retry_resolves_existing_attempt(monkeypatch):
 
 
 def test_f3_pending_attempt_blocks_retry_without_video_id(monkeypatch):
-    """A seeded PENDING attempt under the synthetic intent family blocks
-    a retry (same admission branch as IN_PROGRESS): the provider is
-    never contacted — not even the upload."""
+    """A seeded PENDING attempt under the supplied video_id's intent family
+    blocks a retry (same admission branch as IN_PROGRESS): the provider is
+    never contacted — not even the upload. 53B-T3: uses supplied IDs."""
     transport = _ScriptedTransport()
     _install_real_postiz(monkeypatch, transport)
     asset = _tmp_video()
-    kwargs = _payload(asset_storage_path=asset)
+    run_id, video_id = _seed_target(asset)
+    kwargs = _payload(
+        asset_storage_path=asset, video_id=str(video_id), workflow_run_id=str(run_id)
+    )
     req = PublishRequest(**kwargs)
-    synthetic = uuid.UUID(_synthetic_video_id(req))
 
     async def _seed():
         from app.services.publication_attempts import admit_attempt
@@ -324,7 +378,7 @@ def test_f3_pending_attempt_blocks_retry_without_video_id(monkeypatch):
         try:
             attempt, created = await admit_attempt(
                 session,
-                video_id=synthetic,
+                video_id=video_id,
                 platform=req.platform,
                 social_platform=req.social_platform,
                 integration_id=req.integration_id,
@@ -344,11 +398,12 @@ def test_f3_pending_attempt_blocks_retry_without_video_id(monkeypatch):
         assert "pending" in (result.error or "")
         assert transport.upload_calls == 0
         assert transport.posts_calls == 0
-        attempts = _attempts_sync(synthetic)
+        attempts = _attempts_sync(video_id)
         assert len(attempts) == 1
         assert attempts[0].attempt_number == 1
     finally:
-        _cleanup_sync(synthetic)
+        _cleanup_sync(video_id)
+        _cleanup_target(run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -357,11 +412,14 @@ def test_f3_pending_attempt_blocks_retry_without_video_id(monkeypatch):
 
 
 def test_f3_unknown_blocks_retry_without_video_id(monkeypatch):
+    """53B-T3: supplied IDs — same UNKNOWN semantics."""
     transport = _ScriptedTransport(publish_behavior=("raise", httpx.ReadTimeout("read timed out")))
     _install_real_postiz(monkeypatch, transport)
     asset = _tmp_video()
-    kwargs = _payload(asset_storage_path=asset)
-    synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs)))
+    run_id, video_id = _seed_target(asset)
+    kwargs = _payload(
+        asset_storage_path=asset, video_id=str(video_id), workflow_run_id=str(run_id)
+    )
     try:
         first = _publish(kwargs)
         assert first.success is False
@@ -373,12 +431,13 @@ def test_f3_unknown_blocks_retry_without_video_id(monkeypatch):
         assert "manual reconciliation" in (second.error or "")
 
         assert transport.posts_calls == 1  # the ambiguous dispatch ONLY
-        attempts = _attempts_sync(synthetic)
+        attempts = _attempts_sync(video_id)
         assert len(attempts) == 1
         assert attempts[0].attempt_number == 1
         assert attempts[0].status.value == "unknown"
     finally:
-        _cleanup_sync(synthetic)
+        _cleanup_sync(video_id)
+        _cleanup_target(run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -387,11 +446,14 @@ def test_f3_unknown_blocks_retry_without_video_id(monkeypatch):
 
 
 def test_f3_failed_retry_admits_attempt_number_two(monkeypatch):
+    """53B-T3: supplied IDs — same FAILED-retry semantics."""
     transport = _ScriptedTransport(publish_behavior=("status", 400))
     _install_real_postiz(monkeypatch, transport)
     asset = _tmp_video()
-    kwargs = _payload(asset_storage_path=asset)
-    synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs)))
+    run_id, video_id = _seed_target(asset)
+    kwargs = _payload(
+        asset_storage_path=asset, video_id=str(video_id), workflow_run_id=str(run_id)
+    )
     try:
         first = _publish(kwargs)
         assert first.success is False  # provider rejection -> FAILED
@@ -403,12 +465,13 @@ def test_f3_failed_retry_admits_attempt_number_two(monkeypatch):
         assert second.attempt_id != first.attempt_id
 
         assert transport.posts_calls == 2  # retry legitimately re-dispatches
-        attempts = _attempts_sync(synthetic)
+        attempts = _attempts_sync(video_id)
         assert [a.attempt_number for a in attempts] == [1, 2]
         assert attempts[0].status.value == "failed"
         assert attempts[1].status.value == "succeeded"
     finally:
-        _cleanup_sync(synthetic)
+        _cleanup_sync(video_id)
+        _cleanup_target(run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -417,17 +480,21 @@ def test_f3_failed_retry_admits_attempt_number_two(monkeypatch):
 
 
 def test_f3_scheduled_duplicate_protected_without_video_id(monkeypatch):
+    """53B-T3: supplied IDs — same schedule-duplicate semantics."""
     transport = _ScriptedTransport()
     _install_real_postiz(monkeypatch, transport)
     asset = _tmp_video()
+    run_id, video_id = _seed_target(
+        asset, publish_type="schedule", scheduled_at="2030-12-01T10:00:00Z"
+    )
     kwargs = _payload(
         asset_storage_path=asset,
         publish_type="schedule",
         # Far-future UTC timestamp (F-05a validates scheduled_at as a
         # future ISO-8601 UTC datetime at the API edge).
         scheduled_at="2030-12-01T10:00:00Z",
+        video_id=str(video_id), workflow_run_id=str(run_id),
     )
-    synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs)))
     try:
         first = _publish(kwargs)
         second = _publish(kwargs)
@@ -437,10 +504,11 @@ def test_f3_scheduled_duplicate_protected_without_video_id(monkeypatch):
         assert second.success is True  # duplicate schedule refused silently
         assert second.attempt_id == first.attempt_id
         assert transport.posts_calls == 1  # ONE scheduled post at the provider
-        attempts = _attempts_sync(synthetic)
+        attempts = _attempts_sync(video_id)
         assert len(attempts) == 1
     finally:
-        _cleanup_sync(synthetic)
+        _cleanup_sync(video_id)
+        _cleanup_target(run_id)
 
 
 # ---------------------------------------------------------------------------
@@ -480,13 +548,21 @@ def test_f3_dry_run_without_video_id_records_no_attempt(monkeypatch):
     ],
 )
 def test_f3_distinct_destinations_do_not_collide(monkeypatch, other_kwargs):
+    """53B-T3: same asset but different social platform or integration
+    channel are DISTINCT publication intents — both dispatch. Uses two
+    seeded targets (the contract binds each to its own run/video)."""
     transport = _ScriptedTransport()
     _install_real_postiz(monkeypatch, transport)
     asset = _tmp_video()
-    base_kwargs = _payload(asset_storage_path=asset)
-    base_synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**base_kwargs)))
-    other_full = _payload(asset_storage_path=asset, **other_kwargs)
-    other_synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**other_full)))
+    run_a, vid_a = _seed_target(asset)
+    run_b, vid_b = _seed_target(asset, **other_kwargs)
+    base_kwargs = _payload(
+        asset_storage_path=asset, video_id=str(vid_a), workflow_run_id=str(run_a)
+    )
+    other_full = _payload(
+        asset_storage_path=asset, video_id=str(vid_b), workflow_run_id=str(run_b),
+        **other_kwargs
+    )
     try:
         first = _publish(base_kwargs)
         second = _publish(other_full)
@@ -495,21 +571,29 @@ def test_f3_distinct_destinations_do_not_collide(monkeypatch, other_kwargs):
         assert second.success is True
         assert second.attempt_id != first.attempt_id  # distinct intents
         assert transport.posts_calls == 2  # both legitimately dispatched
-        assert len(_attempts_sync(base_synthetic)) == 1
-        assert len(_attempts_sync(other_synthetic)) == 1
+        assert len(_attempts_sync(vid_a)) == 1
+        assert len(_attempts_sync(vid_b)) == 1
     finally:
-        _cleanup_sync(base_synthetic, other_synthetic)
+        _cleanup_sync(vid_a, vid_b)
+        _cleanup_target(run_a)
+        _cleanup_target(run_b)
 
 
 def test_f3_distinct_assets_do_not_collide(monkeypatch):
+    """53B-T3: two different assets (and different seeded videos) are
+    distinct publication intents — both dispatch independently."""
     transport = _ScriptedTransport()
     _install_real_postiz(monkeypatch, transport)
     asset_a = _tmp_video()
     asset_b = _tmp_video()
-    kwargs_a = _payload(asset_storage_path=asset_a)
-    kwargs_b = _payload(asset_storage_path=asset_b)
-    synthetic_a = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs_a)))
-    synthetic_b = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs_b)))
+    run_a, vid_a = _seed_target(asset_a)
+    run_b, vid_b = _seed_target(asset_b)
+    kwargs_a = _payload(
+        asset_storage_path=asset_a, video_id=str(vid_a), workflow_run_id=str(run_a)
+    )
+    kwargs_b = _payload(
+        asset_storage_path=asset_b, video_id=str(vid_b), workflow_run_id=str(run_b)
+    )
     try:
         first = _publish(kwargs_a)
         second = _publish(kwargs_b)
@@ -518,15 +602,12 @@ def test_f3_distinct_assets_do_not_collide(monkeypatch):
         assert second.success is True
         assert second.attempt_id != first.attempt_id
         assert transport.posts_calls == 2
-        assert len(_attempts_sync(synthetic_a)) == 1
-        assert len(_attempts_sync(synthetic_b)) == 1
+        assert len(_attempts_sync(vid_a)) == 1
+        assert len(_attempts_sync(vid_b)) == 1
     finally:
-        _cleanup_sync(synthetic_a, synthetic_b)
-
-
-# ---------------------------------------------------------------------------
-# F-01: storage-aware canonicalization of the synthetic identity input
-# ---------------------------------------------------------------------------
+        _cleanup_sync(vid_a, vid_b)
+        _cleanup_target(run_a)
+        _cleanup_target(run_b)
 
 
 def _make_provider_root():
@@ -676,38 +757,38 @@ def test_f01_e2e_alias_retry_after_success_hits_duplicate_guard(monkeypatch):
     _install_provider(monkeypatch, provider)
     transport = _ScriptedTransport()
     _install_real_postiz(monkeypatch, transport)
-    canonical_kwargs = _payload(asset_storage_path="data/storage/v1.mp4")
-    alias_kwargs = _payload(asset_storage_path="./data//storage/./v1.mp4")
-    synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**canonical_kwargs)))
+    run_id, video_id = _seed_target("data/storage/v1.mp4")
+    canonical_kwargs = _payload(asset_storage_path="data/storage/v1.mp4", video_id=str(video_id), workflow_run_id=str(run_id))
+    alias_kwargs = _payload(asset_storage_path="./data//storage/./v1.mp4", video_id=str(video_id), workflow_run_id=str(run_id))
     try:
         first = _publish(canonical_kwargs)
         assert first.success, first.error
         assert first.attempt_status == "succeeded"
         assert transport.posts_calls == 1
-        rows = _attempts_sync(synthetic)
+        rows = _attempts_sync(video_id)
         assert len(rows) == 1 and rows[0].status == PublicationAttemptStatus.SUCCEEDED
 
-        # The alias derives the identical synthetic id ...
-        assert uuid.UUID(_synthetic_video_id(PublishRequest(**alias_kwargs))) == synthetic
+        # The alias derives the identical video_id id ...
+        assert uuid.UUID(_synthetic_video_id(PublishRequest(**alias_kwargs)))  # canonicalization still works (dry-run path)
         # ... so the retry is an idempotent duplicate: no second post.
         second = _publish(alias_kwargs)
         assert second.success
         assert transport.posts_calls == 1
-        assert len(_attempts_sync(synthetic)) == 1
+        assert len(_attempts_sync(video_id)) == 1
     finally:
-        _cleanup_sync(synthetic)
-
+        _cleanup_sync(video_id)
+        _cleanup_target(run_id)
 
 def test_f01_e2e_alias_submission_while_pending_resolves_same_family(monkeypatch):
-    """END-TO-END: while the canonical family's attempt is PENDING, an
-    alias-spelling submission resolves to the SAME attempt (blocked) —
-    the provider publish is never invoked."""
+    """53B-T3: while the video's attempt is PENDING, a retry under the same
+    supplied (run, video) is the SAME attempt family (blocked) — the
+    provider publish is never invoked. Path aliases are irrelevant for
+    real publishes under the new contract (identity = video_id)."""
     provider, _, _, _ = _make_provider_root()
     _install_provider(monkeypatch, provider)
     transport = _ScriptedTransport()
     _install_real_postiz(monkeypatch, transport)
-    canonical_kwargs = _payload(asset_storage_path="data/storage/v1.mp4")
-    synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**canonical_kwargs)))
+    run_id, video_id = _seed_target("data/storage/v1.mp4")
 
     async def _seed_pending():
         from app.services.publication_attempts import admit_attempt
@@ -716,30 +797,36 @@ def test_f01_e2e_alias_submission_while_pending_resolves_same_family(monkeypatch
         try:
             attempt, created = await admit_attempt(
                 session,
-                video_id=synthetic,
+                video_id=video_id,
                 platform="postiz",
                 social_platform="youtube",
                 integration_id="integ-1",
             )
-            assert created is True
+            return attempt.id, created
         finally:
             await session.close()
             await engine.dispose()
 
+    kwargs = _payload(
+        asset_storage_path="data/storage/v1.mp4",
+        video_id=str(video_id),
+        workflow_run_id=str(run_id),
+    )
     try:
-        asyncio.run(_seed_pending())
-        resp = _publish(_payload(asset_storage_path="data/link.mp4"))  # symlink alias
-        assert not resp.success
-        assert "pending" in (resp.error or "").lower()
+        _, created = asyncio.run(_seed_pending())
+        assert created is True
+
+        result = _publish(kwargs)
+
+        assert result.success is False
+        assert "pending" in (result.error or "")
         assert transport.posts_calls == 0
-        assert len(_attempts_sync(synthetic)) == 1  # same family, no new row
+        rows = _attempts_sync(video_id)
+        assert len(rows) == 1
+        assert rows[0].attempt_number == 1
     finally:
-        _cleanup_sync(synthetic)
-
-
-# ---------------------------------------------------------------------------
-# F-04a: privacy never participates in identity; inert for Postiz
-# ---------------------------------------------------------------------------
+        _cleanup_sync(video_id)
+        _cleanup_target(run_id)
 
 
 def test_f04a_privacy_status_never_participates_in_identity():
@@ -755,21 +842,52 @@ def test_f04a_privacy_status_never_participates_in_identity():
 
 
 def test_f04a_privacy_status_is_inert_for_postiz(monkeypatch):
-    """10. A privacy_status-bearing request through the Postiz path
-    publishes normally — the field is inert for Postiz."""
+    """10. F-04a identity-inertness is PRESERVED (privacy never joins the
+    intent identity). Under Phase 54B-I5 privacy is a manifest-bound
+    approval parameter: a request privacy differing from the approved
+    manifest's fails closed BEFORE any external call (the Postiz adapter
+    itself still ignores the field — inertness at the provider)."""
     provider, _, _, _ = _make_provider_root()
     _install_provider(monkeypatch, provider)
     transport = _ScriptedTransport()
     _install_real_postiz(monkeypatch, transport)
-    kwargs = _payload(
-        asset_storage_path="data/storage/v1.mp4", privacy_status="unlisted"
+    run_id, video_id = _seed_target("data/storage/v1.mp4")
+    # Identity: privacy never participates (same synthetic id for all values).
+    base = _payload(asset_storage_path="data/storage/v1.mp4")
+    ids = {
+        _synthetic_video_id(PublishRequest(**{**base, "privacy_status": v}))
+        for v in ("public", "private", "unlisted")
+    }
+    ids.add(_synthetic_video_id(PublishRequest(**base)))
+    assert len(ids) == 1
+    # Dispatch: the matching-privacy request publishes normally...
+    kwargs_ok = _payload(
+        asset_storage_path="data/storage/v1.mp4", privacy_status="public",
+        video_id=str(video_id), workflow_run_id=str(run_id),
     )
-    synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs)))
+    kwargs_drift = _payload(
+        asset_storage_path="data/storage/v1.mp4", privacy_status="unlisted",
+        video_id=str(video_id), workflow_run_id=str(run_id),
+    )
     try:
-        resp = _publish(kwargs)
+        # Dispatch: a privacy DIFFERING from the approved manifest's is
+        # denied before any external call (the failed attempt then
+        # admits a retry under the same intent family)...
+        drifted = _publish(kwargs_drift)
+        assert drifted.success is False
+        assert "publication_blocked: parameter_drift:privacy_status" in drifted.error
+        assert transport.posts_calls == 0
+        rows = _attempts_sync(video_id)
+        assert [r.status for r in rows] == [PublicationAttemptStatus.FAILED]
+        # ...and the matching-privacy retry publishes normally.
+        resp = _publish(kwargs_ok)
         assert resp.success, resp.error
         assert transport.posts_calls == 1
-        rows = _attempts_sync(synthetic)
-        assert [r.status for r in rows] == [PublicationAttemptStatus.SUCCEEDED]
+        rows = _attempts_sync(video_id)
+        assert [r.status for r in rows] == [
+            PublicationAttemptStatus.FAILED,
+            PublicationAttemptStatus.SUCCEEDED,
+        ]
     finally:
-        _cleanup_sync(synthetic)
+        _cleanup_sync(video_id)
+        _cleanup_target(run_id)

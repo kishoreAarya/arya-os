@@ -237,56 +237,224 @@ async def test_concurrent_decides_cannot_corrupt_cache(client):
 
 
 async def test_legacy_migration_invariants():
-    """Backfill contract, verified against the live migrated database:
-    every decided checkpoint WITH decided_at carries >= 1 event; the six
-    operator-excluded rows (action=APPROVE, decided_at NULL, NULL digest,
-    direct pre-Model-B seeds) carry ZERO events and remain APPROVE,
-    untouched; every decided checkpoint's cache is derivable from its
-    latest event."""
+    """Backfill contract (migration d4e5f6a7b8c9), verified DATA-
+    INDEPENDENTLY: the test seeds its own minimal legacy-shaped rows
+    (pre-Model-B checkpoints: decided-with-decided_at, the six-row
+    operator-excluded shape action=APPROVE/decided_at NULL/NULL digest,
+    and a pending control row), executes the migration's OWN backfill
+    SQL (extracted from the migration module source and locked to the
+    shipped contract text), and proves the invariants against only the
+    rows it created — everything inside one rolled-back transaction, so
+    the test neither depends on nor disturbs any pre-existing database
+    content:
+
+    - every decided checkpoint WITH decided_at receives EXACTLY ONE
+      synthetic event (sequence 1, decided_by NULL, action/decided_at/
+      reviewer_notes copied verbatim — nothing invented);
+    - the operator-excluded rows receive ZERO events and remain APPROVE,
+      decided_at NULL, digest NULL — untouched;
+    - a pending checkpoint receives no event;
+    - every decided checkpoint's cache is derivable from its latest
+      event (append-only decision-log contract).
+    """
+    import importlib.util
+    import inspect
+    import re
+    from datetime import datetime, timedelta
+    from pathlib import Path
+
     from app.hermes.capabilities import _make_capability_engine
-    from app.models.approval import ApprovalDecision
-    from sqlalchemy import func, select, text
+    from app.models.approval import ApprovalCheckpoint
+    from app.models.core import Project, WorkflowRun
+    from app.models.enums import ApprovalAction, ApprovalStage
+    from sqlalchemy import bindparam, text
     from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    # The shipped backfill contract (whitespace-normalized). If the
+    # migration's SQL changes, this lock forces this test to be
+    # re-reviewed against the new contract.
+    _EXPECTED_BACKFILL_SQL = (
+        "INSERT INTO approval_decisions "
+        "(id, checkpoint_id, sequence_number, action, decided_at, "
+        "decided_by, reviewer_notes, created_at, updated_at) "
+        "SELECT gen_random_uuid(), id, 1, action, decided_at, "
+        "NULL, reviewer_notes, decided_at, decided_at "
+        "FROM approval_checkpoints "
+        "WHERE action IS NOT NULL AND decided_at IS NOT NULL"
+    )
+
+    migration_path = (
+        Path(__file__).resolve().parents[2]
+        / "alembic"
+        / "versions"
+        / "d4e5f6a7b8c9_add_approval_decision_history_and_revoke.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "d4e5f6a7b8c9_migration_under_test", migration_path
+    )
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    triple_quoted = re.findall(
+        r'op\.execute\(\s*"""(.*?)"""\s*\)',
+        inspect.getsource(migration.upgrade),
+        re.DOTALL,
+    )
+    assert len(triple_quoted) == 1, "expected exactly one triple-quoted op.execute"
+    backfill_sql = " ".join(triple_quoted[0].split())
+    assert backfill_sql == _EXPECTED_BACKFILL_SQL
 
     async def _run():
         engine = _make_capability_engine()
         try:
             async with async_sessionmaker(bind=engine, expire_on_commit=False)() as session:
+                # --- Seed the minimal legacy world (never committed). ---
+                project = Project(name=f"i6-mig-{uuid.uuid4().hex[:8]}")
+                session.add(project)
+                await session.flush()
+                run = WorkflowRun(project_id=project.id)
+                session.add(run)
+                await session.flush()
+
+                # Deliberately NAIVE: the legacy decided_at column is a
+                # naive timestamp and the migration copies it verbatim.
+                base = datetime(2026, 1, 1, 12, 0, 0)  # noqa: DTZ001
+                decided_ids, notes = [], {}
+                for i in range(5):
+                    action = ApprovalAction.APPROVE if i % 2 == 0 else ApprovalAction.REJECT
+                    decided_at = base + timedelta(hours=i)
+                    cp = ApprovalCheckpoint(
+                        workflow_run_id=run.id,
+                        stage=ApprovalStage.SCRIPT,
+                        reference_table="workflow_runs",
+                        reference_id=run.id,
+                        action=action,
+                        reviewer_notes=f"legacy note {i}",
+                        decided_at=decided_at,
+                        parameter_digest=f"digest-{i}",
+                    )
+                    session.add(cp)
+                    await session.flush()
+                    decided_ids.append(cp.id)
+                    notes[cp.id] = (action, decided_at, f"legacy note {i}")
+
+                excluded_ids = []
+                for _ in range(6):
+                    cp = ApprovalCheckpoint(
+                        workflow_run_id=run.id,
+                        stage=ApprovalStage.SCRIPT,
+                        reference_table="workflow_runs",
+                        reference_id=run.id,
+                        action=ApprovalAction.APPROVE,
+                        decided_at=None,
+                        parameter_digest=None,
+                    )
+                    session.add(cp)
+                    await session.flush()
+                    excluded_ids.append(cp.id)
+
+                pending = ApprovalCheckpoint(
+                    workflow_run_id=run.id,
+                    stage=ApprovalStage.SCRIPT,
+                    reference_table="workflow_runs",
+                    reference_id=run.id,
+                )
+                session.add(pending)
+                await session.flush()
+
+                # --- Execute the migration's OWN backfill, scoped to the
+                # seeded checkpoints only (hermetic on any database). ---
+                await session.flush()
+                scoped = text(
+                    backfill_sql.replace(
+                        "WHERE action IS NOT NULL AND decided_at IS NOT NULL",
+                        "WHERE action IS NOT NULL AND decided_at IS NOT NULL "
+                        "AND id IN :seeded_ids",
+                    )
+                ).bindparams(bindparam("seeded_ids", expanding=True))
+                await session.execute(
+                    scoped, {"seeded_ids": decided_ids + excluded_ids + [pending.id]}
+                )
+
+                # --- Invariants, proven only against the seeded rows. ---
+                def _in(cp_ids):
+                    return text(
+                        "SELECT count(*) FROM approval_decisions d "
+                        "JOIN approval_checkpoints cp ON cp.id = d.checkpoint_id "
+                        "WHERE cp.id IN :ids"
+                    ).bindparams(bindparam("ids", expanding=True))
+
                 backfilled = (
-                    await session.execute(
-                        select(func.count()).select_from(ApprovalDecision).where(
-                            ApprovalDecision.sequence_number == 1,
-                            ApprovalDecision.decided_by.is_(None),
-                        )
-                    )
+                    await session.execute(_in(decided_ids), {"ids": decided_ids})
                 ).scalar()
-                excluded = (
-                    await session.execute(
-                        text(
-                            "SELECT count(*) FROM approval_checkpoints cp "
-                            "WHERE cp.action IS NOT NULL AND cp.decided_at IS NULL "
-                            "AND NOT EXISTS (SELECT 1 FROM approval_decisions d "
-                            "WHERE d.checkpoint_id = cp.id)"
-                        )
-                    )
+                excluded_events = (
+                    await session.execute(_in(excluded_ids), {"ids": excluded_ids})
                 ).scalar()
-                excluded_still_approve = (
+                pending_events = (
+                    await session.execute(_in([pending.id]), {"ids": [pending.id]})
+                ).scalar()
+
+                events = {}
+                for cp_id in decided_ids:
+                    rows = (
+                        await session.execute(
+                            text(
+                                "SELECT sequence_number, action::text, decided_at, "
+                                "decided_by, reviewer_notes, created_at, updated_at "
+                                "FROM approval_decisions WHERE checkpoint_id = :cp"
+                            ).bindparams(cp=cp_id)
+                        )
+                    ).fetchall()
+                    events[cp_id] = rows
+
+                untouched = (
                     await session.execute(
                         text(
                             "SELECT count(*) FROM approval_checkpoints "
-                            "WHERE action::text = 'APPROVE' AND decided_at IS NULL "
-                            "AND parameter_digest IS NULL"
-                        )
+                            "WHERE id IN :ids AND action::text = 'APPROVE' "
+                            "AND decided_at IS NULL AND parameter_digest IS NULL"
+                        ).bindparams(bindparam("ids", expanding=True)),
+                        {"ids": excluded_ids},
                     )
                 ).scalar()
-                return backfilled, excluded, excluded_still_approve
+
+                # Everything runs inside ONE transaction: roll back so the
+                # seeded world and the scoped backfill never persist.
+                await session.rollback()
+                return (
+                    backfilled, excluded_events, pending_events, events, notes,
+                    untouched,
+                )
         finally:
             await engine.dispose()
 
-    backfilled, excluded, still_approve = await _run()
-    # The 5 decided-with-decided_at rows each carry exactly one synthetic
-    # event (sequence 1, no decided_by) — plus any this test session added.
-    assert backfilled >= 5
-    # The six operator-excluded rows: zero events, still APPROVE, untouched.
-    assert excluded == 6
-    assert still_approve == 6
+    backfilled, excluded_events, pending_events, events, notes, untouched = await _run()
+
+    # Exactly one synthetic event per decided-with-decided_at row.
+    assert backfilled == 5
+    for cp_id, rows in events.items():
+        assert len(rows) == 1
+        seq, action, decided_at, decided_by, reviewer_notes, created, updated = rows[0]
+        assert seq == 1
+        expected_action, expected_decided_at, expected_notes = notes[cp_id]
+        assert action == expected_action.name  # PG enum label form
+        # Verbatim copy — nothing invented.
+        assert decided_at == expected_decided_at
+        assert reviewer_notes == expected_notes
+        assert decided_by is None  # no invented provenance
+        # created_at/updated_at are timestamptz columns: the naive copy
+        # reads back UTC-aware when the session timezone is UTC. Compare
+        # the wall-clock value the migration copied (nothing invented).
+        assert created.replace(tzinfo=None) == expected_decided_at
+        assert updated.replace(tzinfo=None) == expected_decided_at
+        # Cache derivable from the (single) latest event.
+        assert (action, decided_at, reviewer_notes) == (
+            expected_action.name, expected_decided_at, expected_notes
+        )
+
+    # The operator-excluded rows: zero events, still APPROVE, untouched.
+    assert excluded_events == 0
+    assert untouched == 6
+
+    # Pending checkpoints receive no event.
+    assert pending_events == 0

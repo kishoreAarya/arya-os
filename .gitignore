@@ -62,3 +62,6 @@ backend/app/hermes/source_record.json
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+
+# Phase 54B-I12: generated pip-audit input (locked third-party export)
+/requirements-audit.txt

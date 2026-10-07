@@ -12,6 +12,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Least privilege: checkout (incl. public Hermes submodule) is the only
+# GITHUB_TOKEN consumer; upload-artifact uses the Actions runtime token.
+permissions:
+  contents: read
+
 concurrency:
   group: test-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

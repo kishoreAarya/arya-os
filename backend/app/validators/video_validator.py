@@ -122,21 +122,19 @@ class VideoValidator(BaseValidator):
             inspect_path = str(storage_path)
             tmp_download_path: str | None = None
             if inspect_path.startswith(("http://", "https://")):
-                import tempfile
-                import urllib.request
+                # Phase 54B-I11 (B310): guarded Phase 47A resolution via
+                # the sync bridge — never raw urlopen. Video cap mirrors
+                # the asset_downloader DEFAULT_MAX_VIDEO_BYTES convention.
+                from app.utils.asset_manager import ensure_local_asset_sync
+
                 try:
-                    fd, tmp_download_path = tempfile.mkstemp(suffix=".mp4", prefix="arya_val_vid_")
-                    os.close(fd)
-                    req = urllib.request.Request(inspect_path, headers={"User-Agent": "AryaOS/1.0"})
-                    with urllib.request.urlopen(req, timeout=60) as resp, open(tmp_download_path, "wb") as f:
-                        f.write(resp.read())
+                    tmp_download_path = ensure_local_asset_sync(
+                        inspect_path,
+                        max_bytes=200 * 1024 * 1024,
+                        timeout_seconds=60.0,
+                    )
                     inspect_path = tmp_download_path
                 except Exception as exc:
-                    if tmp_download_path and os.path.exists(tmp_download_path):
-                        try:
-                            os.remove(tmp_download_path)
-                        except OSError:
-                            pass
                     return ValidationResult(
                         passed=False,
                         score=0.0,

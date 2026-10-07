@@ -76,7 +76,10 @@ class GoogleTrendsSource(BaseTrendSource):
             res.raise_for_status()
 
             # Parse XML feed
-            root = ET.fromstring(res.text)
+            # stdlib ElementTree/expat never resolves external entities,
+            # and the input is a fixed trusted trends.google.com feed
+            # (geo is operator config).
+            root = ET.fromstring(res.text)  # nosec B314
             channel = root.find("channel")
             if channel is None:
                 return []

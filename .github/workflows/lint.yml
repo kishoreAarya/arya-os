@@ -9,6 +9,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Least privilege: checkout is the only GITHUB_TOKEN consumer (uv cache
+# uses the Actions runtime token).
+permissions:
+  contents: read
+
 concurrency:
   group: lint-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

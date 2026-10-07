@@ -359,7 +359,9 @@ class SoundAssetResolver:
             out_dir.mkdir(parents=True, exist_ok=True)
             _, norm_desc = normalize_sound_key(sound_type, description)
             out_path = out_dir / f"elevenlabs_{norm_desc}_{int(time.time())}.mp3"
-            with urllib.request.urlopen(req, timeout=15) as resp, open(out_path, "wb") as f:
+            # Fixed, hardcoded trusted provider endpoint (api.elevenlabs.io,
+            # constructed two lines above): never a caller-supplied URL.
+            with urllib.request.urlopen(req, timeout=15) as resp, open(out_path, "wb") as f:  # nosec B310
                 f.write(resp.read())
             if out_path.exists() and out_path.stat().st_size > 0:
                 return str(out_path)

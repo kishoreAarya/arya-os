@@ -247,10 +247,13 @@ async def _cleanup(video_uuid, attempt_ids=()):
         await engine.dispose()
 
 
-async def _make_attempt(status, *, anchor=False):
-    """Admit an attempt for a fresh video and drive it to `status` via the
-    REAL transition helpers (admission algorithm untouched)."""
-    video_uuid = uuid.uuid4()
+async def _make_attempt(status, *, anchor=False, video_uuid=None):
+    """Admit an attempt for a fresh video (or the GIVEN video — Phase
+    54B-I8: the manifest-bound seeded target's video) and drive it to
+    `status` via the REAL transition helpers (admission algorithm
+    untouched)."""
+    if video_uuid is None:
+        video_uuid = uuid.uuid4()
     engine, session = await _session()
     try:
         attempt, _ = await admit_attempt(
@@ -312,16 +315,54 @@ def _svc_resolve(attempt_id, **kwargs):
 
 
 def _ctx(video_id):
-    return {
+    base = {
         "platform": "postiz",
         "video_id": str(video_id),
-        "video_storage_path": _tmp_video(),
+        # Phase 54B-I8: the seeded manifest's authoritative artifact.
+        "video_storage_path": _SEED_STATE.get("asset") or _tmp_video(),
         "title": "t",
         "description": "d",
         "social_platform": "youtube",
         "integration_id": "integ-1",
+        "workflow_run_id": (
+            str(_SEED_STATE["run_id"]) if _SEED_STATE.get("run_id") else None
+        ),
         "dry_run": False,
     }
+    return base
+
+
+# ---------------------------------------------------------------------------
+# Phase 54B-I8: manifest-bound approved publish-target seeding (the
+# minimum authorization state the 53B/I5 dispatch contract accepts).
+# ---------------------------------------------------------------------------
+
+_SEED_STATE = {}
+
+
+def _seed_target():
+    from tests._dispatch_manifest_fixtures import seed_manifest_bound_target
+
+    run_id, video_id, _mid, vpath, _thumb = seed_manifest_bound_target(
+        platform="postiz",
+        social_platform="youtube",
+        integration_id="integ-1",
+        privacy_status="public",
+        publish_type="now",
+    )
+    _SEED_STATE.clear()
+    _SEED_STATE.update(run_id=run_id, video_id=video_id, asset=vpath)
+    return run_id, video_id
+
+
+def _cleanup_target():
+    from tests._dispatch_manifest_fixtures import cleanup_manifest_bound_target
+
+    if _SEED_STATE.get("run_id") is not None:
+        cleanup_manifest_bound_target(
+            _SEED_STATE["run_id"], _SEED_STATE["video_id"], _SEED_STATE["asset"]
+        )
+    _SEED_STATE.clear()
 
 
 def _tmp_video():
@@ -760,7 +801,7 @@ def test_e2e_unknown_resolved_failed_then_retry_admitted_as_n_plus_1(monkeypatch
         check="processing", publish=("raise", httpx.ReadTimeout("dropped after submit"))
     )
     _install_real_postiz(monkeypatch, script)
-    video_uuid = uuid.uuid4()
+    _, video_uuid = _seed_target()
     ctx = _ctx(video_uuid)
     try:
         first = _run_agent(ctx)
@@ -790,13 +831,14 @@ def test_e2e_unknown_resolved_failed_then_retry_admitted_as_n_plus_1(monkeypatch
         ]
         assert script.posts_calls == 2  # exactly one legitimate retry
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup(video_uuid))
 
 
 def test_e2e_unknown_resolved_succeeded_duplicate_guard_engages(monkeypatch):
     script = _PostizScript(check="ready", publish=("raise", httpx.ReadTimeout("dropped after submit")))
     _install_real_postiz(monkeypatch, script)
-    video_uuid = uuid.uuid4()
+    _, video_uuid = _seed_target()
     ctx = _ctx(video_uuid)
     try:
         first = _run_agent(ctx)
@@ -830,6 +872,7 @@ def test_e2e_unknown_resolved_succeeded_duplicate_guard_engages(monkeypatch):
         assert script.posts_calls == posts_after_first
         assert len(asyncio.run(_attempts_for(video_uuid))) == 1
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup(video_uuid))
 
 
@@ -923,7 +966,14 @@ def test_in_progress_to_succeeded_with_verified_evidence(monkeypatch):
     re-submission (no second external publication)."""
     script = _PostizScript(check="ready")
     _install_real_postiz(monkeypatch, script)
-    aid, vu = asyncio.run(_make_attempt(PublicationAttemptStatus.IN_PROGRESS, anchor=True))
+    # I8: the crash-window attempt belongs to a real manifest-bound
+    # target so the duplicate re-submission crosses the 53B/I5 gates.
+    _, vu = _seed_target()
+    aid, _ = asyncio.run(
+        _make_attempt(
+            PublicationAttemptStatus.IN_PROGRESS, anchor=True, video_uuid=vu
+        )
+    )
     asyncio.run(_age_attempt(aid, hours=1))
     try:
         attempt, audit = _svc_resolve(
@@ -948,6 +998,7 @@ def test_in_progress_to_succeeded_with_verified_evidence(monkeypatch):
         assert second.output["published_video_id"] == "post-8"
         assert script.posts_calls == 0  # no second external publication
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup(vu, (aid,)))
 
 
@@ -1069,12 +1120,17 @@ def test_race_operator_force_fail_blocks_irreversible_publish_permit(monkeypatch
     external publish call is never made."""
     script = _PostizScript(check="ready", publish=("ok", "post-late"))
     _install_real_postiz(monkeypatch, script)
-    video_uuid = uuid.uuid4()
+    _, video_uuid = _seed_target()
 
-    async def _operator_force_fails_mid_flight(path):
-        if path is None:
-            return None
+    real_resolve = recon.resolve_attempt
+
+    async def _operator_force_fails_mid_flight(path, **kwargs):
+        """I8: hooks the manifest-snapshot artifact resolution (the first
+        post-admission step) — the operator force-fails the stalled
+        PENDING row before the permit CAS can run."""
         from sqlalchemy import select, update
+
+        from app.utils.asset_manager import ensure_local_asset as _real
 
         engine, session = await _session()
         try:
@@ -1096,7 +1152,7 @@ def test_race_operator_force_fail_blocks_irreversible_publish_permit(monkeypatch
                 .values(updated_at=datetime.now(timezone.utc) - timedelta(hours=1))
             )
             await session.commit()
-            await recon.resolve_attempt(
+            await real_resolve(
                 session,
                 row.id,
                 from_status=PublicationAttemptStatus.PENDING,
@@ -1107,10 +1163,11 @@ def test_race_operator_force_fail_blocks_irreversible_publish_permit(monkeypatch
         finally:
             await session.close()
             await engine.dispose()
-        return path
+        return await _real(path, **kwargs) if path is not None else None
 
     monkeypatch.setattr(
-        "app.agents.publishing.ensure_local_asset", _operator_force_fails_mid_flight
+        "app.services.publication_manifest_service.ensure_local_asset",
+        _operator_force_fails_mid_flight,
     )
     try:
         result = _run_agent(_ctx(video_uuid))
@@ -1122,6 +1179,7 @@ def test_race_operator_force_fail_blocks_irreversible_publish_permit(monkeypatch
         assert rows[0].status == PublicationAttemptStatus.FAILED
         assert rows[0].external_post_id is None
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup(video_uuid))
 
 
@@ -1335,7 +1393,7 @@ def test_f02a_characterization_mechanical_guarantee_vs_external_risk(monkeypatch
         check="processing", publish=("raise", httpx.ReadTimeout("dropped after submit"))
     )
     _install_real_postiz(monkeypatch, script)
-    video_uuid = uuid.uuid4()
+    _, video_uuid = _seed_target()
     ctx = _ctx(video_uuid)
     try:
         # A: admission -> anchor -> permit -> dispatch outcome unresolved.
@@ -1408,6 +1466,7 @@ def test_f02a_characterization_mechanical_guarantee_vs_external_risk(monkeypatch
         ]
         assert script.posts_calls == 2  # A dispatched once; B dispatched once (structurally permitted)
     finally:
+        _cleanup_target()
         asyncio.run(_cleanup(video_uuid, (attempt_id,)))
         asyncio.run(_cleanup(inflight_vu, (inflight_id,)))
 

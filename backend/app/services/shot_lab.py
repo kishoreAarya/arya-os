@@ -407,7 +407,9 @@ class ShotLab:
 
     def __init__(
         self,
-        output_dir: str = "/tmp/arya-task23-visual-shootout",
+        # Dev-only benchmark laboratory default (Task 23 experimentation
+        # tool); not a production request path.
+        output_dir: str = "/tmp/arya-task23-visual-shootout",  # nosec B108
         desktop_dir: str = "~/Desktop/arya-task23-visual-shootout",
     ) -> None:
         self.output_dir = Path(output_dir)

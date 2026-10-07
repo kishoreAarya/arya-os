@@ -4,6 +4,8 @@ Asset manager — converts remote storage URLs into local filesystem paths.
 Adapters that expect local files (e.g. YouTubeAdapter via MediaFileUpload)
 call this helper so they can consume remote assets without modification.
 """
+import asyncio
+import concurrent.futures
 import os
 import tempfile
 from pathlib import Path
@@ -176,3 +178,52 @@ async def ensure_local_asset(
         size_bytes=total_bytes,
     )
     return local_path
+
+
+# Dedicated worker for the sync bridge below: exactly one thread (the
+# bridge downloads are bounded by the caller's timeout, and callers are
+# synchronous validators that block regardless).
+_SYNC_BRIDGE_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="arya-asset-sync"
+)
+
+
+def ensure_local_asset_sync(
+    storage_path: str | None,
+    *,
+    timeout_seconds: float | None = None,
+    max_bytes: int = 50 * 1024 * 1024,
+) -> str | None:
+    """Synchronous bridge over :func:`ensure_local_asset` (Phase 54B-I11).
+
+    Runs the SAME Phase 47A guarded resolution — DNS-aware SSRF
+    validation, bounded redirects with per-hop revalidation, download
+    size cap, zero-byte rejection, temp-file cleanup — on a dedicated
+    worker thread with its own event loop, for callers that are locked
+    to synchronous contracts (``BaseValidator.validate`` is a documented
+    synchronous method; the pipeline may already be running its own
+    loop, so ``asyncio.run`` on the calling thread is not an option).
+
+    This is an execution adapter only: there is deliberately NO second
+    SSRF/download implementation — every security decision is made by
+    ``ensure_local_asset``. Raises the same exceptions (ValueError for
+    unsafe URLs, RuntimeError for resolution/download/size failures).
+    """
+    if storage_path is None:
+        return None
+
+    def _run() -> str | None:
+        return asyncio.run(
+            ensure_local_asset(
+                storage_path,
+                timeout_seconds=timeout_seconds,
+                max_bytes=max_bytes,
+            )
+        )
+
+    future = _SYNC_BRIDGE_EXECUTOR.submit(_run)
+    try:
+        return future.result()
+    except BaseException:
+        future.cancel()
+        raise
