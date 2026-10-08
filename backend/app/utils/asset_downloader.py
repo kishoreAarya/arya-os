@@ -178,7 +178,6 @@ async def download_media_asset(
     start_time = time.perf_counter()
     total_bytes = 0
     content_type = ""
-    download_success = False
 
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=False) as client:
@@ -199,8 +198,6 @@ async def download_media_asset(
                                 f"Downloaded asset exceeded maximum limit of {max_bytes} bytes: {url}"
                             )
                         f.write(chunk)
-
-                download_success = True
             finally:
                 await response.aclose()
 
@@ -259,12 +256,15 @@ async def download_remote_asset(
                 if content_len and int(content_len) > max_bytes:
                     raise AssetDownloadError(f"Asset Content-Length ({content_len}) exceeds maximum allowed size ({max_bytes})")
 
-                with open(dest, "wb") as f:
+                f = await asyncio.to_thread(open, dest, "wb")
+                try:
                     async for chunk in response.aiter_bytes(chunk_size=65536):
                         total_bytes += len(chunk)
                         if total_bytes > max_bytes:
                             raise AssetDownloadError(f"Downloaded asset exceeds maximum allowed size ({max_bytes})")
-                        f.write(chunk)
+                        await asyncio.to_thread(f.write, chunk)
+                finally:
+                    await asyncio.to_thread(f.close)
             finally:
                 await response.aclose()
     except Exception:

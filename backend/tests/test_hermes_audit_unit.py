@@ -547,6 +547,7 @@ def test_audit_module_never_imports_hermes():
         capture_output=True,
         text=True,
         timeout=30,
+        check=False,
     )
     assert result.returncode == 0, result.stderr
 

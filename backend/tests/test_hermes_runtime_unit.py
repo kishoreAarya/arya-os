@@ -25,6 +25,7 @@ from app.core.config import HERMES_COMMIT_PIN, Settings
 from app.hermes.policy import AuthorizationContext
 from app.hermes.runtime import (
     HermesJobRequest,
+    HermesRuntimeError,
     apply_runtime_environment,
     clear_runtime_environment,
     create_job_home,
@@ -100,7 +101,7 @@ def test_runtime_module_never_imports_hermes():
         "    for m in sys.modules), 'runtime module imported Hermes at import time'\n"
     )
     result = subprocess.run(
-        [_sys.executable, "-c", code], capture_output=True, text=True, timeout=60
+        [_sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False
     )
     assert result.returncode == 0, result.stderr
 
@@ -162,14 +163,14 @@ def test_job_home_fresh_and_scoped(tmp_path):
 def test_job_home_refuses_non_fresh(tmp_path):
     home = create_job_home(tmp_path, "job-1")
     (home / "leftover.env").write_text("HERMES_YOLO_MODE=1\n")
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(HermesRuntimeError) as exc_info:
         create_job_home(tmp_path, "job-1")
     assert "job_home_not_fresh" in str(exc_info.value) or exc_info.value.code == "job_home_not_fresh"
 
 
 def test_job_home_rejects_path_traversal(tmp_path):
     for bad in ("../escape", "a/b", "", "a.b"):
-        with pytest.raises(Exception):
+        with pytest.raises(HermesRuntimeError):
             create_job_home(tmp_path, bad)
 
 
@@ -261,7 +262,7 @@ def _run_isolated(code_body: str, settings: Settings) -> str:
         "assert 'run_agent' not in sys.modules, 'Hermes was imported despite the gate'\n"
     )
     result = subprocess.run(
-        [_sys.executable, "-c", code], capture_output=True, text=True, timeout=120
+        [_sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
     )
     return result.stderr
 

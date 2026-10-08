@@ -683,7 +683,6 @@ async def submit_creator_generation(
     await db.refresh(run)
 
     job_id = str(run.id)
-    now_iso = datetime.now(timezone.utc).isoformat()
 
     job_state = {
         "job_id": job_id,
@@ -1022,7 +1021,7 @@ async def upload_reference_asset(payload: AssetUploadRequest):
 
     storage = get_storage_provider()
     try:
-        stored_path = await storage.upload(storage_key, content, content_type=req_mime)
+        await storage.upload(storage_key, content, content_type=req_mime)
         url = storage.get_url(storage_key)
         return {
             "key": storage_key,

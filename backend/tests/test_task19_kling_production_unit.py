@@ -179,8 +179,10 @@ async def test_video_agent_explicit_ltx_rollback_override():
     for override in ("replicate", "ltx", "ltx-video"):
         executed_params = {}
 
-        async def fake_execute(**kwargs):
-            executed_params.update(kwargs)
+        # Bind the iteration's dict via a default argument so the
+        # closure never depends on the loop variable's late binding.
+        async def fake_execute(_captured=executed_params, **kwargs):
+            _captured.update(kwargs)
             res_mock = MagicMock()
             res_mock.success = True
             res_mock.provider = "replicate"
@@ -280,7 +282,8 @@ async def test_shot_executor_remote_image_motion_download_validation_and_cleanup
 
     # Create a real local temp image to serve as downloaded asset
     temp_local = Path(tempfile.gettempdir()) / f"mock_dl_{uuid.uuid4().hex}.png"
-    subprocess.run(
+    await asyncio.to_thread(
+        subprocess.run,
         [ffmpeg, "-y", "-f", "lavfi", "-i", "color=c=darkred:s=1080x1920:d=1", "-vframes", "1", str(temp_local)],
         check=True,
         capture_output=True,

@@ -704,7 +704,7 @@ class YouTubeAdapter(PlatformAdapter):
             stats = items[0].get("statistics", {})
 
             result = {
-                "snapshot_at": datetime.datetime.utcnow().isoformat(),
+                "snapshot_at": datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat(),
                 "views": int(stats.get("viewCount", 0)),
                 "likes": int(stats.get("likeCount", 0)),
                 "comments": int(stats.get("commentCount", 0)),

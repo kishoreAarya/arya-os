@@ -233,9 +233,6 @@ async def main():
         if vcand.error or not vcand.local_video_path:
             continue
 
-        # Inherit base image quality from source keyframe
-        base_img_score = best_image.rubric.image_subtotal
-
         if vcand.video_model_id == "kling-standard":
             # Kling Standard: Strong motion realism, excellent lighting coherence, good facial stability
             vcand.rubric = VisualQualityRubricScores(

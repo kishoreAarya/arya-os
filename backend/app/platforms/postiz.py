@@ -17,6 +17,7 @@ Implements PlatformAdapter for multi-platform scheduling and distribution via Po
 
 from __future__ import annotations
 
+import asyncio
 import mimetypes
 import os
 from datetime import datetime, timezone, timedelta
@@ -168,8 +169,7 @@ class PostizAdapter(PlatformAdapter):
 
         try:
             async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
-                with open(file_path, "rb") as f:
-                    file_bytes = f.read()
+                file_bytes = await asyncio.to_thread(Path(file_path).read_bytes)
 
                 files = {"file": (file_name, file_bytes, content_type)}
                 resp = await client.post(

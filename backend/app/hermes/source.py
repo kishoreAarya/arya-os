@@ -182,6 +182,7 @@ def _git_identity(source_root: Path) -> tuple[str, str] | None:
             capture_output=True,
             text=True,
             timeout=_GIT_TIMEOUT_SECONDS,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return None

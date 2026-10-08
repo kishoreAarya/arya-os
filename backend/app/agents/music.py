@@ -116,9 +116,6 @@ class MusicAgent(BaseAgent):
             aspect_ratio=aspect_ratio,
         )
 
-        provider_override = context.get("provider") or context.get("music_provider")
-        model_override = context.get("model") or context.get("music_model")
-
         exec_result = await self._execution_engine.execute(
             capability=Capability.MUSIC_GENERATION,
             call=build_media_generation_call(

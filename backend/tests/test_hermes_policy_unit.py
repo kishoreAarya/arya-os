@@ -386,5 +386,6 @@ def test_no_hermes_import_and_no_side_effects():
         capture_output=True,
         text=True,
         timeout=60,
+        check=False,
     )
     assert result.returncode == 0, result.stderr

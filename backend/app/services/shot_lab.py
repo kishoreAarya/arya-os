@@ -845,7 +845,9 @@ class ShotLab:
                     ffprobe, "-v", "error", "-show_entries", "format=duration",
                     "-of", "default=noprint_wrappers=1:nokey=1", video_path
                 ]
-                res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                res = await asyncio.to_thread(
+                    subprocess.run, cmd, capture_output=True, text=True, check=False
+                )
                 if res.returncode == 0:
                     duration = float(res.stdout.strip())
             except Exception:

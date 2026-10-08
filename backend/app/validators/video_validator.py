@@ -348,7 +348,7 @@ class VideoValidator(BaseValidator):
             file_path,
         ]
         try:
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=15, check=False)
             if res.returncode != 0:
                 return ValidationResult(
                     passed=False,

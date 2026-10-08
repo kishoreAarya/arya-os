@@ -226,7 +226,7 @@ async def test_assembler_merge_audio_video_preserves_audio_no_shortest(tmp_path:
 
         mock_to_thread.side_effect = fake_run
 
-        merged_result = await assembler._merge_audio_video(
+        await assembler._merge_audio_video(
             video_path="/tmp/clip.mp4",
             audio_path="/tmp/narration.mp3",
             tmp_dir=tmp_path,

@@ -269,6 +269,6 @@ def test_module_does_not_import_hermes():
         "    for mod in sys.modules), 'toolsets module imported Hermes'\n"
     )
     result = subprocess.run(
-        [_sys.executable, "-c", code], capture_output=True, text=True, timeout=60
+        [_sys.executable, "-c", code], capture_output=True, text=True, timeout=60, check=False
     )
     assert result.returncode == 0, result.stderr

@@ -25,6 +25,9 @@ def _reject_bool(value: object) -> object:
     # bool is a subclass of int, so pydantic's lax mode would silently coerce
     # True/False into 1/0 limits. Hermes limits reject bools instead: invalid
     # configuration fails, it is never coerced (HERMES_INTEGRATION_SPEC §12).
+    # ValueError (not TypeError) is deliberate: pydantic's BeforeValidator
+    # contract converts ValueError into a ValidationError; TypeError would
+    # propagate raw and change the public failure mode.
     if isinstance(value, bool):
         raise ValueError("boolean is not a valid numeric Hermes setting")
     return value

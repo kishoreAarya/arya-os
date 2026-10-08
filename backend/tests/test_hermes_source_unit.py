@@ -414,7 +414,7 @@ def test_verification_does_not_import_hermes(tmp_path):
         f"assert not any(name in sys.modules for name in {HERMES_MODULES!r}), 'source verification imported Hermes'\n"
     )
     result = subprocess.run(
-        [_sys.executable, "-c", code], capture_output=True, text=True, timeout=120
+        [_sys.executable, "-c", code], capture_output=True, text=True, timeout=120, check=False
     )
     assert result.returncode == 0, result.stderr
 

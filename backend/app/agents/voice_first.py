@@ -5,7 +5,9 @@ This is the foundation of the voice-first workflow. Everything else
 """
 
 import re
+import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 

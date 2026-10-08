@@ -9,6 +9,7 @@ those are supporting files regenerated fresh each run, not iterated
 on with approve/reject cycles.
 """
 import uuid
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -17,6 +18,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.base import Base
 from app.models.enums import PublishStatus
 from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin, VersionedAssetMixin
+
+if TYPE_CHECKING:
+    from app.models.core import WorkflowRun
 
 
 class Image(Base, UUIDPrimaryKeyMixin, TimestampMixin, VersionedAssetMixin):

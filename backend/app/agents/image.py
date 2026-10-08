@@ -82,7 +82,7 @@ class ImageAgent(BaseAgent):
             context.get("num_keyframe_candidates")
             or context.get("num_outputs")
             or context.get("keyframe_candidates")
-            or os.environ.get("VISUAL_KEYFRAME_CANDIDATES", 1)
+            or os.environ.get("VISUAL_KEYFRAME_CANDIDATES", "1")
         )
         try:
             num_candidates = max(1, min(4, int(raw_cand)))
