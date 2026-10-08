@@ -61,6 +61,13 @@ jobs:
           context: .
           file: docker/Dockerfile.backend
           push: false
+          # Cause-D: buildx's default export is none when push is false,
+          # so the GHA-cache-only build left arya-os-backend:ci absent
+          # from the runner's daemon and the smoke test's docker run
+          # fell through to a registry pull (exit 125). load exports
+          # type=docker into the local daemon — single-platform build,
+          # so this is supported.
+          load: true
           tags: arya-os-backend:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -68,9 +75,14 @@ jobs:
       - name: Smoke-test the built image
         # Confirms the container actually starts and the process is
         # alive — does not hit /health, since that needs live
-        # Postgres/Redis (covered by test.yml, not here).
+        # Postgres/Redis (covered by test.yml, not here). The entrypoint
+        # fail-fasts on alembic migrations when no database is reachable
+        # (docker/entrypoint.sh), so the liveness check uses the
+        # entrypoint's own supported AUTO_RUN_MIGRATIONS=false knob;
+        # the migration path itself is exercised by test.yml against
+        # the real Postgres service container.
         run: |
-          docker run -d --name arya-backend-ci -p 8000:8000 arya-os-backend:ci
+          docker run -d --name arya-backend-ci -p 8000:8000 -e AUTO_RUN_MIGRATIONS=false arya-os-backend:ci
           sleep 5
           docker ps --filter "name=arya-backend-ci" --filter "status=running" | grep arya-backend-ci
           docker logs arya-backend-ci
