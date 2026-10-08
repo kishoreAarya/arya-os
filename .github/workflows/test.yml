@@ -133,6 +133,20 @@ jobs:
             echo "No migrations found under alembic/versions/ yet — skipping."
           fi
 
+      - name: Install ffmpeg (test dependency)
+        # Cause-4: the image-motion, sound-resolver, task16 and task19
+        # suites exercise the real ffmpeg/ffprobe binaries, which
+        # ubuntu-latest runners do not ship. Install from Ubuntu's own
+        # archive via apt (the runner's supported package manager) — no
+        # third-party actions, binary downloads, or credentials. Both
+        # binaries are verified below and the step fails closed if
+        # either is unavailable before pytest runs.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
+
       - name: Run pytest with coverage
         run: |
           uv run pytest \
