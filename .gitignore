@@ -65,3 +65,6 @@ frontend/.vite/
 
 # Phase 54B-I12: generated pip-audit input (locked third-party export)
 /requirements-audit.txt
+
+# i8 multiprocess dispatch test: runtime barrier/result artifacts
+backend/tests/_i8_mp_results/
