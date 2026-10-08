@@ -124,8 +124,16 @@ def test_llm_judge_mocked_network_call():
     mock_resp.status_code = 200
     mock_resp.json.return_value = fake_json_payload
 
-    with patch("app.core.config.get_settings") as mock_settings, \
-         patch("httpx.Client.post", return_value=mock_resp):
+    # Patch the validator's OWN get_settings binding (imported at
+    # script_story_validator.py:24 via `from app.core.config import
+    # get_settings`) — patching app.core.config.get_settings never reaches
+    # _call_llm_judge, so the test silently depended on a real ambient
+    # openrouter key (present locally via .env, absent in CI) and fell
+    # back to the 85.0 heuristic instead of the mocked 88.0 judge path.
+    with (
+        patch("app.validators.script_story_validator.get_settings") as mock_settings,
+        patch("httpx.Client.post", return_value=mock_resp),
+    ):
         mock_settings.return_value.openrouter_api_key = "sk-fake-key"
         result = validator.validate({"content": "Why is the ocean blue? In fact, water absorbs red light. Subscribe!"})
 
