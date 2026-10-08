@@ -410,7 +410,7 @@ async def test_analytics_router_latest_404_when_not_found(synthetic_api_key):
 
 
 @pytest.mark.asyncio
-async def test_analytics_router_requires_auth():
+async def test_analytics_router_requires_auth(synthetic_api_key):
     """Unauthenticated requests to /analytics endpoints return HTTP 401 Unauthorized."""
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:

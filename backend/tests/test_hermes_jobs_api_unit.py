@@ -37,13 +37,13 @@ async def anon_client():
 # 1. Authentication
 # ---------------------------------------------------------------------------
 
-async def test_submit_requires_api_key(anon_client):
+async def test_submit_requires_api_key(synthetic_api_key, anon_client):
     resp = await anon_client.post("/api/hermes/jobs", json=_submit_payload())
     assert resp.status_code == 401
     assert resp.headers.get("www-authenticate") == "Bearer"
 
 
-async def test_poll_requires_api_key(anon_client):
+async def test_poll_requires_api_key(synthetic_api_key, anon_client):
     resp = await anon_client.get(f"/api/hermes/jobs/{uuid.uuid4()}")
     assert resp.status_code == 401
 
@@ -359,7 +359,7 @@ async def test_d8f_live_lookup_run_scope_filter(client, monkeypatch):
         assert mismatch.json() == {"detail": f"Job '{wrong_id_target}' not found"}
 
 
-async def test_d8f_scope_parameter_still_requires_api_key(anon_client):
+async def test_d8f_scope_parameter_still_requires_api_key(synthetic_api_key, anon_client):
     """D8-F adds no authentication surface: the route (with or without the
     new scope parameter) remains behind the API-key boundary."""
     resp = await anon_client.get(f"/api/hermes/jobs/{uuid.uuid4()}?workflow_run_id={RUN_ID}")
@@ -498,7 +498,7 @@ async def test_restart_recovery_via_runtime_id_and_fallback(client, monkeypatch,
         settings.hermes_home = real_home
 
 
-async def test_runtime_id_polling_still_requires_api_key(anon_client):
+async def test_runtime_id_polling_still_requires_api_key(synthetic_api_key, anon_client):
     """8: runtime-id polling sits behind the same API-key dependency."""
     resp = await anon_client.get("/api/hermes/jobs/runtime-xyz")
     assert resp.status_code == 401

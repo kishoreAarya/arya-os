@@ -351,7 +351,7 @@ def test_creator_download_nonexistent_asset(auth_client):
     assert res.status_code == 404
 
 
-def test_creator_endpoints_require_auth(unauth_client):
+def test_creator_endpoints_require_auth(synthetic_api_key, unauth_client):
     """Verify /creator/upload and /creator/assets/download require Bearer token."""
     res_upload = unauth_client.post(
         "/creator/upload",

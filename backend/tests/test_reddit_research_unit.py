@@ -309,7 +309,7 @@ async def test_trend_discovery_service_includes_reddit():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_research_api_requires_auth():
+async def test_research_api_requires_auth(synthetic_api_key):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
         # Without auth header -> 401 Unauthorized

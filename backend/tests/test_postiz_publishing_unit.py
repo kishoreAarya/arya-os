@@ -342,7 +342,7 @@ def test_publishing_publish_path_traversal_blocked(auth_client):
     assert "path traversal detected" in res.json()["detail"]
 
 
-def test_publishing_requires_auth(unauth_client, temp_media_file):
+def test_publishing_requires_auth(synthetic_api_key, unauth_client, temp_media_file):
     """Verify /publishing endpoints require Bearer token."""
     res_status = unauth_client.get("/publishing/status")
     assert res_status.status_code == 401

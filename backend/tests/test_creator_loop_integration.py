@@ -638,7 +638,7 @@ async def test_creator_loop_idempotency():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_creator_loop_security_and_auth():
+async def test_creator_loop_security_and_auth(synthetic_api_key):
     """Verify that unauthenticated calls across all loop endpoints return HTTP 401."""
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
