@@ -115,6 +115,31 @@ def _admission_failure(code="runner_workflow_run_already_active", detail="busy")
     return HermesRunnerResult(hermes=None, job_id=None, error_code=code, error_detail=detail)
 
 
+class _FakeKeyManager:
+    """Yields a fixed synthetic credential so the real runner's admission
+    succeeds without reading backend/.env (which CI does not provision)."""
+
+    def __init__(self, key: str):
+        self._key = key
+
+    def get(self, name, required=True):
+        return self._key
+
+
+def _pin_synthetic_model_credential(monkeypatch, settings_key: str):
+    """Real-runtime smoke determinism: the runner's admission resolves the
+    model credential through its SecretsManager (a .env-backed boundary),
+    so pin it to the same synthetic key the test's Settings already carries.
+    No real credential is involved; the chat still targets the dead
+    endpoint."""
+    import app.services.hermes_job_runner as runner_module
+
+    monkeypatch.setattr(
+        runner_module, "get_secrets_manager",
+        lambda: _FakeKeyManager(settings_key),
+    )
+
+
 async def _submit_and_await(client, monkeypatch, result, timeout=5.0):
     """POST, wait for the background task to finish, return (submit, final)."""
     _install_runner(monkeypatch, result)
@@ -536,6 +561,7 @@ async def test_real_runtime_smoke_exposes_real_runtime_job_id(client, monkeypatc
     import app.services.hermes_job_runner as runner_module
 
     monkeypatch.setattr(runner_module, "_OPENROUTER_BASE_URL", "http://127.0.0.1:9/v1")
+    _pin_synthetic_model_credential(monkeypatch, "sk-rs1-smoke")
 
     from app.database.session import AsyncSessionLocal
     from app.models.core import Project, WorkflowRun
@@ -698,6 +724,7 @@ async def test_real_runtime_smoke_end_to_end(client, monkeypatch, tmp_path):
     import app.services.hermes_job_runner as runner_module
 
     monkeypatch.setattr(runner_module, "_OPENROUTER_BASE_URL", "http://127.0.0.1:9/v1")
+    _pin_synthetic_model_credential(monkeypatch, "sk-surface-smoke")
 
     # Seed a WorkflowRun the runner can verify, then clean up.
     from app.database.session import AsyncSessionLocal
@@ -796,6 +823,7 @@ async def test_t1_api_level_failed_job_contract(client, monkeypatch, tmp_path):
     import app.services.hermes_job_runner as runner_module
 
     monkeypatch.setattr(runner_module, "_OPENROUTER_BASE_URL", "http://127.0.0.1:9/v1")
+    _pin_synthetic_model_credential(monkeypatch, "sk-t1-surface")
 
     from app.database.session import AsyncSessionLocal
     from app.models.core import Project, WorkflowRun

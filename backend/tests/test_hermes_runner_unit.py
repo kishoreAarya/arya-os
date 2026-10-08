@@ -114,7 +114,12 @@ async def seeded_run():
 
 
 def _install_stub(monkeypatch, *, result=None, requests=None, calls=None):
-    """Stub the Hermes runtime boundary the runner invokes."""
+    """Stub the runner's external boundaries: the Hermes runtime it invokes
+    and the model-credential lookup its admission performs. The credential
+    is the file's fixed synthetic key — the real SecretsManager reads
+    backend/.env, which CI intentionally does not provision. Tests that
+    verify credential behavior install their own manager AFTER this call,
+    which then takes precedence."""
     import app.services.hermes_job_runner as runner
 
     if result is None:
@@ -133,6 +138,9 @@ def _install_stub(monkeypatch, *, result=None, requests=None, calls=None):
         return result
 
     monkeypatch.setattr(runner, "run_hermes_job", _stub)
+    monkeypatch.setattr(
+        runner, "get_secrets_manager", lambda: _FakeKeyManager("sk-runner-test")
+    )
     return seen_settings
 
 
@@ -192,8 +200,9 @@ def test_d6_configuration_sources(monkeypatch, seeded_run):
             captured["name"] = name
             return "sk-test-key"
 
-    monkeypatch.setattr(runner, "get_secrets_manager", lambda: _FakeManager())
     _install_stub(monkeypatch, requests=requests)
+    # After _install_stub so this test's own capturing manager wins.
+    monkeypatch.setattr(runner, "get_secrets_manager", lambda: _FakeManager())
     run_aryaos_hermes_job(HermesRunnerCall(
         workflow_run_id=run_id, task_message="t", user_id="u",
     ))
@@ -365,9 +374,16 @@ def test_credentials_missing_fails_closed(monkeypatch, seeded_run):
 # 6. hermes_enabled=false passthrough (REAL runtime, D4 single source)
 # ---------------------------------------------------------------------------
 
-def test_hermes_disabled_passthrough_real_runtime(seeded_run):
+def test_hermes_disabled_passthrough_real_runtime(monkeypatch, seeded_run):
     """Real run_hermes_job with the default (disabled) cached settings:
-    the existing hermes_disabled result passes through untouched."""
+    the existing hermes_disabled result passes through untouched. The
+    synthetic credential lets admission pass without backend/.env (absent
+    in CI); the disabled runtime never uses it."""
+    import app.services.hermes_job_runner as runner
+
+    monkeypatch.setattr(
+        runner, "get_secrets_manager", lambda: _FakeKeyManager("sk-runner-test")
+    )
     (_project_id, run_id), _ = seeded_run
     outcome = run_aryaos_hermes_job(HermesRunnerCall(
         workflow_run_id=run_id, task_message="t", user_id="u",
@@ -375,8 +391,6 @@ def test_hermes_disabled_passthrough_real_runtime(seeded_run):
     assert outcome.admitted
     assert outcome.hermes.status == "failed"
     assert outcome.hermes.error_code == "hermes_disabled"
-    import app.services.hermes_job_runner as runner
-
     assert not runner._ACTIVE_RUNS
 
 
