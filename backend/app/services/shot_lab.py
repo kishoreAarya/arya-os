@@ -13,16 +13,15 @@ import os
 import shutil
 import subprocess
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 from dotenv import load_dotenv
 
-from app.core.config import get_settings
 from app.core.logging import get_logger
 
 load_dotenv()
@@ -407,7 +406,9 @@ class ShotLab:
 
     def __init__(
         self,
-        output_dir: str = "/tmp/arya-task23-visual-shootout",
+        # Dev-only benchmark laboratory default (Task 23 experimentation
+        # tool); not a production request path.
+        output_dir: str = "/tmp/arya-task23-visual-shootout",  # nosec B108
         desktop_dir: str = "~/Desktop/arya-task23-visual-shootout",
     ) -> None:
         self.output_dir = Path(output_dir)
@@ -843,7 +844,9 @@ class ShotLab:
                     ffprobe, "-v", "error", "-show_entries", "format=duration",
                     "-of", "default=noprint_wrappers=1:nokey=1", video_path
                 ]
-                res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                res = await asyncio.to_thread(
+                    subprocess.run, cmd, capture_output=True, text=True, check=False
+                )
                 if res.returncode == 0:
                     duration = float(res.stdout.strip())
             except Exception:

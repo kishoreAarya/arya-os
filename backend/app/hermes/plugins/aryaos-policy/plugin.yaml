@@ -1,0 +1,3 @@
+name: aryaos-policy
+version: "1.0.0"
+description: AryaOS policy gate - the only plugin permitted in the AryaOS embedded Hermes runtime

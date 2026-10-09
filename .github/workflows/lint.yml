@@ -9,6 +9,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Least privilege: checkout is the only GITHUB_TOKEN consumer (uv cache
+# uses the Actions runtime token).
+permissions:
+  contents: read
+
 concurrency:
   group: lint-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -18,10 +23,15 @@ jobs:
     name: Ruff
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Hermes source (vendor/hermes-agent) is required by
+          # `uv sync --extra dev` (editable dependency): checkout fails
+          # closed if the pinned submodule SHA cannot be fetched.
+          submodules: recursive
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           enable-cache: true
 
@@ -38,10 +48,15 @@ jobs:
     name: Black --check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Hermes source (vendor/hermes-agent) is required by
+          # `uv sync --extra dev` (editable dependency): checkout fails
+          # closed if the pinned submodule SHA cannot be fetched.
+          submodules: recursive
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           enable-cache: true
 
@@ -51,17 +66,25 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --extra dev
 
-      - name: Run Black (check only, no reformatting)
-        run: uv run black --check --diff backend
+      - name: Run Black ratchet (no new formatting debt)
+        # Phase 2 lint policy: the repository carries 223 files of
+        # pre-existing Black debt (manifest: tools/lint/black-debt-
+        # manifest.txt). Reformatting all of them in one commit was
+        # ruled out, but the gate must not be dropped either. The
+        # ratchet FAILS on (a) any file failing `black --check` that is
+        # not in the manifest (new debt — must be formatted), and
+        # (b) manifest entries that now pass (debt was paid — the
+        # manifest must shrink). See tools/lint/black_ratchet.py.
+        run: uv run python tools/lint/black_ratchet.py backend
 
   yaml-validate:
     name: YAML Validation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
 

@@ -15,7 +15,6 @@ Design decisions:
   based_on_video_count instead of creating a duplicate row.
 """
 from abc import ABC, abstractmethod
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

@@ -14,6 +14,7 @@ Verifies end-to-end cohesion across all V1 subsystems:
 """
 
 from datetime import datetime, timezone
+import asyncio
 import json
 import os
 import tempfile
@@ -32,7 +33,6 @@ from app.api.routers.creator import (
     GenerationType,
     _execute_creator_job_background,
 )
-from app.core.config import get_settings
 from app.database.session import AsyncSessionLocal
 from app.main import app
 from app.models.analytics import Analytics
@@ -47,10 +47,15 @@ from app.services.trend_sources.base import TrendSignal
 from app.storage.local import LocalStorageProvider
 
 
+def _write_test_file(path: str, data: bytes) -> None:
+    """Blocking test-fixture writer, invoked via asyncio.to_thread."""
+    with open(path, "wb") as f:
+        f.write(data)
+
+
 @pytest.fixture
-def auth_headers():
-    settings = get_settings()
-    return {"Authorization": f"Bearer {settings.arya_api_key}"}
+def auth_headers(synthetic_api_key):
+    return {"Authorization": f"Bearer {synthetic_api_key}"}
 
 
 @pytest.fixture
@@ -163,8 +168,7 @@ async def test_workflow_to_creator_generation_integration(temp_storage_env):
     # Create deterministic local asset in storage
     test_filename = f"creator_test_img_{uuid.uuid4().hex[:8]}.png"
     test_asset_path = os.path.join(temp_dir, test_filename)
-    with open(test_asset_path, "wb") as f:
-        f.write(b"AryaOS Deterministic Creator Mode Image Bytes")
+    await asyncio.to_thread(_write_test_file, test_asset_path, b"AryaOS Deterministic Creator Mode Image Bytes")
 
     async with AsyncSessionLocal() as session:
         run = WorkflowRun(
@@ -260,7 +264,7 @@ async def test_asset_to_storage_integration(temp_storage_env):
     # 1. Deterministic asset persistence
     rel_key = "assets/v1_test_video.mp4"
     sample_bytes = b"\x00\x00\x00\x1cftypisom\x00\x00\x02\x00isomiso2mp41"
-    uploaded_path = await storage.upload(rel_key, sample_bytes, content_type="video/mp4")
+    await storage.upload(rel_key, sample_bytes, content_type="video/mp4")
 
     assert await storage.exists(rel_key) is True
     downloaded = await storage.download(rel_key)
@@ -287,8 +291,7 @@ async def test_storage_to_publishing_integration(temp_storage_env):
     # Create video file in storage
     video_filename = f"publish_video_{uuid.uuid4().hex[:8]}.mp4"
     video_path = os.path.join(temp_dir, video_filename)
-    with open(video_path, "wb") as f:
-        f.write(b"AryaOS Stored Video Content For Publishing Loop")
+    await asyncio.to_thread(_write_test_file, video_path, b"AryaOS Stored Video Content For Publishing Loop")
 
     async with AsyncSessionLocal() as session:
         run = WorkflowRun(
@@ -443,8 +446,7 @@ async def test_complete_end_to_end_creator_loop_provenance(temp_storage_env):
     # Step 3: Storage Preparation (Deterministic Asset)
     asset_filename = f"film_shot_{uuid.uuid4().hex[:8]}.mp4"
     asset_path = os.path.join(temp_dir, asset_filename)
-    with open(asset_path, "wb") as f:
-        f.write(b"AryaOS AI Filmmaking Shot 001 Bytes")
+    await asyncio.to_thread(_write_test_file, asset_path, b"AryaOS AI Filmmaking Shot 001 Bytes")
 
     # Step 4: Creator Mode Execution -> Asset Record
     async with AsyncSessionLocal() as session:
@@ -640,7 +642,7 @@ async def test_creator_loop_idempotency():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_creator_loop_security_and_auth():
+async def test_creator_loop_security_and_auth(synthetic_api_key):
     """Verify that unauthenticated calls across all loop endpoints return HTTP 401."""
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

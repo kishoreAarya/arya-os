@@ -17,6 +17,7 @@ dependencies = [
     "httpx>=0.28.1",
     "google-auth>=2.36.0",
     "google-api-python-client>=2.149.0",
+    "hermes-agent>=0.21.4",
     "pillow>=12.3.0",
 ]
 
@@ -25,6 +26,22 @@ dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
     "httpx>=0.27.0",
+    # CI tooling (.github/workflows/{lint,test,security}.yml all install
+    # `uv sync --extra dev` and then invoke these through `uv run`):
+    # lint.yml -> ruff/black; test.yml -> pytest-cov (--cov flags);
+    # security.yml -> bandit/pip-audit. Previously undeclared, so a
+    # clean runner could not provide them.
+    # EXACT PINS: lint results are version-sensitive. Ruff >=0.16 ships
+    # an expanded default rule set and Black's formatting evolves with
+    # releases, so a floating floor lets a new release silently flip CI
+    # (the Black ratchet manifest in tools/lint/ is defined against this
+    # exact version). Bump deliberately, together with the Ruff policy
+    # below and the Black debt manifest.
+    "ruff==0.16.10",
+    "black==26.10.0",
+    "pytest-cov>=7.0.0",
+    "bandit>=1.8.0",
+    "pip-audit>=2.9.0",
 ]
 storage-s3 = [
     "boto3>=1.35.0",  # only needed when STORAGE_BACKEND=s3 or r2
@@ -34,9 +51,178 @@ storage-s3 = [
 asyncio_mode = "auto"
 testpaths = ["backend/tests"]
 
+# Bandit policy (referenced by .github/workflows/security.yml's
+# `bandit -c pyproject.toml -r backend/app`). Repository-wide skips below
+# are ACCEPTED-POLICY decisions, each with its justification; everything
+# else — including B310 (unguarded URL fetch) — stays ACTIVE.
+[tool.bandit]
+skips = [
+    # B101: internal invariant asserts in the Hermes runtime/config
+    # boundary — not authentication/authorization paths.
+    "B101",
+    # B110/B112: best-effort exception swallowing is a documented
+    # codebase convention for fail-closed bookkeeping (cleanup,
+    # rollback, refresh-after-rollback); the affected blocks carry
+    # explanatory comments and never gate security decisions.
+    "B110",
+    "B112",
+    # B404/B405: bare `import subprocess`/`import ast` — imports alone
+    # carry no risk; actual invocations remain covered by B602-B607.
+    "B404",
+    "B405",
+    # B603/B607: subprocess WITHOUT shell=True is this repository's
+    # REQUIRED safe-invocation pattern (bandit flags it anyway as
+    # review-worthy); partial-path calls are limited to the pinned
+    # `git` invocation in app/hermes/source.py.
+    "B603",
+    "B607",
+    # B106: the hardcoded-password-kwarg heuristic misfires on provider
+    # capability metadata (model tuples, token limits) and on
+    # pass-through of runtime variables; every instance was
+    # source-verified in Phase 54B-I10 to carry no credential literal.
+    "B106",
+]
+
+# Ruff policy (referenced by .github/workflows/lint.yml's
+# `uv run ruff check backend`). PHASE 2: the selection below is
+# INTENTIONAL and EXPLICIT. Ruff 0.16 expanded its default rule set, so
+# an implicit (default) selection silently changed CI results between
+# releases and flagged ~600 style/modernization findings the codebase
+# was never written against. This policy gates correctness, safety, and
+# dead code only; every rule disposition below was made against the
+# actual finding list (audited per site where required).
+[tool.ruff]
+target-version = "py312"  # mirrors requires-python >= 3.12
+
+[tool.ruff.lint]
+select = [
+    # pycodestyle error classes: E9 syntax/IO errors, E4 whitespace
+    # structure, E7 statement-level mistakes. E501 (line length) is NOT
+    # selected — Black owns formatting (see the Black ratchet in
+    # lint.yml + tools/lint/), and dual-enforcing length would double
+    # the formatting debt for zero correctness value.
+    "E4", "E7", "E9",
+    # Pyflakes — the core correctness set: F821 undefined names, F811
+    # redefinition/shadowing, F841 unused locals, F401 unused imports
+    # (dead code and broken-import detection). All 51 pre-existing app
+    # findings were individually audited this phase: verified-dead
+    # imports removed; load-bearing re-export/registration imports keep
+    # documented inline noqas.
+    "F",
+    # Bugbear — latent-bug heuristics: B023 suspicious loop-variable
+    # capture in closures, B006 mutable default arguments, B008 calls
+    # in defaults (FastAPI DI exempted via extend-immutable-calls
+    # below, so the rule stays ACTIVE for everything else), B018
+    # useless expressions, and friends.
+    "B",
+    # Async correctness: ASYNC210/220/230/251 flag blocking HTTP calls,
+    # subprocess invocation, and time.sleep inside async functions
+    # (event-loop starvation). Active with zero current findings.
+    "ASYNC",
+    # Mutable class attribute without ClassVar — shared-state hazard.
+    # All 4 current findings are test doubles (per-file-ignored below);
+    # app code stays checked.
+    "RUF012",
+    # Stale `# noqa` directives. A noqa that suppresses nothing hides
+    # the day it becomes needed again; every directive flagged under
+    # this final policy was audited and pruned individually this phase.
+    "RUF100",
+]
+ignore = [
+    # ASYNC240 (os.path.* in async functions): 39 findings, all
+    # os.path.exists/isfile probes. Metadata syscalls (stat family) are
+    # non-blocking kernel calls — no event-loop starvation risk. The
+    # genuinely blocking ASYNC rules (210/220/230/251) remain active.
+    "ASYNC240",
+    # B904 (raise-without-from inside except): 14 findings, all at
+    # API/provider error-normalization boundaries that intentionally
+    # convert internal exceptions into typed public errors
+    # (api/routers/{creator,publishing,lineage}.py). Adding `from`
+    # changes exception __cause__ metadata — observable behavior — so
+    # it is deferred to a dedicated review pass rather than rewritten
+    # inside a lint-policy phase. The rule is otherwise active.
+    "B904",
+    # F541 (f-string without placeholders): cosmetic — an f prefix on a
+    # placeholder-less literal is a no-op. 23 findings (20 consecutive
+    # table literals in shot_lab.py) deferred to the formatting-debt
+    # phase alongside Black/I001.
+    "F541",
+]
+
+# DELIBERATELY NOT SELECTED (audited this phase, not blanket-disabled):
+# - S (flake8-bandit mirror): the dedicated Security workflow gates
+#   `bandit -c pyproject.toml -r backend/app` with the ACCEPTED-POLICY
+#   skips documented in [tool.bandit] above; S110/S112 would re-flag
+#   exactly the lines covered by the accepted B110/B112 skips.
+# - BLE001 (blind-except): all 121 app sites were audited this phase.
+#   Every one either logs the exception, surfaces it in a typed result
+#   (validators -> ValidationResult, orchestrator -> StageResult,
+#   postiz -> ProcessingStatus/error payloads), or is a documented
+#   fail-closed bookkeeping no-op per the accepted bandit B110/B112
+#   convention (rollback/cleanup/refresh cascades; the Hermes §13.1
+#   authorization-preserving audit sites cite the architecture
+#   contract inline). No masked defects found. Future hardening: add
+#   per-site noqas and re-enable.
+# - I (import sorting, 143 findings), UP (typing modernization, 186),
+#   ISC004 (26), C408, SIM, PLR, RET, PYI, N, PIE, FURB,
+#   RUF015/019/022/046, W: style/modernization debt with no
+#   correctness value — deferred to the same formatting-debt phase as
+#   Black so this phase requires no mass mechanical rewrite.
+
+[tool.ruff.lint.flake8-bugbear]
+# B008 default-argument calls: FastAPI's Depends()/Query() are the
+# framework's REQUIRED dependency-injection idiom (immutable route
+# markers evaluated once at definition). Declaring exactly these two
+# immutable keeps B008 ACTIVE for every other default-argument call;
+# all 36 pre-existing findings were verified to be Depends (32) or
+# Query (4) and resolve to zero under this exemption.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests are NOT excluded wholesale — every selected rule above still
+# applies to backend/tests/** except these, each for a test-specific
+# reason:
+"backend/tests/**" = [
+    # F401: pytest imports execute fixtures, register SQLAlchemy models
+    # on Base.metadata, and import the ASGI app for client fixtures —
+    # the import IS the side effect (135 findings; several load-bearing
+    # ones carry explanatory inline noqas).
+    "F401",
+    # RUF012: test doubles deliberately hold mutable class attributes
+    # (plain fakes, not dataclasses).
+    "RUF012",
+    # ASYNC109/110: test helpers legitimately define `timeout` params
+    # and poll with asyncio.sleep in while-loops. App code stays
+    # checked by both.
+    "ASYNC109",
+    "ASYNC110",
+    # E402: conftest/test modules set up sys.path, env vars, and
+    # fixtures before importing the application under test (10
+    # findings). App code stays checked.
+    "E402",
+    # E741: one dense integration-test table uses `l` as a label
+    # column name. App code stays checked.
+    "E741",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["backend/app"]
+
+[tool.uv.sources]
+hermes-agent = { path = "vendor/hermes-agent", editable = true }
+
+# Phase 54B-I13: the vendored Hermes agent pins pyjwt[crypto]==2.13.0,
+# which carries known advisories (PYSEC-2026-4142/4147/4150/4151/4183;
+# safe >= 2.15.0). The vendored tree is integrity-locked (submodule with
+# approved commit/tree SHA pins verified by app.hermes.source), so the
+# pin cannot be edited in place. This ROOT-project override — the
+# documented uv mechanism for transitive constraint conflicts — raises
+# the floor to the first safe release while keeping the [crypto] extra.
+# PyJWT 2.x API is stable (jwt.encode/decode); Hermes' dashboard-auth
+# usage is unaffected. Track the upstream Hermes pin bump for removal.
+[tool.uv]
+override-dependencies = ["pyjwt[crypto]>=2.15.0"]

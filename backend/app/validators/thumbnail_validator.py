@@ -12,7 +12,6 @@ Evaluates:
    - File integrity (valid format PNG, JPEG, WEBP)
 """
 import os
-from typing import Any
 
 from PIL import Image, ImageStat
 
@@ -74,21 +73,18 @@ class ThumbnailValidator(BaseValidator):
             inspect_path = str(storage_path)
             tmp_download_path: str | None = None
             if inspect_path.startswith(("http://", "https://")):
-                import tempfile
-                import urllib.request
+                # Phase 54B-I11 (B310): guarded Phase 47A resolution via
+                # the sync bridge — never raw urlopen.
+                from app.utils.asset_manager import ensure_local_asset_sync
+
                 try:
-                    fd, tmp_download_path = tempfile.mkstemp(suffix=".img", prefix="arya_val_thumb_")
-                    os.close(fd)
-                    req = urllib.request.Request(inspect_path, headers={"User-Agent": "AryaOS/1.0"})
-                    with urllib.request.urlopen(req, timeout=30) as resp, open(tmp_download_path, "wb") as f:
-                        f.write(resp.read())
+                    tmp_download_path = ensure_local_asset_sync(
+                        inspect_path,
+                        max_bytes=25 * 1024 * 1024,
+                        timeout_seconds=30.0,
+                    )
                     inspect_path = tmp_download_path
                 except Exception as exc:
-                    if tmp_download_path and os.path.exists(tmp_download_path):
-                        try:
-                            os.remove(tmp_download_path)
-                        except OSError:
-                            pass
                     return ValidationResult(
                         passed=False,
                         score=0.0,

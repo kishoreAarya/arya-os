@@ -255,9 +255,6 @@ def check_shot_continuity_risk(
     light_a = str(getattr(shot_a, "lighting", "") or "").lower()
     light_b = str(getattr(shot_b, "lighting", "") or "").lower()
 
-    subj_a = str(getattr(shot_a, "subject", "") or "").lower()
-    subj_b = str(getattr(shot_b, "subject", "") or "").lower()
-
     # 1. Day/Night mismatch
     is_night_a = any(k in env_a or k in light_a for k in ("night", "midnight", "dark", "moon", "candle", "flashlight"))
     is_day_a = any(k in env_a or k in light_a for k in ("day", "sunlight", "morning", "afternoon", "bright sun"))

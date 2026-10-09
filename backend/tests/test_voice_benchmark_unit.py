@@ -74,8 +74,7 @@ def test_voice_benchmark_quality_score_calculation():
 def test_quality_gate_enforcement():
     """Quality gate requires >= 8.5/10 to recommend a switch away from baseline."""
     quality_threshold = 8.5
-    
-    baseline_score = 6.06
+
     candidate_1_score = 6.86  # am_fenrir
     candidate_2_score = 7.28  # bm_george
     hypothetical_el_score = 8.90

@@ -11,7 +11,6 @@ Official REST API integration for Together AI:
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import Any
 
@@ -241,7 +240,6 @@ async def generate_video(
         payload["aspect_ratio"] = aspect_ratio
 
     timeout_secs = float(getattr(settings, "together_timeout_seconds", 300))
-    start_time = time.perf_counter()
 
     try:
         async with httpx.AsyncClient(timeout=timeout_secs) as client:

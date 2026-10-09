@@ -11,16 +11,10 @@ Orchestrates:
 
 from __future__ import annotations
 
-import os
-import shutil
-import subprocess
-import tempfile
-import uuid
 from pathlib import Path
-from typing import Any
 
 from app.core.logging import get_logger
-from app.schemas.cinematic import AmbientSoundIntent, FoleyEvent, MasterAudioPlan, SilenceInterval
+from app.schemas.cinematic import AmbientSoundIntent, FoleyEvent, SilenceInterval
 
 logger = get_logger("arya.core.sound_design")
 

@@ -22,8 +22,11 @@ from app.services.trend_sources.cache import SimpleRateLimiter
 logger = get_logger("arya.trend_sources.reddit")
 
 _REDDIT_PUBLIC_BASE = "https://www.reddit.com"
-_REDDIT_OAUTH_BASE = "https://oauth.reddit.com"
-_REDDIT_TOKEN_URL = "https://www.reddit.com/api/v1/access_token"
+# A URL endpoint constant, not a credential; the name merely matches
+# the oauth heuristic.
+_REDDIT_OAUTH_BASE = "https://oauth.reddit.com"  # nosec B105
+# Same heuristic as above: endpoint constants, not credentials.
+_REDDIT_TOKEN_URL = "https://www.reddit.com/api/v1/access_token"  # nosec B105
 
 _COMMON_DISCUSSION_WORDS = {
     "what", "why", "how", "best", "vs", "versus", "anyone", "issue", "question",

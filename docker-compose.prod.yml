@@ -13,12 +13,26 @@ networks:
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     container_name: arya-postgres-prod
     restart: unless-stopped
+    # Phase 49B (Tier-1): block privilege escalation via setuid bits and cap
+    # runaway process spawning.
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    # Phase 52B-2 (Tier-2): run directly as the image's postgres user — the
+    # entrypoint's root path (chown + gosu demotion) is skipped for non-root
+    # starts, which it explicitly supports (52B-0 extracted-entrypoint
+    # evidence); PGDATA volume is already postgres-owned. read_only is
+    # deliberately DEFERRED: the /var/run/postgresql socket directory lives
+    # on the root filesystem.
+    user: postgres
+    cap_drop:
+      - ALL
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-arya}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?ERROR: POSTGRES_PASSWORD must be set in production}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?ERROR: POSTGRES_PASSWORD must be set in production}"
       POSTGRES_DB: ${POSTGRES_DB:-arya_os}
     # Database is strictly internal to arya-net; NOT published to public internet
     networks:
@@ -33,16 +47,45 @@ services:
       start_period: 10s
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     container_name: arya-redis-prod
     restart: unless-stopped
+    # Phase 49B (Tier-1): privilege-escalation guard + process limit.
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    # Phase 52B-1 (Tier-2): run directly as the image's redis user (the
+    # entrypoint's root->setpriv demotion is skipped for non-root starts —
+    # extracted-entrypoint evidence in 52B-0), drop all capabilities, and
+    # keep the root filesystem read-only; Redis writes only to the /data
+    # volume (RDB snapshots), so no tmpfs is required.
+    user: redis
+    cap_drop:
+      - ALL
+    read_only: true
     # Redis is strictly internal to arya-net; NOT published to public internet
+    # L-7: Redis REQUIRES authentication — no unauthenticated fallback.
+    # REDIS_PASSWORD must be set in .env; compose fails at configuration
+    # time if it is unset/empty. The password reaches the server via this
+    # command and the container-local healthcheck environment only.
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "${REDIS_PASSWORD:?ERROR: REDIS_PASSWORD must be set in production}",
+      ]
+    environment:
+      # Consumed only by this container's healthcheck; never published.
+      REDIS_PASSWORD: "${REDIS_PASSWORD:?ERROR: REDIS_PASSWORD must be set in production}"
     networks:
       - arya-net
     volumes:
       - arya_redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # L-7: authenticated PING — reads the container-local REDIS_PASSWORD
+      # ($$ escapes compose interpolation); no secret is written into this
+      # file, and the healthcheck still proves real command availability.
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -54,6 +97,22 @@ services:
       dockerfile: docker/Dockerfile.backend
     container_name: arya-backend-prod
     restart: unless-stopped
+    # Phase 49B (Tier-1): the image already runs as non-root appuser
+    # (Dockerfile USER) and needs no Linux capabilities — drop all.
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    cap_drop:
+      - ALL
+    # Phase 52B-3 (Tier-2): read-only root filesystem — the only required
+    # writable paths are the /app/data/storage volume (persistent artifacts)
+    # and /tmp (asset tempfiles + ffmpeg scratch; sized against the 50 MB
+    # per-asset cap with headroom). mode=1777 because tmpfs mounts default
+    # to root-owned; appuser is uid 1001. pyc writes are silently skipped
+    # on RO rootfs (harmless). Migrations are a no-op at the applied head.
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m,mode=1777
     environment:
       APP_ENV: production
       DEBUG: "false"
@@ -65,13 +124,62 @@ services:
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "60"
       AUTO_RUN_MIGRATIONS: "true"
       API_AUTH_ENABLED: "true"
-      ARYA_API_KEY: ${ARYA_API_KEY:?ERROR: ARYA_API_KEY must be set in production}
+      ARYA_API_KEY: "${ARYA_API_KEY:?ERROR: ARYA_API_KEY must be set in production}"
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-arya}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-arya_os}
-      REDIS_URL: redis://redis:6379/0
+      # L-7: authenticated REDIS_URL, constructed from the same
+      # REDIS_PASSWORD the Redis server enforces above so client and
+      # server credentials can never drift. Fail-fast if unset — the
+      # previous unauthenticated redis://redis:6379/0 shape is gone.
+      REDIS_URL: "redis://:${REDIS_PASSWORD:?ERROR: REDIS_PASSWORD must be set in production}@redis:6379/0"
       STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
       STORAGE_LOCAL_PATH: /app/data/storage
-    env_file:
-      - .env
+      APP_NAME: ${APP_NAME:-arya-os}
+      # --- Scheduler / feature flags ---
+      ENABLE_BACKGROUND_SCHEDULER: ${ENABLE_BACKGROUND_SCHEDULER:-true}
+      ENABLE_LEARNING_LOOP: ${ENABLE_LEARNING_LOOP:-true}
+      ENABLE_AUTONOMOUS_PUBLISHING: ${ENABLE_AUTONOMOUS_PUBLISHING:-false}
+      ENABLE_EXPERIMENTAL_THUMBNAIL_AGENT: ${ENABLE_EXPERIMENTAL_THUMBNAIL_AGENT:-false}
+      ENABLE_NEW_IMAGE_MODEL: ${ENABLE_NEW_IMAGE_MODEL:-false}
+      ENABLE_NEW_VALIDATOR: ${ENABLE_NEW_VALIDATOR:-false}
+      # --- Storage (optional object storage) ---
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+      STORAGE_ENDPOINT_URL: ${STORAGE_ENDPOINT_URL:-}
+      STORAGE_REGION: ${STORAGE_REGION:-}
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-}
+      STORAGE_PUBLIC_BASE_URL: ${STORAGE_PUBLIC_BASE_URL:-}
+      # --- LLM providers (optional; empty = not configured) ---
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL:-deepseek/deepseek-chat}
+      # --- Media providers (optional) ---
+      RUNPOD_API_KEY: ${RUNPOD_API_KEY:-}
+      FAL_API_KEY: ${FAL_API_KEY:-}
+      REPLICATE_API_KEY: ${REPLICATE_API_KEY:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-JBFqnCBsd6RMkjVDRZzb}
+      ELEVENLABS_MODEL_ID: ${ELEVENLABS_MODEL_ID:-eleven_turbo_v2_5}
+      DEFAULT_VOICE_PROVIDER: ${DEFAULT_VOICE_PROVIDER:-elevenlabs}
+      DEFAULT_VIDEO_PROVIDER: ${DEFAULT_VIDEO_PROVIDER:-kling}
+      # --- Tunables ---
+      API_TIMEOUT_SECONDS: ${API_TIMEOUT_SECONDS:-60}
+      MAX_RETRY_ATTEMPTS: ${MAX_RETRY_ATTEMPTS:-3}
+      MAX_COST_PER_VIDEO_USD: ${MAX_COST_PER_VIDEO_USD:-5.00}
+      QUALITY_THRESHOLD: ${QUALITY_THRESHOLD:-70.0}
+      IMAGE_RESOLUTION: ${IMAGE_RESOLUTION:-1024x1024}
+      VIDEO_FPS: ${VIDEO_FPS:-30}
+      # --- Publishing integrations (optional) ---
+      POSTIZ_BASE_URL: ${POSTIZ_BASE_URL:-http://localhost:4007}
+      POSTIZ_API_KEY: ${POSTIZ_API_KEY:-}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID:-}
+      YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET:-}
+      YOUTUBE_REFRESH_TOKEN: ${YOUTUBE_REFRESH_TOKEN:-}
+      YOUTUBE_CHANNEL_ID: ${YOUTUBE_CHANNEL_ID:-}
+    # Phase 31: least-privilege environment (Phase 30 audit) — env_file
+    # removed so the backend no longer receives the entire .env.
     ports:
       - "${BACKEND_BIND_IP:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
     networks:
@@ -92,9 +200,11 @@ services:
       start_period: 20s
 
 volumes:
+  # Phase 34: explicit environment-scoped physical names so dev and prod can
+  # never resolve to the same volume, even if run from the same project dir.
   arya_postgres_data:
-    name: arya_postgres_data
+    name: arya_os_prod_postgres_data
   arya_redis_data:
-    name: arya_redis_data
+    name: arya_os_prod_redis_data
   arya_storage_data:
-    name: arya_storage_data
+    name: arya_os_prod_storage_data

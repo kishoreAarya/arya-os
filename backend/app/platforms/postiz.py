@@ -8,10 +8,16 @@ Implements PlatformAdapter for multi-platform scheduling and distribution via Po
 - Connected integrations retrieval (/public/v1/integrations)
 - Post status synchronization (/public/v1/posts/{id})
 - Safe dry-run mode for pre-flight validation without public publishing
+- Truthful failure contract for the operator publishing path: confirmed
+  rejections (HTTP 4xx) and provably pre-dispatch failures (connection
+  never established) return failure results (FAILED); ambiguous
+  post-submission outcomes (transport exceptions mid-exchange, HTTP 5xx)
+  RAISE so the caller records UNKNOWN — never FAILED without evidence.
 """
 
 from __future__ import annotations
 
+import asyncio
 import mimetypes
 import os
 from datetime import datetime, timezone, timedelta
@@ -34,6 +40,23 @@ from app.platforms.base import (
 )
 
 logger = get_logger("arya.platforms.postiz")
+
+# F-13a (ratified): provider-derived response/exception text is bounded
+# and sanitized before it is embedded in any error string — control
+# characters stripped, length capped at 1000 characters with an explicit
+# deterministic truncation marker. Diagnostic prefixes and status codes
+# live OUTSIDE the sanitized component and are unaffected.
+_PROVIDER_TEXT_LIMIT = 1000
+
+
+def _provider_text(raw: object, *, limit: int = _PROVIDER_TEXT_LIMIT) -> str:
+    """Bounded, sanitized provider-derived text (F-13a)."""
+    text = "" if raw is None else str(raw)
+    cleaned = "".join(ch for ch in text if not (ch < "\x20" or "\x7f" <= ch <= "\x9f"))
+    if len(cleaned) > limit:
+        dropped = len(cleaned) - limit
+        return cleaned[:limit] + f"… [truncated {dropped} chars]"
+    return cleaned
 
 
 class PostizAdapter(PlatformAdapter):
@@ -146,8 +169,7 @@ class PostizAdapter(PlatformAdapter):
 
         try:
             async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
-                with open(file_path, "rb") as f:
-                    file_bytes = f.read()
+                file_bytes = await asyncio.to_thread(Path(file_path).read_bytes)
 
                 files = {"file": (file_name, file_bytes, content_type)}
                 resp = await client.post(
@@ -156,14 +178,35 @@ class PostizAdapter(PlatformAdapter):
                     files=files,
                 )
 
+                if resp.status_code >= 500:
+                    # Server-side failure AFTER the upload reached Postiz:
+                    # the provider may still hold the media. Not a confirmed
+                    # rejection — raise so the operator path records UNKNOWN
+                    # (ratified §2/§11).
+                    raise RuntimeError(
+                        f"Postiz media upload returned HTTP {resp.status_code}: outcome ambiguous"
+                    )
                 if resp.status_code >= 400:
                     return UploadResult(
                         success=False,
-                        error=f"Postiz media upload failed with HTTP {resp.status_code}: {resp.text}",
+                        error=f"Postiz media upload failed with HTTP {resp.status_code}: {_provider_text(resp.text)}",
                     )
 
                 data = resp.json()
-                content_id = data.get("id") or data.get("path") or file_name
+                content_id = data.get("id") or data.get("path")
+                if content_id is None or not str(content_id).strip():
+                    # F-15a (ratified): ambiguous upload success — the
+                    # provider accepted the media (2xx) but returned no
+                    # parseable provider identifier. NEVER fabricate an
+                    # anchor from the local file name (a fabricated anchor
+                    # poisons the crash-recovery anchor and the evidence
+                    # channel). Raise so the operator path records UNKNOWN
+                    # — mirroring the ratified publish-side contract (F-06).
+                    raise RuntimeError(
+                        f"Postiz media upload succeeded (HTTP {resp.status_code}) "
+                        "but the response contained no parseable media id: "
+                        "outcome ambiguous"
+                    )
                 url = data.get("path") or data.get("url")
                 return UploadResult(
                     success=True,
@@ -171,12 +214,22 @@ class PostizAdapter(PlatformAdapter):
                     storage_path=file_path,
                     url=url,
                 )
-        except Exception as exc:
-            logger.error("postiz_upload_exception", error=str(exc))
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            # The connection was never established: the request was not
+            # sent, so no external side effect is possible. Retryable
+            # pre-submission failure (ratified FAILED definition).
+            logger.error("postiz_upload_unreachable", error=str(exc))
             return UploadResult(
                 success=False,
-                error=f"Postiz upload exception: {exc}",
+                error=f"Postiz unreachable before upload (request not sent): {exc}",
             )
+        except Exception as exc:
+            # The request may have reached the provider (timeout
+            # mid-exchange, dropped connection, unparseable success
+            # response): outcome ambiguous. Raise so the caller records
+            # UNKNOWN — never FAILED without evidence (ratified §2/§11).
+            logger.error("postiz_upload_exception", error=str(exc))
+            raise
 
     async def upload_thumbnail(
         self,
@@ -299,10 +352,19 @@ class PostizAdapter(PlatformAdapter):
                     json=payload,
                 )
 
+                if resp.status_code >= 500:
+                    # Server-side failure AFTER the post creation reached
+                    # Postiz: the post may still have been created (e.g. a
+                    # gateway timeout after the backend committed). Not a
+                    # confirmed rejection — raise so the operator path
+                    # records UNKNOWN (ratified §2/§11).
+                    raise RuntimeError(
+                        f"Postiz post creation returned HTTP {resp.status_code}: outcome ambiguous"
+                    )
                 if resp.status_code >= 400:
                     return PublishResult(
                         success=False,
-                        error=f"Postiz post creation failed with HTTP {resp.status_code}: {resp.text}",
+                        error=f"Postiz post creation failed with HTTP {resp.status_code}: {_provider_text(resp.text)}",
                     )
 
                 data = resp.json()
@@ -312,22 +374,44 @@ class PostizAdapter(PlatformAdapter):
                 elif isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
                     post_id = data[0].get("id") or data[0].get("postId")
 
+                if post_id is None or not str(post_id).strip():
+                    # Ambiguous success: the provider accepted the request
+                    # (2xx) but returned no parseable post id. The post may
+                    # exist — NEVER fabricate an id (a fabricated id poisons
+                    # the evidence channel and locks the duplicate guard on
+                    # an unresolvable identity). Raise so the operator path
+                    # records UNKNOWN (same contract as 5xx ambiguity).
+                    raise RuntimeError(
+                        f"Postiz post creation succeeded (HTTP {resp.status_code}) "
+                        "but the response contained no parseable post id: outcome ambiguous"
+                    )
+
                 pub_status = "published" if publish_type == "now" else "scheduled"
                 if publish_type == "draft":
                     pub_status = "draft"
 
                 return PublishResult(
                     success=True,
-                    published_content_id=str(post_id or uuid.uuid4()),
+                    published_content_id=str(post_id),
                     publish_status=pub_status,
                     url=f"{self._base_url}/posts/{post_id}" if post_id else None,
                 )
-        except Exception as exc:
-            logger.error("postiz_publish_exception", error=str(exc))
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+            # The connection was never established: the request was not
+            # sent, so no external side effect is possible. Retryable
+            # pre-submission failure (ratified FAILED definition).
+            logger.error("postiz_publish_unreachable", error=str(exc))
             return PublishResult(
                 success=False,
-                error=f"Postiz publish network error: {exc}",
+                error=f"Postiz unreachable before publish (request not sent): {exc}",
             )
+        except Exception as exc:
+            # The post creation may have reached the provider (timeout
+            # mid-exchange, dropped connection, unparseable success
+            # response): outcome ambiguous. Raise so the caller records
+            # UNKNOWN — never FAILED without evidence (ratified §2/§11).
+            logger.error("postiz_publish_exception", error=str(exc))
+            raise
 
     # ------------------------------------------------------------------
     # Status Synchronization & URLs
@@ -368,8 +452,22 @@ class PostizAdapter(PlatformAdapter):
                         posts_list = posts_data.get("posts", []) if isinstance(posts_data, dict) else posts_data
                         matching = next((p for p in posts_list if p.get("id") == content_id), None)
                         if matching:
-                            state = (matching.get("state") or matching.get("status") or "ready").lower()
-                            normalized_status = "ready" if state in ("published", "draft", "ready") else "processing"
+                            # Draft is NOT ready — consistent with the direct
+                            # lookup branch: a draft post has not been
+                            # published. A missing state fails closed, never
+                            # ready (evidence integrity for -> SUCCEEDED
+                            # resolutions).
+                            state = str(
+                                matching.get("state") or matching.get("status") or ""
+                            ).strip().lower()
+                            if not state:
+                                return ProcessingStatus(
+                                    status="unknown",
+                                    error="Postiz list fallback matched the post without a state field",
+                                )
+                            normalized_status = (
+                                "ready" if state in ("published", "ready") else "processing"
+                            )
                             return ProcessingStatus(
                                 status=normalized_status,
                                 progress_percent=100.0 if normalized_status == "ready" else 50.0,
@@ -378,18 +476,27 @@ class PostizAdapter(PlatformAdapter):
                 if resp.status_code >= 400:
                     return ProcessingStatus(
                         status="unknown",
-                        error=f"HTTP {resp.status_code}: {resp.text}",
+                        error=f"HTTP {resp.status_code}: {_provider_text(resp.text)}",
                     )
 
                 data = resp.json()
-                state = (data.get("status") or "ready").lower()
+                # Fail-closed evidence: a missing provider status is NEVER
+                # interpreted as ready — "ready" (the verification basis for
+                # -> SUCCEEDED resolutions) requires the provider to
+                # actually state the post is published.
+                state = str(data.get("status") or "").strip().lower()
+                if not state:
+                    return ProcessingStatus(
+                        status="unknown",
+                        error="Postiz post response contained no status field",
+                    )
                 normalized_status = "ready" if state in ("published", "ready") else "processing"
                 return ProcessingStatus(
                     status=normalized_status,
                     progress_percent=100.0 if normalized_status == "ready" else 50.0,
                 )
         except Exception as exc:
-            return ProcessingStatus(status="unknown", error=str(exc))
+            return ProcessingStatus(status="unknown", error=_provider_text(exc))
 
     async def fetch_url(
         self,
@@ -430,7 +537,7 @@ class PostizAdapter(PlatformAdapter):
                 if resp.status_code == 404:
                     return {"error": f"Postiz analytics not found for post {published_content_id}"}
                 if resp.status_code >= 400:
-                    return {"error": f"Postiz analytics error ({resp.status_code}): {resp.text}"}
+                    return {"error": f"Postiz analytics error ({resp.status_code}): {_provider_text(resp.text)}"}
 
                 raw_data = resp.json()
                 if isinstance(raw_data, dict) and raw_data.get("error"):

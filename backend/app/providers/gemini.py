@@ -8,11 +8,14 @@ files read as obviously-the-same-shape:
     await gemini.generate_text(prompt=prompt, api_key=api_key, model=model)
     -> (text: str, cost_usd: float)
 
-The one real difference is auth: Gemini takes the key as a `?key=`
-query param on `generateContent`, not an `Authorization: Bearer`
-header — everything else (timeout source, error taxonomy, logging
-event names, retry/fallback compatibility) is identical to
-openrouter.py on purpose.
+The one real difference is auth: Gemini takes the key via the
+`x-goog-api-key` request header on `generateContent`, not an
+`Authorization: Bearer` header — everything else (timeout source,
+error taxonomy, logging event names, retry/fallback compatibility)
+is identical to openrouter.py on purpose.
+
+(The header replaces an earlier `?key=` query parameter, which leaked
+the key into URLs, proxy logs, and error telemetry.)
 
 Not wired into any agent's `call_provider` closure by this change —
 those closures (`agents/trend.py`, `agents/storyboard.py`) currently
@@ -50,7 +53,7 @@ async def generate_text(prompt: str, api_key: str, model: str) -> tuple[str, flo
 
     try:
         async with httpx.AsyncClient(timeout=settings.api_timeout_seconds) as client:
-            response = await client.post(url, json=payload, params={"key": api_key})
+            response = await client.post(url, json=payload, headers={"x-goog-api-key": api_key})
     except httpx.TimeoutException as exc:
         log.warning("provider_request_timeout", error=str(exc))
         raise RuntimeError(f"Gemini timed out: {exc}") from exc

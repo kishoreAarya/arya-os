@@ -120,7 +120,7 @@ async def call_with_fallback(
                 duration_seconds=duration,
                 attempt_errors=attempt_errors,
             )
-        except Exception as exc:  # noqa: BLE001 — any failure triggers fallback, by design
+        except Exception as exc:  # any failure triggers fallback, by design
             duration = time.monotonic() - started
             attempt_errors[provider.name] = str(exc)
             await log_event(

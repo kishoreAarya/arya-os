@@ -41,6 +41,7 @@ client_secret.json
 
 # Local database
 arya.db
+backup_*.sql
 
 # Logs
 *.log
@@ -54,7 +55,16 @@ scratch/
 data/
 data/storage/
 
+# Generated Hermes source record (build-boundary output; see app.hermes.source)
+backend/app/hermes/source_record.json
+
 # Frontend dependencies and build output
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+
+# Phase 54B-I12: generated pip-audit input (locked third-party export)
+/requirements-audit.txt
+
+# i8 multiprocess dispatch test: runtime barrier/result artifacts
+backend/tests/_i8_mp_results/

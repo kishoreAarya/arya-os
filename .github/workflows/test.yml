@@ -12,6 +12,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Least privilege: checkout (incl. public Hermes submodule) is the only
+# GITHUB_TOKEN consumer; upload-artifact uses the Actions runtime token.
+permissions:
+  contents: read
+
 concurrency:
   group: test-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -36,30 +41,28 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     env:
       APP_ENV: test
       DEBUG: "false"
       LOG_LEVEL: WARNING
       DATABASE_URL: postgresql+asyncpg://arya:test_password@localhost:5432/arya_os_test
-      REDIS_URL: redis://localhost:6379/0
+      # L-7: authenticated Redis URL. The embedded password is a synthetic,
+      # non-secret test credential (same posture as POSTGRES_PASSWORD above)
+      # and is the single source of truth for the Redis started below.
+      REDIS_URL: redis://:arya-ci-synthetic-redis-password@localhost:6379/0
       STORAGE_BACKEND: local
       STORAGE_LOCAL_PATH: ./data/storage
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Hermes source (vendor/hermes-agent) is part of the test
+          # environment: checkout fails closed if the pinned submodule
+          # SHA cannot be fetched.
+          submodules: recursive
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           enable-cache: true
 
@@ -69,6 +72,12 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      - name: Verify Hermes source and generate source record
+        # Verifies the submodule's commit and tree SHAs against the
+        # approved pins, then emits backend/app/hermes/source_record.json.
+        # Any mismatch or missing source fails this job (spec §2/§14.1).
+        run: uv run python -m app.hermes.source
+
       - name: Wait for Postgres
         run: |
           until pg_isready -h localhost -p 5432 -U arya; do
@@ -76,6 +85,40 @@ jobs:
           done
         env:
           PGPASSWORD: test_password
+
+      - name: Start authenticated Redis
+        # L-7: the test Redis REQUIRES authentication (GitHub Actions
+        # service containers cannot append a server command, so Redis runs
+        # via docker run). The password is extracted from REDIS_URL — the
+        # same synthetic credential embedded above — so server and client
+        # can never drift. It is passed to the container as an environment
+        # variable (not on the healthcheck command line) and never echoed.
+        run: |
+          password="$(printf '%s' "$REDIS_URL" | sed -E 's#^redis://:([^@]+)@.*/#\1#')"
+          if [ -z "$password" ] || [ "$password" = "$REDIS_URL" ]; then
+            echo "REDIS_URL does not carry an embedded password"; exit 1;
+          fi
+          # R4/Phase 50C: immutable multi-architecture OCI index digest
+          # (linux/amd64 + linux/arm64/v8 verified via registry metadata),
+          # aligned with the dev/prod Compose pin. Manually maintained:
+          # Dependabot's docker ecosystem covers /docker (Dockerfile) only,
+          # so tag movement is NOT tracked here — update deliberately,
+          # together with docker-compose*.yml.
+          docker run -d --name arya-test-redis \
+            -p 6379:6379 \
+            -e REDIS_PASSWORD="$password" \
+            --health-cmd 'redis-cli --no-auth-warning -a "$REDIS_PASSWORD" ping | grep -q PONG' \
+            --health-interval 5s \
+            --health-timeout 5s \
+            --health-retries 10 \
+            redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99 --requirepass "$password"
+
+      - name: Wait for Redis
+        run: |
+          password="$(printf '%s' "$REDIS_URL" | sed -E 's#^redis://:([^@]+)@.*/#\1#')"
+          until docker exec arya-test-redis redis-cli --no-auth-warning -a "$password" ping 2>/dev/null | grep -q PONG; do
+            echo "waiting for redis..."; sleep 2;
+          done
 
       - name: Apply migrations
         # No migration files exist in alembic/versions/ yet (see
@@ -90,6 +133,20 @@ jobs:
             echo "No migrations found under alembic/versions/ yet — skipping."
           fi
 
+      - name: Install ffmpeg (test dependency)
+        # Cause-4: the image-motion, sound-resolver, task16 and task19
+        # suites exercise the real ffmpeg/ffprobe binaries, which
+        # ubuntu-latest runners do not ship. Install from Ubuntu's own
+        # archive via apt (the runner's supported package manager) — no
+        # third-party actions, binary downloads, or credentials. Both
+        # binaries are verified below and the step fails closed if
+        # either is unavailable before pytest runs.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
+
       - name: Run pytest with coverage
         run: |
           uv run pytest \
@@ -99,7 +156,7 @@ jobs:
             --cov-fail-under=0
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: coverage-report

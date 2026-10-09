@@ -36,13 +36,16 @@ and data integrity in this backend.
 cp .env.example .env
 # edit .env with real Postgres/Redis passwords and provider keys as you get them
 
-docker compose up --build
+docker compose up
+# the backend runs the validated pinned image arya-os-backend:phase20-pinned;
+# `docker compose up` does not rebuild it — rebuild explicitly when needed:
+#   docker build -f docker/Dockerfile.backend -t arya-os-backend:phase20-pinned .
 ```
 
 Then check:
 - `http://localhost:8000/` → `{"service": "arya-os", "status": "running", "sprint": 1}`
 - `http://localhost:8000/health` → confirms Postgres + Redis connectivity
-- `http://localhost:5678` → n8n dashboard (login with N8N_BASIC_AUTH_USER/PASSWORD)
+- `http://localhost:5678` → n8n dashboard (complete the first-run owner setup in the UI, then log in with that owner account)
 
 ## Local dev (without Docker, for fast iteration)
 
@@ -178,6 +181,18 @@ wrapper classes. Add functions here as real query needs come up.
 No internal event bus was added. Redis is still only wired for
 caching/temporary state; the flow remains n8n -> REST -> FastAPI ->
 Database.
+
+Redis authentication contract (L-7): Redis requires a password in every
+environment (`REDIS_PASSWORD` in `.env`; compose fails fast if unset —
+generate it with `openssl rand -hex 32`, which is URL-safe). `REDIS_URL`
+remains the single application-level Redis contract and is constructed
+inside Compose from `REDIS_PASSWORD` (`redis://:<password>@redis:6379/0`);
+set it manually only for host-run (non-Compose) development. `REDIS_HOST` /
+`REDIS_PORT` are not application configuration and are not consumed by
+anything. Exposure is unchanged: dev Redis stays bound to `127.0.0.1:6379`,
+production Redis stays unpublished on the internal network. Never log a
+credential-bearing `REDIS_URL`, and it is deliberately scrubbed from the
+environment seen by Hermes (see `backend/app/hermes/env_scrub.py`).
 
 ## Hardening Pass 3 — Providers, Config, Ops
 
@@ -429,5 +444,24 @@ response = client.get("/agents/")
 2. Always deploy Arya OS behind TLS (HTTPS) via a reverse proxy (e.g. Caddy, Traefik, Nginx, or Cloudflare) so Bearer headers are encrypted in transit.
 3. Keep `/health` and `/ready` mapped to orchestrator/Kubernetes liveness and readiness probes.
 4. Keep `APP_ENV=production` in all deployed environments.
+
+Operational documents:
+- [UNKNOWN-Publication Operator Runbook](docs/UNKNOWN_PUBLICATION_RUNBOOK.md) — how to investigate and resolve uncertain publication outcomes safely.
+- [First-Production-Deployment Checklist](docs/FIRST_PRODUCTION_DEPLOYMENT_CHECKLIST.md) — staged preparation and verification for the first production deployment and database migration.
+
+## Stability qualification (post-migration, Phase 37)
+
+The Phase 35 dev/prod volume migration remains qualified on the following
+evidence: 50h37m wall-clock container survival, ~18h observed awake runtime,
+a 7h longest continuous awake window, zero container restarts/OOM events,
+zero backend ERROR/CRITICAL/Traceback events, zero scheduler exceptions,
+18 successful scheduler executions, preserved database invariants (140
+tables, Alembic head `f6a7b8c9d0e1`, backup MD5 unchanged), and verified
+DEV/PROD volume isolation.
+
+24-hour continuous soak was NOT achieved because the development host
+enters sleep/suspension; wall-clock container age is not treated as
+equivalent to a continuous 24-hour soak. Qualified without a continuous
+24-hour soak.
 
 

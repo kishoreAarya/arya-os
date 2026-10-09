@@ -326,19 +326,21 @@ async def test_download_remote_asset_enforces_size_limit(tmp_path):
         yield b"A" * 200
 
     mock_resp.aiter_bytes = mock_aiter_bytes
+    mock_resp.aclose = AsyncMock()
 
+    # L-4 changed the internal transport contract: the downloader now
+    # resolves redirects via build_request/send instead of client.stream.
+    # The mock mirrors that contract; the size-limit behavior under test
+    # is unchanged.
     class MockAsyncClient:
         async def __aenter__(self):
             return self
         async def __aexit__(self, *args):
             pass
-        def stream(self, method, url, **kwargs):
-            class StreamContext:
-                async def __aenter__(self):
-                    return mock_resp
-                async def __aexit__(self, *args):
-                    pass
-            return StreamContext()
+        def build_request(self, method, url, **kwargs):
+            return httpx.Request(method, url)
+        async def send(self, request, stream=False):
+            return mock_resp
 
     with patch("httpx.AsyncClient", return_value=MockAsyncClient()), \
          patch("app.utils.asset_downloader.is_safe_remote_url", return_value=True):
@@ -362,19 +364,18 @@ async def test_download_remote_asset_success(tmp_path):
         yield test_content
 
     mock_resp.aiter_bytes = mock_aiter_bytes
+    mock_resp.aclose = AsyncMock()
 
+    # L-4 transport-contract mock (see size-limit test note above).
     class MockAsyncClient:
         async def __aenter__(self):
             return self
         async def __aexit__(self, *args):
             pass
-        def stream(self, method, url, **kwargs):
-            class StreamContext:
-                async def __aenter__(self):
-                    return mock_resp
-                async def __aexit__(self, *args):
-                    pass
-            return StreamContext()
+        def build_request(self, method, url, **kwargs):
+            return httpx.Request(method, url)
+        async def send(self, request, stream=False):
+            return mock_resp
 
     with patch("httpx.AsyncClient", return_value=MockAsyncClient()), \
          patch("app.utils.asset_downloader.is_safe_remote_url", return_value=True):

@@ -455,7 +455,7 @@ class ExecutionEngine:
                 )
                 return result, attempt, None
             # Any provider-layer failure is classified below, not blindly retried.
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 attempt_duration = time.monotonic() - attempt_started
                 if workflow_run_id:
                     try:
@@ -818,8 +818,11 @@ class ExecutionEngine:
                     from unittest.mock import Mock
 
                     if not isinstance(self._db, Mock):
+                        # Table name is gated by the fixed
+                        # _TABLES_WITH_QUALITY_SCORE allowlist above; all
+                        # values are bound parameters.
                         update_stmt = text(
-                            f"UPDATE {ref_table} SET quality_score = :score WHERE id = :id"
+                            f"UPDATE {ref_table} SET quality_score = :score WHERE id = :id"  # nosec B608
                         )
                         await self._db.execute(
                             update_stmt,

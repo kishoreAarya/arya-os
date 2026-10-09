@@ -8,6 +8,7 @@ it's just a row with status=REJECTED, and the next attempt is a new
 row with parent_version_id pointing back at it.
 """
 import uuid
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -16,6 +17,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.base import Base
 from app.models.enums import ArtifactType
 from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin, VersionedAssetMixin
+
+if TYPE_CHECKING:
+    from app.models.core import WorkflowRun
 
 
 class Script(Base, UUIDPrimaryKeyMixin, TimestampMixin, VersionedAssetMixin):

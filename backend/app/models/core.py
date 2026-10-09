@@ -10,6 +10,7 @@ can always answer "what happened during the making of this video?".
 """
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum, ForeignKey, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -18,6 +19,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database.base import Base
 from app.models.enums import WorkflowMode, WorkflowStatus
 from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
+
+if TYPE_CHECKING:
+    from app.models.content import Script
+    from app.models.media import Video
 
 
 class Project(Base, UUIDPrimaryKeyMixin, TimestampMixin):

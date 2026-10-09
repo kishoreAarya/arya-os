@@ -7,9 +7,7 @@ and produces the review dashboard.
 
 import asyncio
 import json
-import os
 import sys
-import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -19,17 +17,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 load_dotenv()
 
-from app.core.logging import get_logger
-from app.services.shot_lab import (
+from app.core.logging import get_logger  # noqa: E402 — sys.path/env bootstrap must run first (script entrypoint)
+from app.services.shot_lab import (  # noqa: E402
     IMAGE_MODEL_REGISTRY,
     VIDEO_MODEL_REGISTRY,
     ImageCandidateResult,
-    ImageModelSpec,
     PromptStrategy,
     ShotLab,
     StandardizedHorrorScene,
     VideoCandidateResult,
-    VideoModelSpec,
     VisualQualityRubricScores,
 )
 
@@ -232,9 +228,6 @@ async def main():
     for vcand in video_candidates:
         if vcand.error or not vcand.local_video_path:
             continue
-
-        # Inherit base image quality from source keyframe
-        base_img_score = best_image.rubric.image_subtotal
 
         if vcand.video_model_id == "kling-standard":
             # Kling Standard: Strong motion realism, excellent lighting coherence, good facial stability

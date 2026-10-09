@@ -13,7 +13,6 @@ import re
 from typing import Sequence
 
 from app.schemas.cinematic import (
-    CameraMovementType,
     GenerationClass,
     GenerationMode,
 )

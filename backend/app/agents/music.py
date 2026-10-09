@@ -7,7 +7,6 @@ generations suitable for dynamic audio ducking.
 """
 
 from dataclasses import dataclass
-from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -115,9 +114,6 @@ class MusicAgent(BaseAgent):
             duration=target_duration,
             aspect_ratio=aspect_ratio,
         )
-
-        provider_override = context.get("provider") or context.get("music_provider")
-        model_override = context.get("model") or context.get("music_model")
 
         exec_result = await self._execution_engine.execute(
             capability=Capability.MUSIC_GENERATION,

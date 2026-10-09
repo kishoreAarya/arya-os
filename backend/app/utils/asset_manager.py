@@ -4,7 +4,8 @@ Asset manager — converts remote storage URLs into local filesystem paths.
 Adapters that expect local files (e.g. YouTubeAdapter via MediaFileUpload)
 call this helper so they can consume remote assets without modification.
 """
-import ipaddress
+import asyncio
+import concurrent.futures
 import os
 import tempfile
 from pathlib import Path
@@ -14,28 +15,25 @@ import httpx
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.utils.asset_downloader import (
+    SSRFSecurityError,
+    is_safe_remote_url,
+    open_validated_stream,
+)
 
 logger = get_logger(__name__)
 
 
 def is_safe_asset_url(url: str) -> bool:
-    """Validate that the remote asset URL is safe from SSRF attacks."""
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        return False
-    hostname = parsed.hostname
-    if not hostname:
-        return False
-    lower_host = hostname.lower()
-    if lower_host in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
-        return False
-    try:
-        ip = ipaddress.ip_address(lower_host)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-            return False
-    except ValueError:
-        pass
-    return True
+    """Validate that the remote asset URL is safe from SSRF attacks.
+
+    Delegates to the DNS-aware ``is_safe_remote_url`` guard in
+    ``asset_downloader`` so hostname targets that resolve to private,
+    loopback, link-local, reserved, or multicast ranges (including
+    cloud metadata hosts) are rejected — not just literal IP hosts.
+    Single validator, shared by every asset URL entry point.
+    """
+    return is_safe_remote_url(url)
 
 
 async def ensure_local_asset(
@@ -49,7 +47,8 @@ async def ensure_local_asset(
     * If ``storage_path`` is ``None``, return ``None``.
     * If it is already a valid local path, return it unchanged.
     * If it is an HTTP(S) URL, validate against SSRF, stream-download
-      it up to ``max_bytes`` to a temporary file, and return the path.
+      it up to ``max_bytes`` to a temporary file via bounded, revalidated
+      redirects (Phase 47A), and return the path.
     * On download or write failure the partially-written file is deleted.
     * If the downloaded file is zero bytes it is deleted and a
       RuntimeError is raised.
@@ -99,11 +98,16 @@ async def ensure_local_asset(
     effective_timeout = timeout_seconds if timeout_seconds is not None else float(settings.api_timeout_seconds)
 
     try:
+        # Phase 47A: never follow redirects automatically. Reuse the shared
+        # bounded redirect walker so every redirect Location is revalidated
+        # with the DNS-aware SSRF guard BEFORE it is requested; loops and
+        # chains longer than the walker's hop limit are rejected there.
         async with httpx.AsyncClient(
             timeout=effective_timeout,
-            follow_redirects=True,
+            follow_redirects=False,
         ) as client:
-            async with client.stream("GET", storage_path) as response:
+            response = await open_validated_stream(client, storage_path)
+            try:
                 response.raise_for_status()
 
                 fd, local_path = tempfile.mkstemp(
@@ -122,7 +126,14 @@ async def ensure_local_asset(
                         f.write(chunk)
 
                 download_ok = True
+            finally:
+                await response.aclose()
 
+    except SSRFSecurityError:
+        # Unsafe redirect destination (or initial URL race): re-raise the
+        # distinct security signal unwrapped so callers can classify it.
+        log.warning("asset_redirect_rejected_ssrf")
+        raise
     except httpx.TimeoutException as exc:
         log.error("asset_download_timeout", error=str(exc))
         raise RuntimeError(f"Asset download timed out: {storage_path}") from exc
@@ -167,3 +178,52 @@ async def ensure_local_asset(
         size_bytes=total_bytes,
     )
     return local_path
+
+
+# Dedicated worker for the sync bridge below: exactly one thread (the
+# bridge downloads are bounded by the caller's timeout, and callers are
+# synchronous validators that block regardless).
+_SYNC_BRIDGE_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="arya-asset-sync"
+)
+
+
+def ensure_local_asset_sync(
+    storage_path: str | None,
+    *,
+    timeout_seconds: float | None = None,
+    max_bytes: int = 50 * 1024 * 1024,
+) -> str | None:
+    """Synchronous bridge over :func:`ensure_local_asset` (Phase 54B-I11).
+
+    Runs the SAME Phase 47A guarded resolution — DNS-aware SSRF
+    validation, bounded redirects with per-hop revalidation, download
+    size cap, zero-byte rejection, temp-file cleanup — on a dedicated
+    worker thread with its own event loop, for callers that are locked
+    to synchronous contracts (``BaseValidator.validate`` is a documented
+    synchronous method; the pipeline may already be running its own
+    loop, so ``asyncio.run`` on the calling thread is not an option).
+
+    This is an execution adapter only: there is deliberately NO second
+    SSRF/download implementation — every security decision is made by
+    ``ensure_local_asset``. Raises the same exceptions (ValueError for
+    unsafe URLs, RuntimeError for resolution/download/size failures).
+    """
+    if storage_path is None:
+        return None
+
+    def _run() -> str | None:
+        return asyncio.run(
+            ensure_local_asset(
+                storage_path,
+                timeout_seconds=timeout_seconds,
+                max_bytes=max_bytes,
+            )
+        )
+
+    future = _SYNC_BRIDGE_EXECUTOR.submit(_run)
+    try:
+        return future.result()
+    except BaseException:
+        future.cancel()
+        raise

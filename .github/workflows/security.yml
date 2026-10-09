@@ -15,6 +15,11 @@ on:
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
+# Least privilege: checkout is the only GITHUB_TOKEN consumer. No SARIF
+# upload exists, so security-events: write is not needed.
+permissions:
+  contents: read
+
 concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -24,10 +29,15 @@ jobs:
     name: Bandit (static analysis)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Hermes source (vendor/hermes-agent) is required by
+          # `uv sync --extra dev` (editable dependency): checkout fails
+          # closed if the pinned submodule SHA cannot be fetched.
+          submodules: recursive
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           enable-cache: true
 
@@ -47,10 +57,15 @@ jobs:
     name: pip-audit (dependency vulnerabilities)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Hermes source (vendor/hermes-agent) is required by
+          # `uv sync --extra dev` (editable dependency): checkout fails
+          # closed if the pinned submodule SHA cannot be fetched.
+          submodules: recursive
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
         with:
           enable-cache: true
 
@@ -60,5 +75,21 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      - name: Export locked third-party dependencies
+        # `uv sync --extra dev` installs arya-os itself as an editable local
+        # package (and the vendored Hermes agent as an editable path
+        # dependency); environment-mode `pip-audit --strict` treats the
+        # unauditable local project as fatal. `pip-audit --locked` does not
+        # recognize uv.lock (and exits 0 without auditing anything). The
+        # strict gate therefore audits the LOCKED third-party graph itself:
+        # `--frozen` derives the export from uv.lock without re-resolution,
+        # `--no-emit-project`/`--no-emit-local` exclude the local projects
+        # while keeping every third-party pin (including Hermes' transitive
+        # dependencies), and the hashes satisfy `--disable-pip`'s pinned-set
+        # requirement so the audit runs directly on the locked versions.
+        run: >
+          uv export --format requirements-txt --extra dev --frozen
+          --no-emit-project --no-emit-local -o requirements-audit.txt
+
       - name: Run pip-audit
-        run: uv run pip-audit --strict
+        run: uv run pip-audit -r requirements-audit.txt --strict --disable-pip

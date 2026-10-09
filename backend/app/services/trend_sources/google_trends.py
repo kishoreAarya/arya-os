@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import re
-from typing import Any
 import xml.etree.ElementTree as ET
 
 import httpx
@@ -76,7 +75,10 @@ class GoogleTrendsSource(BaseTrendSource):
             res.raise_for_status()
 
             # Parse XML feed
-            root = ET.fromstring(res.text)
+            # stdlib ElementTree/expat never resolves external entities,
+            # and the input is a fixed trusted trends.google.com feed
+            # (geo is operator config).
+            root = ET.fromstring(res.text)  # nosec B314
             channel = root.find("channel")
             if channel is None:
                 return []
@@ -160,7 +162,7 @@ class GoogleTrendsSource(BaseTrendSource):
         except ET.ParseError as exc:
             logger.warning("google_trends_xml_parse_error", error=str(exc))
             return []
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.error("google_trends_unexpected_error", error=str(exc))
             return []
         finally:

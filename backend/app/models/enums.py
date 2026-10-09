@@ -108,6 +108,13 @@ class ApprovalAction(str, enum.Enum):
     RETRY = "retry"
     MANUAL_EDIT = "manual_edit"
     CONTINUE = "continue"
+    # Decision-history architecture (operator-authorized): REVOKE is a
+    # FIRST-CLASS action, explicitly distinct from REJECT — REJECT means
+    # "this request is not authorized"; REVOKE means "an authorization
+    # that previously existed is being withdrawn". Both are
+    # non-authorizing for the Model B gate; the distinction is preserved
+    # permanently in the append-only ApprovalDecision history.
+    REVOKE = "revoke"
 
 
 class LearningType(str, enum.Enum):
@@ -123,6 +130,31 @@ class PublishStatus(str, enum.Enum):
     SCHEDULED = "scheduled"
     PUBLISHED = "published"
     FAILED = "failed"
+
+
+class PublicationAttemptStatus(str, enum.Enum):
+    """Publication-attempt lifecycle (operator-authorized slice).
+
+    PENDING: admitted intent, no external call yet (the durable
+    pre-side-effect record).
+    IN_PROGRESS: persisted immediately BEFORE the first irreversible
+    external publication call.
+    SUCCEEDED: provider confirmed the publication (external ids
+    persisted).
+    FAILED: confirmed provider rejection, local validation failure, or
+    a pre-submission external read failure — evidence supports "no
+    public post was created".
+    UNKNOWN: ambiguous outcome — an exception/timeout after external
+    submission may have occurred. NEVER automatically retried; a
+    durable manual-operations state (automated reconciliation is a
+    deferred contract). Never convert to FAILED without evidence.
+    """
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
 
 
 class AspectRatio(str, enum.Enum):

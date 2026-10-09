@@ -13,7 +13,6 @@ from urllib.parse import urlparse
 
 import httpx
 
-from app.core.config import get_settings
 from app.core.logging import get_logger
 
 logger = get_logger("arya.utils.asset_downloader")
@@ -48,7 +47,8 @@ def is_safe_remote_url(url: str) -> bool:
         return False
 
     lower_host = hostname.lower()
-    if lower_host in ("localhost", "127.0.0.1", "0.0.0.0", "::1", "metadata.google.internal"):
+    # This IS the SSRF guard: "0.0.0.0" is a blocklist entry.
+    if lower_host in ("localhost", "127.0.0.1", "0.0.0.0", "::1", "metadata.google.internal"):  # nosec B104
         return False
 
     # Check direct IP address
@@ -60,22 +60,77 @@ def is_safe_remote_url(url: str) -> bool:
     except ValueError:
         pass
 
-    # Resolve domain to IP to verify it does not point to private/internal network
+    # Resolve domain to IP to verify it does not point to private/internal
+    # network. Fail closed (Phase 47A): if DNS validation cannot establish
+    # that the destination is safe, reject the URL — a dotted, public-looking
+    # hostname must never pass merely because resolution failed at validation
+    # time (hardens against DNS-rebinding-style validation/connect skew).
     try:
         resolved_ips = socket.getaddrinfo(hostname, None)
-        for family, socktype, proto, canonname, sockaddr in resolved_ips:
-            ip_str = sockaddr[0]
-            ip = ipaddress.ip_address(ip_str)
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-                return False
-    except (socket.gaierror, ValueError):
-        # If DNS cannot be resolved (e.g. offline testing/mocking)
-        # reject un-dotted hostnames or local/internal suffixes
-        if "." not in lower_host or lower_host.endswith((".local", ".internal", ".lan", ".localhost", ".test")):
+    except socket.gaierror:
+        return False
+    for _family, _socktype, _proto, _canonname, sockaddr in resolved_ips:
+        try:
+            ip = ipaddress.ip_address(sockaddr[0])
+        except ValueError:
             return False
-        return True
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            return False
 
     return True
+
+
+# Redirect handling policy shared by every asset download path: follow at
+# most this many hops manually (never via httpx follow_redirects=True) and
+# revalidate every redirect target with the DNS-aware SSRF guard above.
+_REDIRECT_STATUS_CODES = (301, 302, 303, 307, 308)
+MAX_REDIRECT_HOPS = 3
+
+
+async def open_validated_stream(
+    client: httpx.AsyncClient,
+    url: str,
+    max_hops: int = MAX_REDIRECT_HOPS,
+) -> httpx.Response:
+    """Open a streaming GET for ``url``, following at most ``max_hops`` redirects.
+
+    Every redirect Location (relative Locations are resolved against the
+    current URL) is revalidated with the DNS-aware ``is_safe_remote_url``
+    guard BEFORE it is requested, so a permitted public URL cannot be
+    redirected into private/internal/metadata targets. Redirect loops and
+    chains longer than ``max_hops`` raise ``AssetDownloadError``; unsafe
+    targets raise ``SSRFSecurityError``.
+
+    The caller MUST construct ``client`` with ``follow_redirects=False``
+    and MUST close the returned streaming response.
+    """
+    current = url
+    visited = {current}
+    hops = 0
+    while True:
+        request = client.build_request("GET", current)
+        response = await client.send(request, stream=True)
+        if response.status_code not in _REDIRECT_STATUS_CODES:
+            return response
+
+        redirect_location = response.headers.get("location", "")
+        await response.aclose()
+        hops += 1
+        if hops > max_hops:
+            raise AssetDownloadError(f"Asset download exceeded {max_hops} redirect hops: {url}")
+        if not redirect_location:
+            raise AssetDownloadError(f"Asset download redirect missing Location header: {url}")
+        try:
+            next_url = str(httpx.URL(current).join(redirect_location))
+        except Exception as exc:
+            raise AssetDownloadError(f"Asset download redirect has malformed Location: {url}") from exc
+        if next_url in visited:
+            raise AssetDownloadError(f"Asset download redirect loop detected: {url}")
+        if not is_safe_remote_url(next_url):
+            logger.warning("asset_redirect_rejected_ssrf", url=next_url)
+            raise SSRFSecurityError(f"Redirect target blocked by SSRF guard: {next_url}")
+        visited.add(next_url)
+        current = next_url
 
 
 async def download_media_asset(
@@ -122,11 +177,11 @@ async def download_media_asset(
     start_time = time.perf_counter()
     total_bytes = 0
     content_type = ""
-    download_success = False
 
     try:
-        async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
-            async with client.stream("GET", url) as response:
+        async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=False) as client:
+            response = await open_validated_stream(client, url)
+            try:
                 if response.status_code == 401 or response.status_code == 403:
                     raise AssetDownloadError(f"Remote asset download unauthorized ({response.status_code}): {url}")
                 if response.status_code >= 400:
@@ -142,8 +197,8 @@ async def download_media_asset(
                                 f"Downloaded asset exceeded maximum limit of {max_bytes} bytes: {url}"
                             )
                         f.write(chunk)
-
-                download_success = True
+            finally:
+                await response.aclose()
 
     except Exception:
         if os.path.exists(local_path):
@@ -188,8 +243,9 @@ async def download_remote_asset(
     total_bytes = 0
 
     try:
-        async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
-            async with client.stream("GET", url) as response:
+        async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=False) as client:
+            response = await open_validated_stream(client, url)
+            try:
                 if response.status_code in (401, 403):
                     raise AssetDownloadError(f"Remote asset download unauthorized ({response.status_code}): {url}")
                 if response.status_code >= 400:
@@ -199,12 +255,17 @@ async def download_remote_asset(
                 if content_len and int(content_len) > max_bytes:
                     raise AssetDownloadError(f"Asset Content-Length ({content_len}) exceeds maximum allowed size ({max_bytes})")
 
-                with open(dest, "wb") as f:
+                f = await asyncio.to_thread(open, dest, "wb")
+                try:
                     async for chunk in response.aiter_bytes(chunk_size=65536):
                         total_bytes += len(chunk)
                         if total_bytes > max_bytes:
                             raise AssetDownloadError(f"Downloaded asset exceeds maximum allowed size ({max_bytes})")
-                        f.write(chunk)
+                        await asyncio.to_thread(f.write, chunk)
+                finally:
+                    await asyncio.to_thread(f.close)
+            finally:
+                await response.aclose()
     except Exception:
         if dest.exists():
             try:

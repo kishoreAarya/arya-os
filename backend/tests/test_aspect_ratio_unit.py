@@ -349,6 +349,10 @@ async def test_publishing_agent_adds_shorts_tag_for_9_16():
             "description": "Watch this mind blowing AI trick!",
             "tags": "AI, Technology",
             "aspect_ratio": "9:16",
+            # Dry-run: the mock DB cannot back the H1 publication permit
+            # (PENDING -> IN_PROGRESS CAS); dry-run records no attempt and
+            # runs the identical title/description/tags pipeline.
+            "dry_run": True,
         }
 
         result = await agent.run(context)
@@ -385,6 +389,9 @@ async def test_publishing_agent_leaves_16_9_untouched():
             "description": "A detailed 16:9 documentary.",
             "tags": "Documentary",
             "aspect_ratio": "16:9",
+            # Dry-run: mock DB cannot back the H1 publication permit (see
+            # the 9:16 test above).
+            "dry_run": True,
         }
 
         result = await agent.run(context)

@@ -48,7 +48,7 @@ class S3StorageProvider(StorageProvider):
         try:
             await asyncio.to_thread(self._client.head_object, Bucket=self.bucket, Key=key)
             return True
-        except Exception:  # noqa: BLE001 — boto3 raises ClientError for 404s
+        except Exception:  # boto3 raises ClientError for 404s
             return False
 
     def get_url(self, key: str) -> str:

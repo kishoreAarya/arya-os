@@ -1,73 +1,234 @@
-version: "3.9"
-
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     container_name: arya-postgres
     restart: unless-stopped
+    # Phase 49B (Tier-1): block privilege escalation via setuid bits and cap
+    # runaway process spawning.
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    # Phase 52B-2 (Tier-2): run directly as the image's postgres user — the
+    # entrypoint's root path (chown + gosu demotion) is skipped for non-root
+    # starts, which it explicitly supports (52B-0 extracted-entrypoint
+    # evidence); PGDATA volume is already postgres-owned. read_only is
+    # deliberately DEFERRED: the /var/run/postgresql socket directory lives
+    # on the root filesystem.
+    user: postgres
+    cap_drop:
+      - ALL
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-arya}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      # M1 (release hardening): no silent default — startup fails fast with
+      # a clear error if POSTGRES_PASSWORD is unset/empty.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (generate a strong value; see .env.example)}
       POSTGRES_DB: ${POSTGRES_DB:-arya_os}
     ports:
-      - "127.0.0.1:5432:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - arya_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-arya}"]
+      # Phase 38: -d targets the configured DB so pg_isready no longer probes
+      # (and FATAL-logs) the nonexistent default "arya" database.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-arya} -d ${POSTGRES_DB:-arya_os}"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
     container_name: arya-redis
     restart: unless-stopped
+    # Phase 49B (Tier-1): privilege-escalation guard + process limit.
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    # Phase 52B-1 (Tier-2): run directly as the image's redis user (the
+    # entrypoint's root->setpriv demotion is skipped for non-root starts —
+    # extracted-entrypoint evidence in 52B-0), drop all capabilities, and
+    # keep the root filesystem read-only; Redis writes only to the /data
+    # volume (RDB snapshots), so no tmpfs is required.
+    user: redis
+    cap_drop:
+      - ALL
+    read_only: true
+    # L-7: Redis REQUIRES authentication — no unauthenticated fallback.
+    # REDIS_PASSWORD must be set in .env; compose fails at configuration
+    # time if it is unset/empty (same M1 fail-fast convention as
+    # POSTGRES_PASSWORD). The password is visible to the container's own
+    # healthcheck below via container-local environment only.
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "${REDIS_PASSWORD:?REDIS_PASSWORD must be set (generate a strong value; see .env.example)}",
+      ]
+    environment:
+      # Consumed only by this container's healthcheck; never published.
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set (generate a strong value; see .env.example)}
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
       - arya_redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # L-7: authenticated PING — unauthenticated clients are rejected by
+      # the server, so the healthcheck must present the password. It reads
+      # the container-local REDIS_PASSWORD ($$ escapes compose
+      # interpolation); no secret is written into this file.
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   backend:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.backend
+    # Phase 22: run the validated, digest-reproducible image instead of an
+    # implicit build + host bind mount (see Phases 19-21). Rebuilds are now
+    # an explicit decision: docker build -f docker/Dockerfile.backend \
+    #   -t arya-os-backend:phase20-pinned .
+    image: arya-os-backend:phase20-pinned
     container_name: arya-backend
     restart: unless-stopped
-    env_file:
-      - .env
+    # Phase 49B (Tier-1): the image already runs as non-root appuser
+    # (Dockerfile USER) and needs no Linux capabilities — drop all.
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    cap_drop:
+      - ALL
+    # Phase 52B-3 (Tier-2): read-only root filesystem — the only required
+    # writable paths are the /app/data/storage volume (persistent artifacts)
+    # and /tmp (asset tempfiles + ffmpeg scratch; sized against the 50 MB
+    # per-asset cap with headroom). mode=1777 because tmpfs mounts default
+    # to root-owned; appuser is uid 1001. pyc writes are silently skipped
+    # on RO rootfs (harmless). Migrations are a no-op at the applied head.
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m,mode=1777
+    # Phase 31: least-privilege environment (Phase 30 audit). env_file was
+    # removed — only variables the backend actually consumes are passed.
+    # Compose-only vars (POSTGRES_*, N8N_HOST_PORT) and unconsumed
+    # credentials (KIMI_/NVIDIA_API_KEY, TELEGRAM_*) no longer enter the
+    # container. Optional secrets default to empty, which the app
+    # treats as "not configured" (SecretsManager falsy check).
+    environment:
+      # M1 (release hardening): the API key must be provided explicitly —
+      # docker compose fails at configuration time if unset/empty, instead
+      # of letting the app start with a placeholder credential.
+      ARYA_API_KEY: ${ARYA_API_KEY:?ARYA_API_KEY must be set (generate a strong value; see .env.example)}
+      # --- Core runtime ---
+      APP_ENV: ${APP_ENV:-development}
+      APP_NAME: ${APP_NAME:-arya-os}
+      DEBUG: ${DEBUG:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      BACKEND_HOST: ${BACKEND_HOST:-0.0.0.0}
+      BACKEND_PORT: ${BACKEND_PORT:-8000}
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
+      UVICORN_TIMEOUT_KEEP_ALIVE: ${UVICORN_TIMEOUT_KEEP_ALIVE:-65}
+      UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: ${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-60}
+      AUTO_RUN_MIGRATIONS: ${AUTO_RUN_MIGRATIONS:-true}
+      # --- Auth ---
+      API_AUTH_ENABLED: ${API_AUTH_ENABLED:-true}
+      # --- Data stores ---
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set (see .env.example)}
+      # L-7: the backend's REDIS_URL is CONSTRUCTED here from the same
+      # REDIS_PASSWORD the Redis server enforces above, so the client
+      # credential can never drift from the server credential. Generate
+      # the password with `openssl rand -hex 32` (hex is URL-safe; a
+      # password containing @:/#% would break URL parsing).
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set (generate a strong value; see .env.example)}@redis:6379/0
+      # --- Scheduler / feature flags ---
+      ENABLE_BACKGROUND_SCHEDULER: ${ENABLE_BACKGROUND_SCHEDULER:-true}
+      ENABLE_LEARNING_LOOP: ${ENABLE_LEARNING_LOOP:-true}
+      ENABLE_AUTONOMOUS_PUBLISHING: ${ENABLE_AUTONOMOUS_PUBLISHING:-false}
+      ENABLE_EXPERIMENTAL_THUMBNAIL_AGENT: ${ENABLE_EXPERIMENTAL_THUMBNAIL_AGENT:-false}
+      ENABLE_NEW_IMAGE_MODEL: ${ENABLE_NEW_IMAGE_MODEL:-false}
+      ENABLE_NEW_VALIDATOR: ${ENABLE_NEW_VALIDATOR:-false}
+      # --- Storage ---
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_LOCAL_PATH: ${STORAGE_LOCAL_PATH:-./data/storage}
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-}
+      STORAGE_ENDPOINT_URL: ${STORAGE_ENDPOINT_URL:-}
+      STORAGE_REGION: ${STORAGE_REGION:-}
+      STORAGE_ACCESS_KEY: ${STORAGE_ACCESS_KEY:-}
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-}
+      STORAGE_PUBLIC_BASE_URL: ${STORAGE_PUBLIC_BASE_URL:-}
+      # --- LLM providers (optional) ---
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL:-deepseek/deepseek-chat}
+      # --- Media providers (optional) ---
+      RUNPOD_API_KEY: ${RUNPOD_API_KEY:-}
+      FAL_API_KEY: ${FAL_API_KEY:-}
+      REPLICATE_API_KEY: ${REPLICATE_API_KEY:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-JBFqnCBsd6RMkjVDRZzb}
+      ELEVENLABS_MODEL_ID: ${ELEVENLABS_MODEL_ID:-eleven_turbo_v2_5}
+      DEFAULT_VOICE_PROVIDER: ${DEFAULT_VOICE_PROVIDER:-elevenlabs}
+      DEFAULT_VIDEO_PROVIDER: ${DEFAULT_VIDEO_PROVIDER:-kling}
+      # --- Tunables ---
+      API_TIMEOUT_SECONDS: ${API_TIMEOUT_SECONDS:-60}
+      MAX_RETRY_ATTEMPTS: ${MAX_RETRY_ATTEMPTS:-3}
+      MAX_COST_PER_VIDEO_USD: ${MAX_COST_PER_VIDEO_USD:-5.00}
+      QUALITY_THRESHOLD: ${QUALITY_THRESHOLD:-70.0}
+      IMAGE_RESOLUTION: ${IMAGE_RESOLUTION:-1024x1024}
+      VIDEO_FPS: ${VIDEO_FPS:-30}
+      # --- Publishing integrations (optional) ---
+      POSTIZ_BASE_URL: ${POSTIZ_BASE_URL:-http://localhost:4007}
+      POSTIZ_API_KEY: ${POSTIZ_API_KEY:-}
+      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY:-}
+      YOUTUBE_CLIENT_ID: ${YOUTUBE_CLIENT_ID:-}
+      YOUTUBE_CLIENT_SECRET: ${YOUTUBE_CLIENT_SECRET:-}
+      YOUTUBE_REFRESH_TOKEN: ${YOUTUBE_REFRESH_TOKEN:-}
+      YOUTUBE_CHANNEL_ID: ${YOUTUBE_CHANNEL_ID:-}
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
-      - ./backend:/app/backend
       - arya_storage_data:/app/data/storage
 
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:2.30.8@sha256:11524034450080bd0032754892b23ff20be43d72cf320ce75640f7c5475fdca8
     container_name: arya-n8n
     restart: unless-stopped
+    # Phase 49B (Tier-1): node runtime with volume-backed state needs no
+    # Linux capabilities — drop all.
+    # Phase 53E (Tier-2 retry): read-only root filesystem, re-attempted with
+    # the writable paths validated by the 53D-T-R2 disposable probe. n8n
+    # extracts the editor UI into /home/node/.cache at startup (~60 MB of a
+    # 64 MB tmpfs during the probe — sized 128m here for headroom); /tmp
+    # gets the same noexec tmpfs as the backend. uid/gid 1000 verified
+    # against the pinned image's node user. Persistent state (config,
+    # encryption key) stays on the arya_n8n_data volume below.
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m,mode=1777
+      - /home/node/.cache:rw,noexec,nosuid,size=128m,uid=1000,gid=1000,mode=0700
     environment:
-      N8N_BASIC_AUTH_ACTIVE: "true"
-      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:-admin}
-      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:-change_me}
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
       DB_POSTGRESDB_PORT: 5432
       DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-arya_os}
       DB_POSTGRESDB_USER: ${POSTGRES_USER:-arya}
-      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set (generate a strong value; see .env.example)}
     ports:
-      - "${N8N_HOST_PORT:-5678}:5678"
+      - "127.0.0.1:${N8N_HOST_PORT:-5678}:5678"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "-T", "5", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,7 +236,13 @@ services:
       - arya_n8n_data:/home/node/.n8n
 
 volumes:
+  # Phase 34: explicit environment-scoped physical names so dev and prod can
+  # never resolve to the same volume, even if run from the same project dir.
   arya_postgres_data:
+    name: arya_os_dev_postgres_data
   arya_redis_data:
+    name: arya_os_dev_redis_data
   arya_storage_data:
+    name: arya_os_dev_storage_data
   arya_n8n_data:
+    name: arya_os_dev_n8n_data

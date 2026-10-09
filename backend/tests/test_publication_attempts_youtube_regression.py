@@ -1,0 +1,1362 @@
+"""Publication attempt core — real-YouTube-adapter failure-contract regression.
+
+F5 regression: proves the truthful adapter/agent failure contract against
+the REAL YouTubeAdapter decision logic (only the external Google client
+is scripted — real googleapiclient HttpError objects, real transport
+exception types, real MediaFileUpload against real temp files) wired
+through the REAL PublishingAgent and the real database:
+
+- dry-run upload / thumbnail / publish: validation only, ZERO Google API
+  calls (no insert / update / thumbnails.set invocations)
+- successful real upload + publish -> SUCCEEDED with external ids
+- confirmed 4xx (videos.update)                -> FAILED (retry admits n+1)
+- pre-dispatch transport failure (connect refused) -> FAILED (retry admits n+1)
+- timeout after dispatch                        -> UNKNOWN (retry blocked)
+- HTTP 5xx after submission                     -> UNKNOWN (retry blocked)
+- an ambiguous publish failure can never produce a retryable FAILED attempt
+"""
+import asyncio
+import tempfile
+import uuid
+from pathlib import Path
+
+import httplib2
+import pytest
+from googleapiclient.errors import HttpError
+
+from app.agents.publishing import PublishingAgent
+from app.api.routers.publishing import PublishRequest, publish_asset
+from app.models.enums import PublicationAttemptStatus
+from app.models.publication import PublicationAttempt  # registers the table
+from app.platforms.youtube import YouTubeAdapter
+
+SECRET_MARKER = "SECRET-DO-NOT-PERSIST"
+
+
+class _FakeSecrets:
+    def get(self, key, required=False):
+        return f"test-{SECRET_MARKER}" if key.startswith("youtube_") else None
+
+
+def _http_error(code: int) -> HttpError:
+    return HttpError(
+        resp=httplib2.Response({"status": str(code), "reason": "scripted"}),
+        content=b'{"error":{"message":"scripted"}}',
+    )
+
+
+class _InsertRequest:
+    """videos().insert(...) request with scripted next_chunk()."""
+
+    def __init__(self, behavior, script=None):
+        self._behavior = behavior
+        self._script = script
+
+    def next_chunk(self, num_retries=None):
+        if self._script is not None:
+            # YT-Hardening wiring proof: transport auto-retry is explicit.
+            self._script.last_insert_num_retries = num_retries
+        kind, payload = self._behavior
+        if kind == "raise":
+            raise payload
+        if kind == "http_status":
+            raise _http_error(payload)
+        return (None, {"id": payload or "yt-video-1"})
+
+
+class _UpdateRequest:
+    """videos().update(...) request with scripted execute()."""
+
+    def __init__(self, behavior, script=None):
+        self._behavior = behavior
+        self._script = script
+
+    def execute(self, num_retries=None):
+        if self._script is not None:
+            self._script.last_update_num_retries = num_retries
+        kind, payload = self._behavior
+        if kind == "raise":
+            raise payload
+        if kind == "http_status":
+            raise _http_error(payload)
+        return {"id": "ok"}
+
+
+class _SetRequest:
+    """thumbnails().set(...) request with scripted execute()."""
+
+    def __init__(self, behavior, script=None):
+        self._behavior = behavior
+        self._script = script
+
+    def execute(self, num_retries=None):
+        if self._script is not None:
+            self._script.last_set_num_retries = num_retries
+        kind, payload = self._behavior
+        if kind == "raise":
+            raise payload
+        if kind == "http_status":
+            raise _http_error(payload)
+        return {}
+
+
+class _ListRequest:
+    """videos().list(...) request with scripted execute(). The scripted
+    payload is the full videos.list response dict (or an Exception
+    instance to raise)."""
+
+    def __init__(self, script):
+        self._script = script
+
+    def execute(self, num_retries=None):
+        self._script.last_list_num_retries = num_retries
+        if isinstance(self._script.list_response, Exception):
+            raise self._script.list_response
+        return self._script.list_response
+
+
+class _Videos:
+    def __init__(self, script, counters):
+        self._script = script
+        self._counters = counters
+
+    def insert(self, *, part, body, media_body):
+        self._counters["insert_calls"] += 1
+        # F-04a: record the dispatch body (upload staging visibility).
+        self._script.last_insert_body = body
+        return _InsertRequest(self._script.upload_behavior, self._script)
+
+    def update(self, *, part, body):
+        self._counters["update_calls"] += 1
+        # F-04a: record the dispatch body (publication visibility).
+        self._script.last_update_body = body
+        return _UpdateRequest(self._script.publish_behavior, self._script)
+
+    def list(self, *, part, id):
+        # Recorded on the SCRIPT, not the counters dict (existing tests
+        # assert counters by exact dict equality): proves the F-08
+        # request shape.
+        self._script.list_calls += 1
+        self._script.last_list_part = part
+        self._script.last_list_id = id
+        return _ListRequest(self._script)
+
+
+class _Thumbnails:
+    def __init__(self, script, counters):
+        self._script = script
+        self._counters = counters
+
+    def set(self, *, videoId, media_body):
+        self._counters["thumbnail_calls"] += 1
+        return _SetRequest(self._script.thumbnail_behavior)
+
+
+class _ScriptedGoogleClient:
+    def __init__(self, script, counters):
+        self._videos = _Videos(script, counters)
+        self._thumbnails = _Thumbnails(script, counters)
+
+    def videos(self):
+        return self._videos
+
+    def thumbnails(self):
+        return self._thumbnails
+
+
+class _Script:
+    """Behaviors are (kind, payload): ("ok", id) | ("http_status", code) |
+    ("raise", exception). list_response is the scripted videos.list
+    response dict (or an Exception to raise)."""
+
+    def __init__(
+        self,
+        *,
+        upload=("ok", "yt-video-1"),
+        publish=("ok", None),
+        thumbnail=("ok", None),
+        list_response=None,
+    ):
+        self.upload_behavior = upload
+        self.publish_behavior = publish
+        self.thumbnail_behavior = thumbnail
+        if list_response is None:
+            list_response = {
+                "items": [
+                    {
+                        "processingDetails": {"processingStatus": "succeeded"},
+                        "status": {"privacyStatus": "public"},
+                    }
+                ]
+            }
+        self.list_response = list_response
+        # F-08 request-shape recording (kept OFF the counters dict).
+        self.list_calls = 0
+        self.last_list_part = None
+        self.last_list_id = None
+        # F-04a dispatch-body recording (kept OFF the counters dict).
+        self.last_insert_body = None
+        self.last_update_body = None
+        # YT-Hardening wiring recording (kept OFF the counters dict).
+        self.last_insert_num_retries = None
+        self.last_update_num_retries = None
+        self.last_set_num_retries = None
+        self.last_list_num_retries = None
+        self.counters = {"insert_calls": 0, "update_calls": 0, "thumbnail_calls": 0}
+
+
+def _install_real_youtube(monkeypatch, script):
+    """The REAL YouTubeAdapter class with only the external Google client
+    transport scripted (credential/client builders replaced; authenticate()
+    itself runs its real logic)."""
+    client = _ScriptedGoogleClient(script, script.counters)
+
+    def _fake_build_api_client(self, credentials=None):
+        return client
+
+    monkeypatch.setattr(
+        "app.agents.publishing.get_platform_adapter",
+        lambda platform, db, secrets=None: YouTubeAdapter(db=db, secrets=_FakeSecrets()),
+    )
+    monkeypatch.setattr(YouTubeAdapter, "_build_credentials", lambda self: {"api_key": SECRET_MARKER})
+    monkeypatch.setattr(YouTubeAdapter, "_build_api_client", _fake_build_api_client)
+
+
+# ---------------------------------------------------------------------------
+# DB / agent helpers (same pattern as the other publication-attempt suites)
+# ---------------------------------------------------------------------------
+
+
+async def _session():
+    from app.hermes.capabilities import _make_capability_engine
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    engine = _make_capability_engine()
+    return engine, async_sessionmaker(bind=engine, expire_on_commit=False)()
+
+
+async def _attempts_for(video_uuid):
+    from sqlalchemy import select
+
+    engine, session = await _session()
+    try:
+        rows = (
+            (
+                await session.execute(
+                    select(PublicationAttempt)
+                    .where(PublicationAttempt.video_id == video_uuid)
+                    .order_by(PublicationAttempt.attempt_number)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return rows
+    finally:
+        await session.close()
+        await engine.dispose()
+
+
+async def _cleanup(video_uuid):
+    from sqlalchemy import delete
+
+    engine, session = await _session()
+    try:
+        await session.execute(delete(PublicationAttempt).where(PublicationAttempt.video_id == video_uuid))
+        await session.commit()
+    finally:
+        await session.close()
+        await engine.dispose()
+
+
+def _run_agent(ctx):
+    async def _inner():
+        engine, session = await _session()
+        try:
+            return await PublishingAgent(db=session).run(ctx)
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    return asyncio.run(_inner())
+
+
+def _ctx(video_id, **overrides):
+    base = {
+        "platform": "youtube",
+        "video_id": str(video_id),
+        # Phase 54B-I5: the seeded manifest's authoritative artifact —
+        # dispatch verifies against (and uploads) the manifest-bound
+        # snapshot, not an arbitrary caller path.
+        "video_storage_path": _SEED_STATE.get("asset") or _tmp_video(),
+        "title": "t",
+        "description": "d",
+        "social_platform": "youtube",
+        "integration_id": None,
+        "dry_run": False,
+    }
+    base.update(overrides)
+    return base
+
+
+_SEED_STATE = {}
+
+
+def _seed_target(asset=None, **manifest_overrides):
+    """53B-T4/I5: seed a MANIFEST-BOUND approved publish target (real
+    artifact, real manifest through the I4 service, bound+approved
+    THUMBNAIL checkpoint) matching the youtube dispatch context. When
+    `asset` is given, the manifest's authoritative artifact IS that
+    path (the router payload's asset)."""
+    kwargs = dict(
+        video_path=asset,
+        platform="youtube",
+        social_platform="youtube",
+        integration_id=None,
+        privacy_status="public",
+        # Router parity: POST /publishing/publish defaults publish_type
+        # to "draft"; agent-level contexts omit it and defer to the
+        # manifest value.
+        publish_type="draft",
+    )
+    kwargs.update(manifest_overrides)
+
+    async def _inner():
+        from tests._dispatch_manifest_fixtures import _seed_manifest_bound_target
+
+        return await _seed_manifest_bound_target(**kwargs)
+
+    run_id, video_id, _mid, vpath, _thumb = asyncio.run(_inner())
+    _SEED_STATE.clear()
+    _SEED_STATE.update(run_id=run_id, video_id=video_id, asset=vpath)
+    return run_id, video_id
+
+def _cleanup_target(run_id):
+    """53B-T4/I5: remove the seeded manifest-bound publish-target chain."""
+
+    async def _inner():
+        from tests._dispatch_manifest_fixtures import _cleanup_manifest_bound_target
+
+        await _cleanup_manifest_bound_target(
+            run_id, _SEED_STATE.get("video_id"), _SEED_STATE.get("asset")
+        )
+
+    asyncio.run(_inner())
+    _SEED_STATE.clear()
+
+
+def _tmp_video():
+    path = Path(tempfile.mkstemp(prefix="pub-f5-", suffix=".mp4")[1])
+    path.write_bytes(b"fake-video")
+    return str(path)
+
+
+def _tmp_thumbnail():
+    path = Path(tempfile.mkstemp(prefix="pub-f5-", suffix=".jpg")[1])
+    path.write_bytes(b"fake-jpeg")
+    return str(path)
+
+
+# ---------------------------------------------------------------------------
+# Dry-run: validation only, ZERO Google API calls
+# ---------------------------------------------------------------------------
+
+
+def test_dry_run_upload_thumbnail_publish_zero_external_calls(monkeypatch):
+    script = _Script()
+    _install_real_youtube(monkeypatch, script)
+    video_path = _tmp_video()
+    thumb_path = _tmp_thumbnail()
+
+    async def _adapter():
+        engine, session = await _session()
+        try:
+            adapter = YouTubeAdapter(db=session, secrets=_FakeSecrets())
+            up = await adapter.upload_content(
+                file_path=video_path, title="t", is_dry_run=True
+            )
+            th = await adapter.upload_thumbnail(
+                video_content_id="dry", thumbnail_path=thumb_path, is_dry_run=True
+            )
+            pub = await adapter.publish(
+                content_id="dry", is_dry_run=True, privacy_status="public"
+            )
+            return up, th, pub, adapter
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    up, th, pub, adapter = asyncio.run(_adapter())
+    assert up.success and up.content_id.startswith("dry_run_upload_")
+    assert th.success and th.content_id.startswith("dry_run_upload_")
+    assert pub.success and pub.published_content_id.startswith("dry_run_post_")
+    # ZERO external Google API calls, and no client was even built.
+    assert script.counters == {"insert_calls": 0, "update_calls": 0, "thumbnail_calls": 0}
+    assert adapter._youtube_client is None
+
+
+def test_agent_dry_run_flow_makes_zero_external_calls(monkeypatch):
+    script = _Script()
+    _install_real_youtube(monkeypatch, script)
+    video_uuid = uuid.uuid4()
+    ctx = _ctx(video_uuid, dry_run=True)
+    try:
+        result = _run_agent(ctx)
+        assert result.success, result.error
+        assert result.output["published_video_id"].startswith("dry_run_post_")
+        assert script.counters == {
+            "insert_calls": 0,
+            "update_calls": 0,
+            "thumbnail_calls": 0,
+        }
+        assert asyncio.run(_attempts_for(video_uuid)) == []  # dry-run records no attempt
+    finally:
+        asyncio.run(_cleanup(video_uuid))
+
+
+# ---------------------------------------------------------------------------
+# Real execution: success
+# ---------------------------------------------------------------------------
+
+
+def test_real_upload_and_publish_succeed(monkeypatch):
+    script = _Script()
+    _install_real_youtube(monkeypatch, script)
+    run_id, video_uuid = _seed_target()
+    ctx = _ctx(video_uuid, workflow_run_id=str(run_id))
+    try:
+        result = _run_agent(ctx)
+        assert result.success, result.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert len(rows) == 1
+        assert rows[0].status == PublicationAttemptStatus.SUCCEEDED
+        assert rows[0].external_content_id == "yt-video-1"
+        assert rows[0].external_post_id == "yt-video-1"  # youtube: publish returns the upload id
+        assert script.counters == {"insert_calls": 1, "update_calls": 1, "thumbnail_calls": 0}
+    finally:
+        asyncio.run(_cleanup(video_uuid))
+
+
+# ---------------------------------------------------------------------------
+# Confirmed / pre-dispatch failures -> FAILED, retryable
+# ---------------------------------------------------------------------------
+
+
+def test_confirmed_4xx_is_failed_and_retry_admits_new_attempt(monkeypatch):
+    script = _Script(publish=("http_status", 409))
+    _install_real_youtube(monkeypatch, script)
+    run_id, video_uuid = _seed_target()
+    ctx = _ctx(video_uuid, workflow_run_id=str(run_id))
+    try:
+        first = _run_agent(ctx)
+        assert not first.success and "UNKNOWN" not in first.error
+        assert "HTTP 409" in first.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.FAILED]
+
+        script.publish_behavior = ("ok", None)
+        second = _run_agent(ctx)
+        assert second.success
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.attempt_number for r in rows] == [1, 2]
+        assert [r.status for r in rows] == [
+            PublicationAttemptStatus.FAILED,
+            PublicationAttemptStatus.SUCCEEDED,
+        ]
+        assert script.counters["update_calls"] == 2  # the one legitimate retry
+    finally:
+        asyncio.run(_cleanup(video_uuid))
+
+
+def test_pre_dispatch_transport_failure_is_failed_and_retryable(monkeypatch):
+    script = _Script(publish=("raise", ConnectionRefusedError("connection refused")))
+    _install_real_youtube(monkeypatch, script)
+    run_id, video_uuid = _seed_target()
+    ctx = _ctx(video_uuid, workflow_run_id=str(run_id))
+    try:
+        first = _run_agent(ctx)
+        assert not first.success and "UNKNOWN" not in first.error
+        assert "request not sent" in first.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.FAILED]
+
+        script.publish_behavior = ("ok", None)
+        second = _run_agent(ctx)
+        assert second.success
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [
+            PublicationAttemptStatus.FAILED,
+            PublicationAttemptStatus.SUCCEEDED,
+        ]
+    finally:
+        asyncio.run(_cleanup(video_uuid))
+
+
+# ---------------------------------------------------------------------------
+# Ambiguous post-submission outcomes -> UNKNOWN, retry blocked
+# ---------------------------------------------------------------------------
+
+
+def test_timeout_after_dispatch_is_unknown_and_never_retryable_failed(monkeypatch):
+    """The core F5 invariant: an ambiguous publish failure (timeout after
+    submission) lands UNKNOWN; a re-submission of the same intent NEVER
+    invokes the provider publish again — it can never produce a retryable
+    FAILED attempt."""
+    script = _Script(publish=("raise", TimeoutError("read timed out after submission")))
+    _install_real_youtube(monkeypatch, script)
+    run_id, video_uuid = _seed_target()
+    ctx = _ctx(video_uuid, workflow_run_id=str(run_id))
+    try:
+        first = _run_agent(ctx)
+        assert not first.success and "UNKNOWN" in first.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.UNKNOWN]
+        assert rows[0].external_content_id == "yt-video-1"  # anchor persisted
+        assert script.counters["update_calls"] == 1
+
+        second = _run_agent(ctx)
+        assert not second.success and "AMBIGUOUS" in second.error
+        assert script.counters["update_calls"] == 1  # no second publication attempt
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert len(rows) == 1
+        assert rows[0].status == PublicationAttemptStatus.UNKNOWN
+    finally:
+        asyncio.run(_cleanup(video_uuid))
+
+
+def test_5xx_after_submission_is_unknown_and_blocks_retry(monkeypatch):
+    script = _Script(publish=("http_status", 503))
+    _install_real_youtube(monkeypatch, script)
+    run_id, video_uuid = _seed_target()
+    ctx = _ctx(video_uuid, workflow_run_id=str(run_id))
+    try:
+        first = _run_agent(ctx)
+        assert not first.success and "UNKNOWN" in first.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.UNKNOWN]
+
+        second = _run_agent(ctx)
+        assert not second.success and "AMBIGUOUS" in second.error
+        assert script.counters["update_calls"] == 1
+    finally:
+        asyncio.run(_cleanup(video_uuid))
+
+
+def test_upload_timeout_is_unknown(monkeypatch):
+    script = _Script(upload=("raise", TimeoutError("timed out mid resumable upload")))
+    _install_real_youtube(monkeypatch, script)
+    run_id, video_uuid = _seed_target()
+    ctx = _ctx(video_uuid, workflow_run_id=str(run_id))
+    try:
+        result = _run_agent(ctx)
+        assert not result.success and "UNKNOWN" in result.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.UNKNOWN]
+        assert script.counters["update_calls"] == 0  # never reached publish
+    finally:
+        asyncio.run(_cleanup(video_uuid))
+
+
+# ---------------------------------------------------------------------------
+# F-08: publication-evidence semantics — processing completion is NOT proof
+# of public publication (check_processing fails closed without public
+# visibility evidence).
+# ---------------------------------------------------------------------------
+
+
+def _evidence_items(processing_status=None, privacy=None):
+    item = {}
+    if processing_status is not None:
+        item["processingDetails"] = {"processingStatus": processing_status}
+    if privacy is not None:
+        item["status"] = {"privacyStatus": privacy}
+    return {"items": [item]}
+
+
+def _yt_check(content_id="yt-ev-1"):
+    async def _inner():
+        adapter = YouTubeAdapter(db=None, secrets=_FakeSecrets())
+        return await adapter.check_processing(content_id=content_id)
+
+    return asyncio.run(_inner())
+
+
+def test_f08_ready_requires_succeeded_processing_and_public_privacy(monkeypatch):
+    script = _Script(list_response=_evidence_items("succeeded", "public"))
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check()
+    assert processing.status == "ready"
+    assert processing.error is None
+
+
+def test_f08_succeeded_private_is_not_ready(monkeypatch):
+    script = _Script(list_response=_evidence_items("succeeded", "private"))
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check()
+    assert processing.status == "unknown"
+    assert "private" in processing.error
+    assert "not publicly published" in processing.error
+
+
+def test_f08_succeeded_unlisted_is_not_ready(monkeypatch):
+    script = _Script(list_response=_evidence_items("succeeded", "unlisted"))
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check()
+    assert processing.status == "unknown"
+    assert "unlisted" in processing.error
+
+
+def test_f08_succeeded_missing_or_unrecognized_privacy_fails_closed(monkeypatch):
+    # No status part at all.
+    script = _Script(list_response=_evidence_items("succeeded", None))
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check()
+    assert processing.status == "unknown"
+    assert "privacyStatus unavailable" in processing.error
+
+    # Unrecognized privacy value.
+    script = _Script(list_response=_evidence_items("succeeded", "weird"))
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check()
+    assert processing.status == "unknown"
+    assert "weird" in processing.error
+
+
+def test_f08_processing_failed_terminated_and_unknown_mappings_unchanged(monkeypatch):
+    # processing -> "processing" (with progress), regardless of privacy.
+    script = _Script(
+        list_response={
+            "items": [
+                {
+                    "processingDetails": {
+                        "processingStatus": "processing",
+                        "processingProgress": {"partsProcessed": 2, "partsTotal": 8},
+                    },
+                    "status": {"privacyStatus": "public"},
+                }
+            ]
+        }
+    )
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check()
+    assert processing.status == "processing"
+    assert processing.progress_percent == 25.0
+
+    for yt_status in ("failed", "terminated"):
+        script = _Script(list_response=_evidence_items(yt_status, "public"))
+        _install_real_youtube(monkeypatch, script)
+        assert _yt_check().status == "failed"
+
+    # Unrecognized processingStatus stays fail-closed "unknown".
+    script = _Script(list_response=_evidence_items("garbage", "public"))
+    _install_real_youtube(monkeypatch, script)
+    assert _yt_check().status == "unknown"
+
+
+def test_f08_empty_items_and_exception_behavior_unchanged(monkeypatch):
+    script = _Script(list_response={"items": []})
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check()
+    assert processing.status == "failed"
+    assert "not found" in processing.error
+
+    script = _Script(list_response=RuntimeError("transport died mid-lookup"))
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check()
+    assert processing.status == "failed"
+    assert "transport died" in processing.error
+
+
+def test_f08_request_shape_includes_the_status_part(monkeypatch):
+    script = _Script(list_response=_evidence_items("succeeded", "public"))
+    _install_real_youtube(monkeypatch, script)
+    processing = _yt_check(content_id="yt-shape-9")
+    assert processing.status == "ready"
+    assert script.list_calls == 1
+    assert script.last_list_part == "processingDetails,status"
+    assert script.last_list_id == "yt-shape-9"
+    # The publish/insert paths are untouched by an evidence lookup.
+    assert script.counters == {"insert_calls": 0, "update_calls": 0, "thumbnail_calls": 0}
+
+
+def _make_yt_attempt(status, *, anchor="yt-ev-1"):
+    """Admit a YouTube attempt for a fresh video and drive it to `status`
+    via the REAL transition helpers, with the upload anchor persisted."""
+
+    async def _inner():
+        from app.services.publication_attempts import (
+            admit_attempt,
+            mark_in_progress,
+            mark_unknown,
+        )
+
+        video_uuid = uuid.uuid4()
+        engine, session = await _session()
+        try:
+            attempt, _ = await admit_attempt(
+                session,
+                video_id=video_uuid,
+                platform="youtube",
+                social_platform="youtube",
+                integration_id=None,
+            )
+            attempt.external_content_id = anchor
+            await session.commit()
+            if status == PublicationAttemptStatus.IN_PROGRESS:
+                assert await mark_in_progress(session, attempt) is True
+            elif status == PublicationAttemptStatus.UNKNOWN:
+                assert await mark_unknown(session, attempt, "publish exception: ReadTimeout") is True
+            return attempt.id, video_uuid
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    return asyncio.run(_inner())
+
+
+def _age_yt_attempt(attempt_id, hours=1):
+    from datetime import datetime, timedelta, timezone
+
+    async def _inner():
+        from sqlalchemy import update
+
+        engine, session = await _session()
+        try:
+            await session.execute(
+                update(PublicationAttempt)
+                .where(PublicationAttempt.id == attempt_id)
+                .values(updated_at=datetime.now(timezone.utc) - timedelta(hours=hours))
+            )
+            await session.commit()
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    asyncio.run(_inner())
+
+
+def _svc_resolve(attempt_id, **kwargs):
+    async def _inner():
+        from app.services import publication_attempt_reconciliation as recon
+
+        engine, session = await _session()
+        try:
+            return await recon.resolve_attempt(session, attempt_id, **kwargs)
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    return asyncio.run(_inner())
+
+
+def _install_recon_youtube(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.publication_attempt_reconciliation.get_platform_adapter",
+        lambda platform, db, secrets=None: YouTubeAdapter(db=db, secrets=_FakeSecrets()),
+    )
+
+
+def test_f08_unknown_to_succeeded_resolution_fails_closed_on_private_video(monkeypatch):
+    """Operator reconciliation: UNKNOWN -> SUCCEEDED against a
+    processed-but-PRIVATE YouTube video must refuse (fail closed); the
+    attempt is unchanged."""
+    from app.services import publication_attempt_reconciliation as recon
+
+    script = _Script(list_response=_evidence_items("succeeded", "private"))
+    _install_real_youtube(monkeypatch, script)
+    _install_recon_youtube(monkeypatch)
+    aid, vu = _make_yt_attempt(PublicationAttemptStatus.UNKNOWN)
+    try:
+        with pytest.raises(recon.VerificationFailedError):
+            _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.UNKNOWN,
+                to_status=PublicationAttemptStatus.SUCCEEDED,
+                external_post_id="yt-post-9",
+            )
+        rows = asyncio.run(_attempts_for(vu))
+        assert rows[0].status == PublicationAttemptStatus.UNKNOWN  # unchanged
+    finally:
+        asyncio.run(_cleanup(vu))
+
+
+def test_f08_in_progress_to_succeeded_resolution_fails_closed_on_private_video(monkeypatch):
+    """H2: IN_PROGRESS -> SUCCEEDED against a processed-but-private
+    video must refuse (fail closed); the attempt is unchanged."""
+    from app.services import publication_attempt_reconciliation as recon
+
+    script = _Script(list_response=_evidence_items("succeeded", "private"))
+    _install_real_youtube(monkeypatch, script)
+    _install_recon_youtube(monkeypatch)
+    aid, vu = _make_yt_attempt(PublicationAttemptStatus.IN_PROGRESS)
+    _age_yt_attempt(aid, hours=1)
+    try:
+        with pytest.raises(recon.VerificationFailedError):
+            _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.IN_PROGRESS,
+                to_status=PublicationAttemptStatus.SUCCEEDED,
+                external_post_id="yt-post-9",
+            )
+        rows = asyncio.run(_attempts_for(vu))
+        assert rows[0].status == PublicationAttemptStatus.IN_PROGRESS  # unchanged
+    finally:
+        asyncio.run(_cleanup(vu))
+
+
+def test_f08_resolution_succeeds_on_verified_public_video(monkeypatch):
+    """Positive control: with processing succeeded AND public visibility,
+    the same reconciliation path resolves (the gate does not
+    over-block)."""
+    script = _Script(list_response=_evidence_items("succeeded", "public"))
+    _install_real_youtube(monkeypatch, script)
+    _install_recon_youtube(monkeypatch)
+    aid, vu = _make_yt_attempt(PublicationAttemptStatus.UNKNOWN)
+    try:
+        attempt, audit = _svc_resolve(
+            aid,
+            from_status=PublicationAttemptStatus.UNKNOWN,
+            to_status=PublicationAttemptStatus.SUCCEEDED,
+            external_post_id="yt-post-9",
+        )
+        assert attempt.status == PublicationAttemptStatus.SUCCEEDED
+        assert audit["verification"]["provider_status"] == "ready"
+    finally:
+        asyncio.run(_cleanup(vu))
+
+
+# ---------------------------------------------------------------------------
+# F-02a: evidence-gated FAILED resolutions — anchored YouTube matrix
+# (one-sided: refuse only on verified-public "ready"; all other outcomes
+# leave the operator attestation authoritative)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "processing_status,privacy,refused",
+    [
+        ("succeeded", "public", True),    # 1. verified publicly live -> REFUSED
+        ("succeeded", "private", False),  # 2. private -> attestation authoritative
+        ("succeeded", "unlisted", False), # 3. unlisted -> allowed
+        ("processing", "public", False),  # 4. still processing -> allowed
+        ("failed", None, False),          # 5. failed/not-found -> allowed
+    ],
+)
+def test_f02a_youtube_anchored_failed_matrix(monkeypatch, processing_status, privacy, refused):
+    from app.services import publication_attempt_reconciliation as recon
+
+    script = _Script(list_response=_evidence_items(processing_status, privacy))
+    _install_real_youtube(monkeypatch, script)
+    _install_recon_youtube(monkeypatch)
+    aid, vu = _make_yt_attempt(PublicationAttemptStatus.UNKNOWN)
+    try:
+        if refused:
+            with pytest.raises(recon.VerificationFailedError) as excinfo:
+                _svc_resolve(
+                    aid,
+                    from_status=PublicationAttemptStatus.UNKNOWN,
+                    to_status=PublicationAttemptStatus.FAILED,
+                    attestation="operator believes no post exists",
+                )
+            assert "publicly live" in str(excinfo.value)
+            rows = asyncio.run(_attempts_for(vu))
+            assert rows[0].status == PublicationAttemptStatus.UNKNOWN  # unchanged
+        else:
+            attempt, audit = _svc_resolve(
+                aid,
+                from_status=PublicationAttemptStatus.UNKNOWN,
+                to_status=PublicationAttemptStatus.FAILED,
+                attestation="verified no public post",
+            )
+            assert attempt.status == PublicationAttemptStatus.FAILED
+            assert audit["verification"]["gate"] == "failed_resolution_evidence"
+    finally:
+        asyncio.run(_cleanup(vu))
+
+
+def test_f02a_youtube_evidence_api_error_allows_failed(monkeypatch):
+    """6. Evidence lookup raising (API/transport error) never blocks the
+    manual FAILED resolution."""
+    from app.services import publication_attempt_reconciliation as recon
+
+    script = _Script(list_response=RuntimeError("youtube api broke during lookup"))
+    _install_real_youtube(monkeypatch, script)
+    _install_recon_youtube(monkeypatch)
+    aid, vu = _make_yt_attempt(PublicationAttemptStatus.UNKNOWN)
+    try:
+        attempt, audit = _svc_resolve(
+            aid,
+            from_status=PublicationAttemptStatus.UNKNOWN,
+            to_status=PublicationAttemptStatus.FAILED,
+            attestation="verified no public post",
+        )
+        assert attempt.status == PublicationAttemptStatus.FAILED
+        assert audit["verification"]["gate"] == "failed_resolution_evidence"
+    finally:
+        asyncio.run(_cleanup(vu))
+
+
+# ---------------------------------------------------------------------------
+# F-04a: YouTube publication visibility (ratified: public default on the
+# request contract; uploads stage privately; the publish transition applies
+# the REQUESTED visibility; privacy never participates in identity/state)
+# ---------------------------------------------------------------------------
+
+
+def _yt_payload_kwargs(video_path, video_id=None, workflow_run_id=None):
+    kwargs = {
+        "asset_storage_path": video_path,
+        "title": "t",
+        "caption": "d",
+        "platform": "youtube",
+    }
+    if video_id:
+        kwargs["video_id"] = str(video_id)
+    if workflow_run_id:
+        kwargs["workflow_run_id"] = str(workflow_run_id)
+    return kwargs
+
+
+def _publish_youtube(payload_kwargs):
+    async def _inner():
+        engine, session = await _session()
+        try:
+            return await publish_asset(PublishRequest(**payload_kwargs), session)
+        finally:
+            await session.close()
+            await engine.dispose()
+
+    return asyncio.run(_inner())
+
+
+@pytest.mark.parametrize(
+    "privacy_kw,expected",
+    [
+        ({}, "public"),  # 1. omitted -> ratified default public
+        ({"privacy_status": "public"}, "public"),  # 2. explicit public
+        ({"privacy_status": "private"}, "private"),  # 3. explicit private
+        ({"privacy_status": "unlisted"}, "unlisted"),  # 4. explicit unlisted
+    ],
+)
+def test_f04a_router_privacy_reaches_youtube_publish_transition(
+    monkeypatch, privacy_kw, expected
+):
+    """53B-T4: seeded (run, video) + approval — the visibility reaches the
+    YouTube publish transition verbatim."""
+    """The requested visibility is applied VERBATIM by the publication
+    transition (videos.update), while upload staging remains PRIVATE
+    (ratified two-phase)."""
+    from app.api.routers.publishing import _synthetic_video_id
+
+    script = _Script()
+    _install_real_youtube(monkeypatch, script)
+    asset = _tmp_video()
+    run_id, video_id = _seed_target(asset, privacy_status=expected)
+    kwargs = {
+        **_yt_payload_kwargs(asset, video_id=video_id, workflow_run_id=run_id),
+        **privacy_kw,
+    }
+    try:
+        resp = _publish_youtube(kwargs)
+        assert resp.success, resp.error
+        assert resp.attempt_status == "succeeded"
+        # Publication transition applies the REQUESTED visibility...
+        assert script.last_update_body["status"]["privacyStatus"] == expected
+        # ...while the upload always stages privately.
+        assert script.last_insert_body["status"]["privacyStatus"] == "private"
+    finally:
+        _cleanup_target(run_id)
+
+
+def test_f04a_invalid_privacy_is_rejected_at_the_api_edge():
+    """5. Values outside public|private|unlisted fail validation (422 at
+    the HTTP edge; ValidationError at the model edge)."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        PublishRequest(**_yt_payload_kwargs(_tmp_video()), privacy_status="friends")
+
+
+def test_f04a_public_publication_converges_with_f08_evidence(monkeypatch):
+    """53B-T4: seeded (run, video) + approval."""
+    """8. With the ratified public default, an agent-side SUCCEEDED
+    publication is corroborated by the F-08 evidence lookup (ready)."""
+    script = _Script(list_response=_evidence_items("succeeded", "public"))
+    _install_real_youtube(monkeypatch, script)
+    asset = _tmp_video()
+    run_id, video_id = _seed_target(asset)
+    kwargs = _yt_payload_kwargs(asset, video_id=video_id, workflow_run_id=run_id)
+    try:
+        resp = _publish_youtube(kwargs)  # privacy omitted -> public
+        assert resp.success and resp.attempt_status == "succeeded"
+        processing = _yt_check(content_id="yt-video-1")  # the scripted upload id
+        assert processing.status == "ready"
+        assert processing.error is None
+    finally:
+        _cleanup_target(run_id)
+
+
+# ---------------------------------------------------------------------------
+# F-05a: truthful scheduling contract — YouTube does not support scheduling;
+# scheduled requests are refused BEFORE admission/attempt/provider call.
+# ---------------------------------------------------------------------------
+
+
+def test_f05a_router_rejects_scheduled_youtube_before_any_side_effect(monkeypatch):
+    """Matrix 1/2/3/4/9/20/21: a VALID future-UTC scheduled YouTube
+    request (and a publish_type='schedule' request without a timestamp)
+    is rejected with HTTP 422 naming the unsupported capability — zero
+    provider API calls, zero publication-attempt rows, nothing admitted."""
+    from fastapi import HTTPException
+
+    from app.api.routers.publishing import _synthetic_video_id
+
+    script = _Script()
+    _install_real_youtube(monkeypatch, script)
+    for extra in (
+        {"scheduled_at": "2030-01-01T00:00:00Z"},  # valid future UTC -> still unsupported
+        {"publish_type": "schedule"},  # scheduling requested without a timestamp
+    ):
+        kwargs = {**_yt_payload_kwargs(_tmp_video()), **extra}
+        synthetic = uuid.UUID(_synthetic_video_id(PublishRequest(**kwargs)))
+        with pytest.raises(HTTPException) as excinfo:
+            _publish_youtube(kwargs)
+        assert excinfo.value.status_code == 422
+        assert "Scheduling is not supported on youtube" in str(excinfo.value.detail)
+        # No provider call of any kind.
+        assert script.counters == {"insert_calls": 0, "update_calls": 0, "thumbnail_calls": 0}
+        # No attempt row was created for the rejected request.
+        assert asyncio.run(_attempts_for(synthetic)) == []
+
+
+@pytest.mark.parametrize(
+    "bad_scheduled_at",
+    [
+        "not-a-date",  # 5. malformed
+        "2030-01-01T00:00:00",  # naive (no timezone)
+        "2030-01-01T00:00:00+05:00",  # 6. non-UTC offset
+        "2020-01-01T00:00:00Z",  # 7. past
+    ],
+)
+def test_f05a_invalid_scheduled_at_is_rejected_at_validation(monkeypatch, bad_scheduled_at):
+    """Matrix 5-7: malformed / naive / non-UTC / past timestamps fail
+    pydantic validation (HTTP 422 at the edge) for BOTH platforms."""
+    from pydantic import ValidationError
+
+    for platform in ("youtube", "postiz"):
+        with pytest.raises(ValidationError):
+            PublishRequest(
+                **{**_yt_payload_kwargs(_tmp_video()), "platform": platform,
+                   "scheduled_at": bad_scheduled_at}
+            )
+
+
+def test_f05a_current_timestamp_is_rejected(monkeypatch):
+    """Matrix 8: a current/immediate timestamp is not a future schedule."""
+    from datetime import datetime, timedelta, timezone
+
+    from pydantic import ValidationError
+
+    nowish = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+    with pytest.raises(ValidationError):
+        PublishRequest(**{**_yt_payload_kwargs(_tmp_video()), "scheduled_at": nowish})
+
+
+def test_f05a_postiz_future_scheduling_still_constructs_and_publishes(monkeypatch):
+    """Matrix 17/19: the validation and the YouTube refusal do NOT touch
+    Postiz scheduling — a valid future-UTC scheduled Postiz request is
+    accepted by the model (the F-03 scheduled e2e proves the full flow;
+    this proves the model edge stays open for Postiz)."""
+    req = PublishRequest(
+        asset_storage_path=_tmp_video(), platform="postiz",
+        publish_type="schedule", scheduled_at="2030-06-01T10:00:00Z",
+    )
+    assert req.scheduled_at == "2030-06-01T10:00:00Z"
+
+
+def test_f05a_inprocess_adapter_refuses_scheduling_parameters(monkeypatch):
+    """Matrix 10: the in-process safety boundary — the ADAPTER itself
+    refuses scheduling parameters (publish_type='schedule' or
+    scheduled_at) with a confirmed failure naming the unsupported
+    capability; never silently discards them; makes zero API calls.
+    Nothing was published, so the operator path records FAILED."""
+    script = _Script()
+    _install_real_youtube(monkeypatch, script)
+
+    async def _inner():
+        adapter = YouTubeAdapter(db=None, secrets=_FakeSecrets())
+        schedule_type = await adapter.publish(
+            content_id="yt-video-1", credentials={"api_key": "k"},
+            publish_type="schedule",
+        )
+        with_time = await adapter.publish(
+            content_id="yt-video-1", credentials={"api_key": "k"},
+            scheduled_at="2030-01-01T00:00:00Z",
+        )
+        return schedule_type, with_time
+
+    schedule_type, with_time = asyncio.run(_inner())
+    for result in (schedule_type, with_time):
+        assert result.success is False
+        assert "Scheduling is not supported on youtube" in result.error
+    assert script.counters == {"insert_calls": 0, "update_calls": 0, "thumbnail_calls": 0}
+
+
+def test_f05a_unscheduled_youtube_publication_remains_unchanged(monkeypatch):
+    """Matrix 11/12/13: unscheduled YouTube publication still follows
+    F-04a (omitted -> public; explicit values verbatim) — re-asserted on
+    top of the unchanged F-04a matrix."""
+    from app.api.routers.publishing import _synthetic_video_id
+
+    for privacy_kw, expected in (
+        ({}, "public"),
+        ({"privacy_status": "private"}, "private"),
+        ({"privacy_status": "unlisted"}, "unlisted"),
+    ):
+        script = _Script()
+        _install_real_youtube(monkeypatch, script)
+        asset = _tmp_video()
+        run_id, video_id = _seed_target(asset, privacy_status=expected)
+        kwargs = {**_yt_payload_kwargs(asset, video_id=video_id, workflow_run_id=run_id), **privacy_kw}
+        try:
+            resp = _publish_youtube(kwargs)
+            assert resp.success, resp.error
+            assert script.last_update_body["status"]["privacyStatus"] == expected
+            assert "publishAt" not in script.last_update_body["status"]
+        finally:
+            _cleanup_target(run_id)
+            _cleanup_target(run_id)
+
+
+# ---------------------------------------------------------------------------
+# YT-Hardening: bounded, off-loop YouTube client — the event loop stays
+# responsive during slow calls; transport auto-retry is explicitly disabled;
+# timeout/transport failure classification is unchanged (UNKNOWN, retry
+# blocked).
+# ---------------------------------------------------------------------------
+
+
+def test_yt_hardening_event_loop_stays_responsive_during_slow_calls(monkeypatch):
+    """A slow (0.8s) blocking videos.update — previously the synchronous
+    call FROZE the whole event loop — now runs OFF the loop: a concurrent
+    heartbeat task keeps beating throughout the publication."""
+    import time
+
+    class _SlowUpdate:
+        def execute(self, num_retries=None):
+            time.sleep(0.8)  # blocking, but now inside a worker thread
+            return {}
+
+    class _SlowVideos:
+        def insert(self, *, part, body, media_body):
+            class _IR:
+                def __init__(self):
+                    self._done = False
+
+                def next_chunk(self, num_retries=None):
+                    if self._done:
+                        return None, {"id": "yt-slow-1"}
+                    self._done = True
+                    return None, None
+
+            return _IR()
+
+        def update(self, *, part, body):
+            return _SlowUpdate()
+
+    class _SlowClient:
+        def videos(self):
+            return _SlowVideos()
+
+    client = _SlowClient()
+    monkeypatch.setattr(
+        "app.agents.publishing.get_platform_adapter",
+        lambda platform, db, secrets=None: YouTubeAdapter(db=db, secrets=_FakeSecrets()),
+    )
+    monkeypatch.setattr(YouTubeAdapter, "_build_credentials", lambda self: {"api_key": "k"})
+    monkeypatch.setattr(
+        YouTubeAdapter, "_build_api_client", lambda self, credentials=None: client
+    )
+
+    run_id, video_uuid = _seed_target()
+    heartbeats = {"n": 0}
+
+    async def _inner():
+        async def heartbeat():
+            while True:
+                heartbeats["n"] += 1
+                await asyncio.sleep(0.02)
+
+        hb = asyncio.create_task(heartbeat())
+        await asyncio.sleep(0.2)
+        before = heartbeats["n"]
+        t0 = time.monotonic()
+        engine, session = await _session()
+        try:
+            result = await PublishingAgent(db=session).run(_ctx(video_uuid, workflow_run_id=str(run_id)))
+        finally:
+            await session.close()
+            await engine.dispose()
+        elapsed = time.monotonic() - t0
+        during = heartbeats["n"] - before
+        hb.cancel()
+        return result, elapsed, during
+
+    result, elapsed, during = asyncio.run(_inner())
+    try:
+        assert result.success, result.error
+        assert elapsed >= 0.8  # the slow call really ran
+        # The loop stayed responsive throughout (the pre-hardening sync
+        # call froze it completely: zero heartbeats during the call).
+        assert during >= 15, f"heartbeats during call: {during}"
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert rows[0].status == PublicationAttemptStatus.SUCCEEDED
+    finally:
+        asyncio.run(_cleanup(video_uuid))
+        _cleanup_target(run_id)
+
+def test_yt_hardening_transport_auto_retry_disabled_wiring(monkeypatch):
+    """num_retries=0 is passed EXPLICITLY at every dispatch site (insert
+    chunk upload, publish update, evidence lookup) — transport-level
+    auto-retry can never silently re-dispatch a non-idempotent upload."""
+    script = _Script()
+    _install_real_youtube(monkeypatch, script)
+    run_id, video_uuid = _seed_target()
+    try:
+        result = _run_agent(_ctx(video_uuid, workflow_run_id=str(run_id)))
+        assert result.success, result.error
+        assert script.last_insert_num_retries == 0
+        assert script.last_update_num_retries == 0
+        processing = _yt_check()
+        assert processing.status == "ready"
+        assert script.last_list_num_retries == 0
+    finally:
+        asyncio.run(_cleanup(video_uuid))
+        _cleanup_target(run_id)
+
+def test_yt_hardening_timeout_classification_preserved(monkeypatch):
+    """A transport timeout on the publish call (now surfacing through
+    asyncio.to_thread) keeps the ratified classification: mid-exchange
+    ambiguity -> UNKNOWN, retry blocked, exactly one dispatch."""
+    script = _Script(publish=("raise", TimeoutError("timed out mid-update")))
+    _install_real_youtube(monkeypatch, script)
+    run_id, video_uuid = _seed_target()
+    ctx = _ctx(video_uuid, workflow_run_id=str(run_id))
+    try:
+        first = _run_agent(ctx)
+        assert not first.success and "UNKNOWN" in first.error
+        rows = asyncio.run(_attempts_for(video_uuid))
+        assert [r.status for r in rows] == [PublicationAttemptStatus.UNKNOWN]
+        assert script.counters["update_calls"] == 1
+
+        second = _run_agent(ctx)
+        assert not second.success and "AMBIGUOUS" in second.error
+        assert script.counters["update_calls"] == 1  # never re-dispatched
+    finally:
+        asyncio.run(_cleanup(video_uuid))
+
+
+# ---------------------------------------------------------------------------
+# F-13a: bounded, sanitized provider error text (YouTube HttpError bodies)
+# ---------------------------------------------------------------------------
+
+
+def test_f13a_youtube_helper_matches_the_ratified_contract():
+    from app.platforms.youtube import _PROVIDER_TEXT_LIMIT, _provider_text
+
+    assert _provider_text("scripted") == "scripted"
+    dirty = "x\x00y\x1bz\x7fw\x9fv"
+    assert _provider_text(dirty) == "xyzwv"
+    big = "C" * (_PROVIDER_TEXT_LIMIT + 77)
+    out = _provider_text(big)
+    assert out == "C" * _PROVIDER_TEXT_LIMIT + "… [truncated 77 chars]"
+
+
+def test_f13a_youtube_oversized_error_body_is_capped_and_clean(monkeypatch):
+    """53B-T4: seeded (run, video) + approval."""
+    """A provider 4xx whose HttpError body is oversized and carries
+    control characters is sanitized before persistence: bounded,
+    marker present, diagnostic prefix and status intact."""
+    from app.platforms.youtube import _PROVIDER_TEXT_LIMIT
+
+    markup = "<script>alert(1)</script>"
+    payload = ("D" * (_PROVIDER_TEXT_LIMIT + 250)) + "\x00" + markup
+
+    class _BigBodyVideos:
+        def __init__(self, script, counters):
+            self._script = script
+            self._counters = counters
+
+        def insert(self, *, part, body, media_body):
+            self._counters["insert_calls"] += 1
+            self._script.last_insert_body = body
+            return _InsertRequest(self._script.upload_behavior, self._script)
+
+        def update(self, *, part, body):
+            self._counters["update_calls"] += 1
+            self._script.last_update_body = body
+            return _BigBodyUpdate(self._script)
+
+        def list(self, *, part, id):
+            self._script.list_calls += 1
+            self._script.last_list_part = part
+            self._script.last_list_id = id
+            return _ListRequest(self._script)
+
+    class _BigBodyUpdate:
+        def __init__(self, script):
+            self._script = script
+
+        def execute(self, num_retries=None):
+            self._script.last_update_num_retries = num_retries
+            resp = httplib2.Response({"status": "400", "reason": "Bad Request"})
+            content = ('{"error":{"message":"' + payload + '"}}').encode()
+            raise HttpError(resp=resp, content=content)
+
+    class _BigBodyClient:
+        def __init__(self, script, counters):
+            self._videos = _BigBodyVideos(script, counters)
+
+        def videos(self):
+            return self._videos
+
+    script = _Script()
+    client = _BigBodyClient(script, script.counters)
+    monkeypatch.setattr(
+        "app.agents.publishing.get_platform_adapter",
+        lambda platform, db, secrets=None: YouTubeAdapter(db=db, secrets=_FakeSecrets()),
+    )
+    monkeypatch.setattr(YouTubeAdapter, "_build_credentials", lambda self: {"api_key": "k"})
+    monkeypatch.setattr(YouTubeAdapter, "_build_api_client", lambda self, credentials=None: client)
+
+    run_id, video_uuid = _seed_target()
+    try:
+        result = _run_agent(_ctx(video_uuid, workflow_run_id=str(run_id)))
+        assert not result.success
+        rows = asyncio.run(_attempts_for(video_uuid))
+        err = rows[0].error
+        # Expected sanitization computed from an identical error (the
+        # HttpError stringification wraps the content in its own
+        # scaffolding, which counts toward the provider-derived text).
+        from app.platforms.youtube import _provider_text
+
+        probe = HttpError(
+            resp=httplib2.Response({"status": "400", "reason": "Bad Request"}),
+            content=('{"error":{"message":"' + payload + '"}}').encode(),
+        )
+        expected = _provider_text(probe)
+        marker = expected[_PROVIDER_TEXT_LIMIT:]
+        # Diagnostic prefix and status preserved.
+        assert "YouTube publish rejected (HTTP 400)" in (result.error or "")
+        assert "publish rejected: YouTube publish rejected (HTTP 400)" in err
+        # Sanitized: no control characters, no markup beyond the cap.
+        assert "\x00" not in err and "<script>" not in err
+        assert marker in err
+        # Bounded provider component (identical to the computed expectation).
+        prefix = "publish rejected: YouTube publish rejected (HTTP 400): "
+        assert err == prefix + expected
+        assert len(err) <= len(prefix) + _PROVIDER_TEXT_LIMIT + len(marker)
+        assert "D" * 1200 not in err  # the unbounded body never leaks
+    finally:
+        asyncio.run(_cleanup(video_uuid))
+        _cleanup_target(run_id)

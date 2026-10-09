@@ -18,13 +18,64 @@ import uuid
 from collections.abc import AsyncGenerator
 
 import httpx
+import pytest
 import pytest_asyncio
-from httpx import ASGITransport
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.database.session import AsyncSessionLocal, engine
 from app.main import app
 from app.models.core import Project
+from httpx import ASGITransport
+from sqlalchemy.ext.asyncio import AsyncSession
+
+# Phase 48B: the ONLY credential tests may authenticate with. Synthetic by
+# construction — never sourced from .env or the ambient environment.
+TEST_API_KEY = "synthetic-test-bearer-key"
+
+
+@pytest.fixture(autouse=True)
+def _isolate_process_tempdir():
+    """CI Test Remediation Phase 1 (52-failure cause): the vendored
+    Hermes runtime's boot hook (hermes_bootstrap ->
+    hermes_constants.export_scratch_tmp_env) repoints the PROCESS-GLOBAL
+    temp state (TMPDIR/TEMP/TMP env + tempfile.tempdir) at a per-job
+    scratch directory under HERMES_HOME. Any test that boots Hermes
+    therefore leaks that state; when the job's scratch directory is
+    later removed, every subsequent bare tempfile.mkstemp() /
+    NamedTemporaryFile in ANY test raises FileNotFoundError into a
+    deleted directory (the GitHub-CI failure mode across the i7/i8/i11
+    and image-validator suites). Snapshot the process temp state before
+    each test and restore it after, so no test can leak it to another —
+    regardless of whether the leaking test passed or failed."""
+    import os
+    import tempfile
+
+    saved_tempdir = tempfile.tempdir
+    saved_env = {
+        key: os.environ[key]
+        for key in ("TMPDIR", "TEMP", "TMP")
+        if key in os.environ
+    }
+    yield
+    tempfile.tempdir = saved_tempdir
+    for key in ("TMPDIR", "TEMP", "TMP"):
+        if key in saved_env:
+            os.environ[key] = saved_env[key]
+        else:
+            os.environ.pop(key, None)
+
+
+@pytest.fixture
+def synthetic_api_key(monkeypatch) -> str:
+    """Pin the cached Settings object (the same instance the application's
+    verify_api_key dependency reads via Depends(get_settings)) to the shared
+    synthetic credential for the duration of one test. monkeypatch restores
+    the previous value (and the auth flag) afterwards, so no state leaks
+    between tests and the live ARYA_API_KEY is never used or exposed."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "arya_api_key", TEST_API_KEY, raising=False)
+    # Force the real auth path deterministically regardless of ambient env:
+    # authenticated clients must be validated (not bypassed) in tests.
+    monkeypatch.setattr(settings, "api_auth_enabled", True, raising=False)
+    return TEST_API_KEY
 
 
 @pytest_asyncio.fixture(loop_scope="module", autouse=True)
@@ -82,10 +133,9 @@ async def test_project(db_session: AsyncSession) -> AsyncGenerator[uuid.UUID, No
 
     yield project.id
 
-    from sqlalchemy import delete, select
-
     from app.models.core import WorkflowRun
     from app.models.system import SystemLog
+    from sqlalchemy import delete, select
 
     workflow_run_ids = (
         (
@@ -110,21 +160,15 @@ from app.core.config import get_settings
 
 
 @pytest_asyncio.fixture(loop_scope="module")
-async def client() -> AsyncGenerator[httpx.AsyncClient, None]:
-    settings = get_settings()
-    test_key = settings.arya_api_key or "test-arya-api-key"
-    original_key = settings.arya_api_key
-    if not settings.arya_api_key:
-        settings.arya_api_key = test_key
-
-    try:
-        async with app.router.lifespan_context(app):
-            transport = ASGITransport(app=app)
-            async with httpx.AsyncClient(
-                transport=transport,
-                base_url="http://testserver",
-                headers={"Authorization": f"Bearer {test_key}"},
-            ) as ac:
-                yield ac
-    finally:
-        settings.arya_api_key = original_key
+async def client(synthetic_api_key: str) -> AsyncGenerator[httpx.AsyncClient, None]:
+    # Phase 48B: authenticate with the shared synthetic credential; the
+    # app validates against the same value via the synthetic_api_key
+    # fixture's monkeypatch of the cached Settings object.
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+            headers={"Authorization": f"Bearer {synthetic_api_key}"},
+        ) as ac:
+            yield ac

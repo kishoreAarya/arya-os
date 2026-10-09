@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.logging import configure_logging, get_logger
 from app.core.security import verify_api_key
-from app.api.routers import agents, analytics, approvals, creator, feature_flags, health, lineage, publishing, research, workflow_runs, workflows
+from app.api.routers import agents, analytics, approvals, creator, feature_flags, health, hermes_jobs, lineage, publishing, research, workflow_runs, workflows
 from app.workers.scheduler import start_scheduler, stop_scheduler
 
 settings = get_settings()
@@ -36,17 +36,29 @@ async def lifespan(app: FastAPI):
     logger.info("shutdown")
 
 
+# API docs/OpenAPI schema are dev/test conveniences; an anonymous caller
+# must not be able to enumerate the full route/schema surface in production.
+_is_production = (settings.app_env or "").lower() == "production"
+
 app = FastAPI(
     title="Project Arya OS",
     description="Personal AI Content Factory — backend services",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
 )
 
+# CORS: explicit origin allowlist only — no wildcard origins. Auth is a
+# Bearer header (no cookie sessions), so credentials are not exposed to
+# any origin. The Vite dev proxy and the backend's own static mount are
+# same-origin and unaffected.
+_cors_allowed_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_allowed_origins,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -63,6 +75,7 @@ app.include_router(creator.router, dependencies=[Depends(verify_api_key)])
 app.include_router(research.router, dependencies=[Depends(verify_api_key)])
 app.include_router(publishing.router, dependencies=[Depends(verify_api_key)])
 app.include_router(analytics.router, dependencies=[Depends(verify_api_key)])
+app.include_router(hermes_jobs.router, dependencies=[Depends(verify_api_key)])
 
 # Health router includes public probes (/health, /ready) and protected diagnostics (/providers, /database, /storage, /validators)
 app.include_router(health.router)
@@ -73,8 +86,8 @@ async def root():
     return {"service": "arya-os", "status": "running", "sprint": 3}
 
 
-import os
-from fastapi.staticfiles import StaticFiles
+import os  # noqa: E402 — grouped with the static-mount section that uses it
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 _frontend_dist = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),

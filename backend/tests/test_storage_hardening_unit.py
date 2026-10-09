@@ -31,11 +31,10 @@ from app.storage.local import LocalStorageProvider
 
 
 @pytest.fixture
-def auth_client():
-    """Client authenticated with the system API key."""
-    settings = get_settings()
+def auth_client(synthetic_api_key):
+    """Client authenticated with the synthetic test API key (Phase 48B)."""
     client = TestClient(app)
-    client.headers.update({"Authorization": f"Bearer {settings.arya_api_key}"})
+    client.headers.update({"Authorization": f"Bearer {synthetic_api_key}"})
     return client
 
 
@@ -352,7 +351,7 @@ def test_creator_download_nonexistent_asset(auth_client):
     assert res.status_code == 404
 
 
-def test_creator_endpoints_require_auth(unauth_client):
+def test_creator_endpoints_require_auth(synthetic_api_key, unauth_client):
     """Verify /creator/upload and /creator/assets/download require Bearer token."""
     res_upload = unauth_client.post(
         "/creator/upload",

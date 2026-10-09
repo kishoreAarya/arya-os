@@ -11,6 +11,7 @@ Responsibilities:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
@@ -20,7 +21,6 @@ import tempfile
 import textwrap
 import uuid
 from pathlib import Path
-from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -388,7 +388,9 @@ async def burn_captions_to_video(
                 "-of", "json",
                 video_path,
             ]
-            res = subprocess.run(probe_cmd, capture_output=True, text=True, check=False)
+            res = await asyncio.to_thread(
+                subprocess.run, probe_cmd, capture_output=True, text=True, check=False
+            )
             if res.returncode == 0:
                 data = json.loads(res.stdout)
                 streams = data.get("streams", [])
@@ -452,7 +454,6 @@ async def burn_captions_to_video(
             input_video=video_path,
         )
 
-        import asyncio
         proc = await asyncio.to_thread(
             subprocess.run,
             cmd,

@@ -27,7 +27,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,7 +42,7 @@ from app.models.core import Project, WorkflowRun
 from app.models.enums import PipelineStage, WorkflowMode, WorkflowStatus
 from app.models.media import Asset
 from app.models.system import SystemLog
-from app.providers.capabilities import Capability, PROVIDER_CAPABILITIES
+from app.providers.capabilities import PROVIDER_CAPABILITIES
 from app.storage import get_storage_provider
 
 logger = get_logger("arya.creator")
@@ -683,7 +683,6 @@ async def submit_creator_generation(
     await db.refresh(run)
 
     job_id = str(run.id)
-    now_iso = datetime.now(timezone.utc).isoformat()
 
     job_state = {
         "job_id": job_id,
@@ -1022,7 +1021,7 @@ async def upload_reference_asset(payload: AssetUploadRequest):
 
     storage = get_storage_provider()
     try:
-        stored_path = await storage.upload(storage_key, content, content_type=req_mime)
+        await storage.upload(storage_key, content, content_type=req_mime)
         url = storage.get_url(storage_key)
         return {
             "key": storage_key,
@@ -1049,6 +1048,7 @@ async def download_asset_proxy(
     import mimetypes
     import urllib.parse
     from pathlib import Path
+    from app.utils.asset_downloader import SSRFSecurityError, open_validated_stream
     from app.utils.asset_manager import is_safe_asset_url
 
     safe_filename = Path(filename).name.replace('"', '').strip() or "arya_asset"
@@ -1059,23 +1059,32 @@ async def download_asset_proxy(
             raise HTTPException(status_code=400, detail="Insecure or disallowed remote URL")
 
         try:
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-                resp = await client.get(url)
-                if resp.status_code >= 400:
-                    raise HTTPException(status_code=502, detail="Failed to fetch asset from upstream provider")
+            # Bounded, validated redirect handling: never follow redirects
+            # blindly — every hop target is revalidated with the same
+            # DNS-aware SSRF guard (see open_validated_stream).
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+                response = await open_validated_stream(client, url)
+                try:
+                    if response.status_code >= 400:
+                        raise HTTPException(status_code=502, detail="Failed to fetch asset from upstream provider")
 
-                content_type = resp.headers.get("Content-Type", "application/octet-stream")
-                return Response(
-                    content=resp.content,
-                    media_type=content_type,
-                    headers={
-                        "Content-Disposition": f'attachment; filename="{safe_filename}"',
-                        "Content-Length": str(len(resp.content)),
-                        "Cache-Control": "public, max-age=3600",
-                    },
-                )
+                    content_type = response.headers.get("Content-Type", "application/octet-stream")
+                    body = await response.aread()
+                    return Response(
+                        content=body,
+                        media_type=content_type,
+                        headers={
+                            "Content-Disposition": f'attachment; filename="{safe_filename}"',
+                            "Content-Length": str(len(body)),
+                            "Cache-Control": "public, max-age=3600",
+                        },
+                    )
+                finally:
+                    await response.aclose()
         except HTTPException:
             raise
+        except SSRFSecurityError:
+            raise HTTPException(status_code=400, detail="Insecure or disallowed redirect target")
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Download fetch failed: {exc}") from exc
 

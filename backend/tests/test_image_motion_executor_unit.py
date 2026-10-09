@@ -32,7 +32,8 @@ async def test_shot_executor_image_motion_bypasses_ai_video_and_renders_motion()
     # Create minimal 1080x1920 png via ffmpeg
     ffmpeg = shutil.which("ffmpeg")
     assert ffmpeg is not None, "ffmpeg is required for this test"
-    subprocess.run(
+    await asyncio.to_thread(
+        subprocess.run,
         [ffmpeg, "-y", "-f", "lavfi", "-i", "color=c=darkblue:s=1080x1920:d=1", "-vframes", "1", str(dummy_img)],
         check=True,
         capture_output=True,
@@ -152,7 +153,8 @@ async def test_render_image_motion_clip_ffprobe_duration_and_resolution():
 
     # Generate 16:9 input image (1920x1080)
     tmp_img = Path(tempfile.gettempdir()) / f"probe_test_{uuid.uuid4().hex}.png"
-    subprocess.run(
+    await asyncio.to_thread(
+        subprocess.run,
         [ffmpeg, "-y", "-f", "lavfi", "-i", "color=c=navy:s=1920x1080:d=1", "-vframes", "1", str(tmp_img)],
         check=True,
         capture_output=True,
@@ -178,7 +180,7 @@ async def test_render_image_motion_clip_ffprobe_duration_and_resolution():
         "-of", "json",
         video_path,
     ]
-    proc = subprocess.run(probe_cmd, capture_output=True, text=True, check=True)
+    proc = await asyncio.to_thread(subprocess.run, probe_cmd, capture_output=True, text=True, check=True)
     import json
     info = json.loads(proc.stdout)
 

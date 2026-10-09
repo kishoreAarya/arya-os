@@ -10,6 +10,18 @@ agent that saves a file.
 """
 from abc import ABC, abstractmethod
 
+import posixpath
+
+
+def lexical_canonical_key(key: str) -> str:
+    """Lexical key normalization: collapse `.` components and repeated
+    separators without touching anything else. Used as the fallback for
+    references that do not resolve inside a storage root (ratified F-01
+    contract: preserve the existing out-of-root workflow — no new
+    rejection policy). Key-oriented backends treat keys as opaque, so
+    backslashes and case are preserved."""
+    return posixpath.normpath(key)
+
 
 class StorageProvider(ABC):
     @abstractmethod
@@ -36,3 +48,15 @@ class StorageProvider(ABC):
         just be a file:// path or an internal API route; for object
         storage it's a public or presigned URL."""
         raise NotImplementedError
+
+    def canonical_key(self, key: str) -> str:
+        """Canonical identity form of a storage reference (F-01).
+
+        The default is lexical key normalization — correct for
+        key-oriented backends (S3/R2 object keys are opaque strings:
+        case-sensitive, backslash-preserving). Path-resolving backends
+        (local disk) override with storage-root resolution so that
+        alias spellings of the same physical asset collapse to one key.
+        URLs are NOT handled here (router policy keeps raw URL strings
+        as their own identity namespace)."""
+        return lexical_canonical_key(key)

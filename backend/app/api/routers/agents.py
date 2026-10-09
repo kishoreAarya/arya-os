@@ -9,7 +9,6 @@ All agents in AGENT_REGISTRY are async and fully implemented.
 """
 import dataclasses
 import inspect
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession

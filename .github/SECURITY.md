@@ -7,8 +7,10 @@ single-operator, self-hosted content pipeline. It is not a
 multi-tenant product and does not currently have any of the following
 by design, not by oversight:
 
-- No authentication/authorization on any API route (`/approvals`,
-  `/feature-flags`, `/lineage`, `/health`)
+- No unauthenticated sensitive API routes — bearer-token authentication
+  (`ARYA_API_KEY`) protects all of them (approvals, feature-flags, lineage,
+  creator, research, …); only the `/health` and `/ready` probes and the
+  root banner are public, and the API docs UI is disabled in production
 - No rate limiting
 - No `Users` table
 
@@ -56,7 +58,8 @@ yet given the project's current stage.
 These are documented, intentional gaps for the current scope, tracked
 for future hardening rather than silently ignored:
 
-- No API authentication (tracked — planned before any public exposure)
+- No per-user authorization model (single shared-secret `ARYA_API_KEY`;
+  no `Users` table — single-operator scope)
 - No rate limiting (tracked — deferred until real traffic patterns exist)
 - Agents/validators are stubs and perform no real external calls yet,
   so provider-side data handling has not been security-reviewed

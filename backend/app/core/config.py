@@ -6,8 +6,35 @@ Everything flows through this single Settings object, injected
 wherever it's needed (dependency injection, not global state).
 """
 from functools import lru_cache
-from pydantic import Field
+from typing import Annotated
+
+from pydantic import BeforeValidator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Absolute Hermes-Agent commit pin — single source of truth.
+# HERMES_INTEGRATION_SPEC §2/§15: changing this requires source verification,
+# runtime security verification, architecture review, and explicit approval.
+HERMES_COMMIT_PIN = "c0d7294769a38c17ceae51d8f7995e66e1dcae27"
+# Tree hash of the pinned Hermes commit — the second identity anchor,
+# verified alongside the commit at the build boundary (app.hermes.source).
+# Same §15 change control.
+HERMES_TREE_PIN = "eff225d07a45bcff9ecd96d4632564657218798e"
+
+
+def _reject_bool(value: object) -> object:
+    # bool is a subclass of int, so pydantic's lax mode would silently coerce
+    # True/False into 1/0 limits. Hermes limits reject bools instead: invalid
+    # configuration fails, it is never coerced (HERMES_INTEGRATION_SPEC §12).
+    # ValueError (not TypeError) is deliberate: pydantic's BeforeValidator
+    # contract converts ValueError into a ValidationError; TypeError would
+    # propagate raw and change the public failure mode.
+    if isinstance(value, bool):
+        raise ValueError("boolean is not a valid numeric Hermes setting")
+    return value
+
+
+HermesLimitInt = Annotated[int, BeforeValidator(_reject_bool)]
+HermesLimitFloat = Annotated[float, BeforeValidator(_reject_bool)]
 
 
 class Settings(BaseSettings):
@@ -24,7 +51,9 @@ class Settings(BaseSettings):
     app_env: str = "development"
     debug: bool = True
     log_level: str = "INFO"
-    backend_host: str = "0.0.0.0"
+    # Standard container bind default; host port exposure is pinned
+    # per-interface by docker-compose (127.0.0.1 bindings).
+    backend_host: str = "0.0.0.0"  # nosec B104
     backend_port: int = 8000
     uvicorn_workers: int = 1
     uvicorn_timeout_keep_alive: int = 65
@@ -36,6 +65,10 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     arya_api_key: str | None = None
     api_auth_enabled: bool = True
+    # Comma-separated allowlist of browser origins permitted by CORS.
+    # No wildcards: the API uses Bearer headers, not cookies, so
+    # allow_credentials stays False and only explicit origins are echoed.
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     # ------------------------------------------------------------------
     # Database
@@ -167,6 +200,27 @@ class Settings(BaseSettings):
     postiz_api_key: str | None = None
     postiz_timeout_seconds: float = 30.0
     postiz_default_integration_id: str | None = None
+
+    # ------------------------------------------------------------------
+    # Hermes Runtime (V2) — see docs/architecture/HERMES_INTEGRATION_SPEC.md
+    #
+    # Disabled by default. There are deliberately NO default values for the
+    # resource limits: enabling Hermes requires the operator to supply every
+    # value, and app.hermes.config.get_validated_hermes_config() fails closed
+    # on any missing, non-finite, or non-positive limit. Unbounded is not a
+    # valid configuration.
+    # ------------------------------------------------------------------
+    hermes_enabled: bool = False
+    hermes_commit_pin: str = HERMES_COMMIT_PIN
+    hermes_plugin_path: str | None = None
+    hermes_home: str | None = None
+    hermes_max_iterations: HermesLimitInt | None = None
+    hermes_max_execution_seconds: HermesLimitFloat | None = None
+    hermes_max_tool_calls: HermesLimitInt | None = None
+    hermes_max_tool_calls_per_capability: HermesLimitInt | None = None
+    hermes_max_generation_budget_usd: HermesLimitFloat | None = None
+    hermes_max_context_tokens: HermesLimitInt | None = None
+    hermes_max_blocked_requests: HermesLimitInt | None = None
 
 
 
