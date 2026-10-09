@@ -250,6 +250,24 @@ async def test_authorized_agent_proceeds_to_dispatch(monkeypatch):
         return attempt, False  # duplicate PENDING -> clean early exit
 
     monkeypatch.setattr("app.services.publication_attempts.admit_attempt", _admit)
+
+    # Step-3 intent-identity canonicalization: run() now loads the
+    # authorizing manifest to key the admission intent on the approved
+    # destination. Stub it as unbound (DispatchBlocked) so this gate
+    # harness exercises the documented raw-value fallback without a
+    # database — the stubbed admit_attempt below still short-circuits
+    # admission to the duplicate-PENDING early exit under test.
+    async def _unbound_manifest(*_a, **_k):
+        from app.services.publication_manifest_service import DispatchBlocked
+
+        raise DispatchBlocked(
+            "no_thumbnail_checkpoint", "stubbed: no bound manifest in gate harness"
+        )
+
+    monkeypatch.setattr(
+        "app.services.publication_manifest_service.load_authorizing_manifest",
+        _unbound_manifest,
+    )
     agent = PublishingAgent(db=MagicMock())
     result = await agent.run(_base_context())
     assert factory.call_count == 1  # gate passed; dispatch path entered

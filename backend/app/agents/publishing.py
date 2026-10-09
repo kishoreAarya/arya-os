@@ -159,12 +159,48 @@ class PublishingAgent(BaseAgent):
                     "trackable attempt (dry_run requests are unaffected)",
                 )
             if attempt_video_uuid is not None:
+                # Step-3 intent-identity canonicalization: admission
+                # keys the intent family on the DESTINATION, and the
+                # authoritative destination is the approved manifest's
+                # — not the request's spelling of it. Without this, the
+                # one nullable destination field (integration_id)
+                # could mint two intent families for the SAME approved
+                # publication (omitted vs explicitly supplied with the
+                # approved value), and both could be permitted and
+                # published. When no verified manifest can be loaded
+                # (unbound/corrupt/missing), keep the raw request
+                # values: dispatch is denied downstream in that case,
+                # so no external call can follow either way.
+                intent_platform = platform
+                intent_social_platform = social_platform
+                intent_integration_id = context.get("integration_id")
+                from app.services.publication_manifest_service import (
+                    DispatchBlocked,
+                    load_authorizing_manifest,
+                )
+
+                try:
+                    (
+                        _intent_checkpoint,
+                        _intent_manifest,
+                        intent_parsed,
+                    ) = await load_authorizing_manifest(
+                        self._db,
+                        workflow_run_id=UUID(str(context["workflow_run_id"])),
+                        video_id=attempt_video_uuid,
+                    )
+                except DispatchBlocked:
+                    intent_parsed = None
+                if intent_parsed is not None:
+                    intent_platform = intent_parsed["platform"]
+                    intent_social_platform = intent_parsed["social_platform"]
+                    intent_integration_id = intent_parsed.get("integration_id")
                 attempt, created = await admit_attempt(
                     self._db,
                     video_id=attempt_video_uuid,
-                    platform=platform,
-                    social_platform=social_platform,
-                    integration_id=context.get("integration_id"),
+                    platform=intent_platform,
+                    social_platform=intent_social_platform,
+                    integration_id=intent_integration_id,
                     workflow_run_id=(
                         UUID(str(context["workflow_run_id"]))
                         if context.get("workflow_run_id")
