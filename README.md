@@ -445,6 +445,10 @@ response = client.get("/agents/")
 3. Keep `/health` and `/ready` mapped to orchestrator/Kubernetes liveness and readiness probes.
 4. Keep `APP_ENV=production` in all deployed environments.
 
+Operational documents:
+- [UNKNOWN-Publication Operator Runbook](docs/UNKNOWN_PUBLICATION_RUNBOOK.md) — how to investigate and resolve uncertain publication outcomes safely.
+- [First-Production-Deployment Checklist](docs/FIRST_PRODUCTION_DEPLOYMENT_CHECKLIST.md) — staged preparation and verification for the first production deployment and database migration.
+
 ## Stability qualification (post-migration, Phase 37)
 
 The Phase 35 dev/prod volume migration remains qualified on the following
