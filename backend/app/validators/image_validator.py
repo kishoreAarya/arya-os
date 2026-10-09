@@ -12,7 +12,7 @@ Evaluates:
    - Content compliance (vision-model evaluation or aspect-ratio alignment)
 """
 import os
-from typing import Any, Callable
+from typing import Callable
 
 from PIL import Image, ImageStat
 

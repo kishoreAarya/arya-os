@@ -105,12 +105,10 @@ async def _latest_attempt(
             .all()
         )
         return rows[0] if rows else None
-    except Exception:  # noqa: BLE001 — bookkeeping must never resurrect a publication
+    except Exception:  # bookkeeping must never resurrect a publication
         try:
             await db.rollback()
-        except (
-            Exception
-        ):  # noqa: BLE001, S110 — rollback best-effort inside the tolerance path
+        except Exception:  # rollback best-effort inside the tolerance path
             pass
         return None
 
@@ -225,18 +223,18 @@ async def _transition_detailed(
             await db.rollback()
             try:
                 await db.refresh(attempt)
-            except Exception:  # noqa: BLE001, S110 — refresh is reporting-only
+            except Exception:  # refresh is reporting-only
                 pass
             return TransitionOutcome.REFUSED
         await db.commit()
-    except Exception:  # noqa: BLE001 — bookkeeping must never resurrect a publication
+    except Exception:  # bookkeeping must never resurrect a publication
         # Execute or commit raised: the local outcome is UNKNOWN (the
         # write may or may not have landed server-side). Roll back
         # best-effort; never report success without positive
         # confirmation (Phase 54B-I2).
         try:
             await db.rollback()
-        except Exception:  # noqa: BLE001, S110 — best-effort rollback
+        except Exception:  # best-effort rollback
             pass
         return TransitionOutcome.UNCERTAIN
     if status is not None:

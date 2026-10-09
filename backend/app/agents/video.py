@@ -18,7 +18,7 @@ from app.services.execution_engine import ExecutionEngine
 
 logger = get_logger(__name__)
 
-import structlog
+import structlog  # noqa: E402 — legacy: binds the module logger again below
 
 logger = structlog.get_logger()
 

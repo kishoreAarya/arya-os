@@ -638,7 +638,7 @@ def destination_parameter_drift(context: dict, parsed: dict) -> str | None:
     if context.get("scheduled_at") is not None:
         try:
             normalized = normalize_timestamp(context["scheduled_at"])
-        except Exception:  # noqa: BLE001 — unparseable input is drift-shaped
+        except Exception:  # unparseable input is drift-shaped
             return "scheduled_at"
         if normalized != parsed.get("scheduled_at"):
             return "scheduled_at"
@@ -695,7 +695,7 @@ def canonical_asset_reference(storage_path: str) -> str:
         from app.storage import get_storage_provider
 
         return get_storage_provider().canonical_key(storage_path)
-    except Exception:  # noqa: BLE001 — provider unavailable: raw reference
+    except Exception:  # provider unavailable: raw reference
         return storage_path
 
 
@@ -787,7 +787,7 @@ async def authorize_and_permit(
         parsed = verify_stored_manifest(
             manifest.canonical_bytes, manifest.manifest_digest
         )
-    except Exception:  # noqa: BLE001 — any verification failure blocks
+    except Exception:  # any verification failure blocks
         await db.rollback()
         raise DispatchBlocked(
             "manifest_integrity_failure",

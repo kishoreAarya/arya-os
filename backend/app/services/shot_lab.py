@@ -13,16 +13,15 @@ import os
 import shutil
 import subprocess
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 from dotenv import load_dotenv
 
-from app.core.config import get_settings
 from app.core.logging import get_logger
 
 load_dotenv()

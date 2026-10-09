@@ -9,7 +9,6 @@ enforcing structured JSON output and validating via MetadataValidator.
 from dataclasses import dataclass
 import json
 import re
-from typing import Any
 from uuid import UUID
 
 from sqlalchemy import update

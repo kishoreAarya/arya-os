@@ -125,7 +125,7 @@ def main() -> int:
             spec["barrier_others"],
         )
         payload = _run()
-    except BaseException as exc:  # noqa: BLE001 — record crash as evidence
+    except BaseException as exc:  # record crash as evidence
         import traceback
 
         payload = {

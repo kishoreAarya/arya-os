@@ -13,7 +13,6 @@ from urllib.parse import urlparse
 
 import httpx
 
-from app.core.config import get_settings
 from app.core.logging import get_logger
 
 logger = get_logger("arya.utils.asset_downloader")
@@ -70,7 +69,7 @@ def is_safe_remote_url(url: str) -> bool:
         resolved_ips = socket.getaddrinfo(hostname, None)
     except socket.gaierror:
         return False
-    for family, socktype, proto, canonname, sockaddr in resolved_ips:
+    for _family, _socktype, _proto, _canonname, sockaddr in resolved_ips:
         try:
             ip = ipaddress.ip_address(sockaddr[0])
         except ValueError:

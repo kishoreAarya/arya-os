@@ -338,7 +338,7 @@ def test_no_dynamic_registration_surface():
 # ---------------------------------------------------------------------------
 
 def test_execute_capability_valid_runs_binding(monkeypatch):
-    from app.hermes.capabilities import _trend_discovery_service as _lazy  # noqa: F401
+    from app.hermes.capabilities import _trend_discovery_service as _lazy
     import app.hermes.capabilities as caps
 
     class _Signal:
@@ -3924,6 +3924,6 @@ def test_ttl_policy_rejects_non_positive_durations():
     for bad in (0, -5):
         try:
             asyncio.run(_insert(bad))
-        except Exception:  # noqa: BLE001, S112 — the CHECK rejection IS the assertion
+        except Exception:  # the CHECK rejection IS the assertion
             continue  # rejected by the CHECK constraint — expected
         pytest.fail(f"ttl_seconds={bad} was accepted by the database")

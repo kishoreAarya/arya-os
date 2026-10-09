@@ -16,7 +16,7 @@ Evaluates:
 import json
 import os
 import subprocess
-from typing import Any, Callable
+from typing import Callable
 
 from app.core.logging import get_logger
 from app.validators.base import BaseValidator, ValidationResult

@@ -135,7 +135,7 @@ async def _run_hermes_job_background(job_id: str, call: HermesRunnerCall) -> Non
         from starlette.concurrency import run_in_threadpool
 
         result = await run_in_threadpool(run_aryaos_hermes_job, call)
-    except BaseException as exc:  # noqa: BLE001 — surface-level boundary
+    except BaseException as exc:  # surface-level boundary
         logger.error("hermes_job_surface_crashed", job_id=job_id, error=type(exc).__name__)
         with _HERMES_JOBS_LOCK:
             entry = _HERMES_JOBS.get(job_id)
@@ -224,7 +224,7 @@ def _reconstruct_from_audit(
         if not audit_file.is_file():
             return None
         records = [r for r in FileAuditSink(audit_file).read_job_records() if r.runtime_job_id == job_id]
-    except Exception:  # noqa: BLE001 — best-effort fallback: any failure is not-found
+    except Exception:  # best-effort fallback: any failure is not-found
         return None
     if not records:
         return None

@@ -374,7 +374,7 @@ async def resolve_attempt(
             gate_evidence = await adapter.check_processing(
                 content_id=attempt.external_content_id
             )
-        except Exception as exc:  # noqa: BLE001 — provider unavailable: the attestation stays authoritative
+        except Exception as exc:  # provider unavailable: the attestation stays authoritative
             logger.warning(
                 "publication_attempt_failed_gate_evidence_unavailable",
                 attempt_id=str(attempt_id),

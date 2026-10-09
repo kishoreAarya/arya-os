@@ -155,7 +155,7 @@ async def test_persist_is_a_noop_in_milestone_3():
     class _FakeRouterResult:
         output = "x"
         provider_used = "x"
-        attempts: list = []  # noqa: RUF012 — plain test double, not a real dataclass
+        attempts: list = []  # plain test double, not a real dataclass
         cost_usd = 0.0
         duration_seconds = 0.0
 

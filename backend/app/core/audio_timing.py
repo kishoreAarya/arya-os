@@ -298,7 +298,7 @@ def build_fallback_timing(
     segments: list[NarrationSegment] = []
     current_time = 0.0
 
-    for idx, (p, w) in enumerate(zip(phrases, weights)):
+    for idx, (p, w) in enumerate(zip(phrases, weights, strict=False)):
         is_last = (idx == len(phrases) - 1)
         if is_last:
             seg_dur = max(0.5, total_dur - current_time)

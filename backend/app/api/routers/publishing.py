@@ -8,7 +8,6 @@ Provides dedicated endpoints for social media publishing and scheduling via Post
 
 from __future__ import annotations
 
-import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
@@ -112,7 +111,7 @@ def _canonical_asset_reference(asset_storage_path: str) -> str:
         return asset_storage_path
     try:
         return get_storage_provider().canonical_key(asset_storage_path)
-    except Exception:  # noqa: BLE001 — provider unavailable: keep the raw reference (existing workflow)
+    except Exception:  # provider unavailable: keep the raw reference (existing workflow)
         return asset_storage_path
 
 

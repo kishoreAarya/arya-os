@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-import re
 from typing import TYPE_CHECKING
 
 from app.core.logging import get_logger
@@ -134,7 +133,7 @@ class TrendDiscoveryService:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         all_signals: list[TrendSignal] = []
-        for src, res in zip(self._sources, results):
+        for src, res in zip(self._sources, results, strict=False):
             if isinstance(res, Exception):
                 logger.warning("trend_source_exception", source=src.name, error=str(res))
             elif isinstance(res, list):

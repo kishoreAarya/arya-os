@@ -52,7 +52,7 @@ from app.agents.publishing import PublishingAgent
 from app.core.config import get_settings
 from app.main import app
 from app.models.enums import PublicationAttemptStatus
-from app.models.publication import PublicationAttempt  # noqa: F401 — registers the table
+from app.models.publication import PublicationAttempt  # registers the table
 from app.models.system import SystemLog
 from app.platforms.postiz import PostizAdapter
 from app.services import publication_attempt_reconciliation as recon
@@ -408,7 +408,7 @@ def _http(method, path, payload=None, auth=True):
                     r = await ac.request(method, path, json=payload)
                     try:
                         body = r.json()
-                    except Exception:  # noqa: BLE001 — non-JSON error bodies tolerated
+                    except Exception:  # non-JSON error bodies tolerated
                         body = {"raw": r.text}
                     return r.status_code, body
         finally:

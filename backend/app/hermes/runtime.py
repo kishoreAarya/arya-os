@@ -75,7 +75,9 @@ from pathlib import Path
 from app.core.config import Settings, get_settings
 from app.hermes.audit import (
     FileAuditSink,
-    get_active_audit_sink,
+    get_active_audit_sink,  # noqa: F401 — deliberate re-export: tests and
+    # the fail-closed teardown contract import this binding via
+    # app.hermes.runtime, not app.hermes.audit.
     record_job_boundary,
     set_active_audit_sink,
 )
@@ -348,7 +350,7 @@ def run_with_watchdog(fn, timeout_seconds: float) -> tuple[str, object, BaseExce
     def _worker():
         try:
             outcome["value"] = fn()
-        except BaseException as exc:  # noqa: BLE001 — reported to the caller
+        except BaseException as exc:  # reported to the caller
             outcome["error"] = exc
 
     worker = threading.Thread(target=_worker, daemon=True, name="aryaos-hermes-job")
@@ -622,7 +624,7 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
         final_response = None
         if request.task_message is not None:
             status, value, exc = run_with_watchdog(
-                lambda: agent.chat(request.task_message),  # noqa: B023 — bound at call time
+                lambda: agent.chat(request.task_message),  # bound at call time
                 config.max_execution_seconds,
             )
             if status == "timeout":
@@ -682,7 +684,7 @@ def _run_job_locked(request: HermesJobRequest, settings: Settings | None) -> Her
             error_code=exc.code,
             error_detail=exc.detail,
         )
-    except BaseException as exc:  # noqa: BLE001 — job boundary never raises
+    except BaseException as exc:  # job boundary never raises
         outcome_status, outcome_error_code = "failed", "unexpected_runtime_failure"
         return HermesJobResult(
             job_id=request.job_id,

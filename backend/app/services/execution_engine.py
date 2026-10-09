@@ -455,7 +455,7 @@ class ExecutionEngine:
                 )
                 return result, attempt, None
             # Any provider-layer failure is classified below, not blindly retried.
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 attempt_duration = time.monotonic() - attempt_started
                 if workflow_run_id:
                     try:

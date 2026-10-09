@@ -12,7 +12,6 @@ Evaluates:
    - File integrity (valid format PNG, JPEG, WEBP)
 """
 import os
-from typing import Any
 
 from PIL import Image, ImageStat
 

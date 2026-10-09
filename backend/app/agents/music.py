@@ -7,7 +7,6 @@ generations suitable for dynamic audio ducking.
 """
 
 from dataclasses import dataclass
-from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -226,7 +226,7 @@ def evaluate_tool_request(
         if tool_name in SANCTIONED_NATIVE_TOOLS:
             return _allow("allowed_sanctioned_native_tool")
         return _block(tool_name, "blocked_unknown_tool")
-    except BaseException:  # noqa: BLE001 — §4.4: never raise, never fail open
+    except BaseException:  # §4.4: never raise, never fail open
         return _block(tool_name, "blocked_internal_error")
 
 
@@ -301,7 +301,7 @@ def verify_policy_plugin_registered(callbacks: object) -> None:
             callable(cb) and getattr(cb, POLICY_PLUGIN_MARKER, False) is True
             for cb in callbacks
         )
-    except Exception:  # noqa: BLE001 — introspection failure is fail-closed
+    except Exception:  # introspection failure is fail-closed
         present = False
     if not present:
         raise HermesPolicyPluginError(

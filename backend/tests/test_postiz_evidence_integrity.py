@@ -30,7 +30,7 @@ import pytest
 
 from app.agents.publishing import PublishingAgent
 from app.models.enums import PublicationAttemptStatus
-from app.models.publication import PublicationAttempt  # noqa: F401 — registers the table on Base.metadata
+from app.models.publication import PublicationAttempt  # registers the table on Base.metadata
 from app.platforms.postiz import PostizAdapter
 
 

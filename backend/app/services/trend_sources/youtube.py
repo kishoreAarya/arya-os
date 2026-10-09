@@ -177,7 +177,7 @@ class YouTubeTrendSource(BaseTrendSource):
         except httpx.RequestError as exc:
             logger.warning("youtube_trend_network_error", error=str(exc))
             return []
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.error("youtube_trend_unexpected_error", error=str(exc))
             return []
         finally:

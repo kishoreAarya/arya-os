@@ -204,7 +204,7 @@ async def test_live_migration_additive_schema_on_ephemeral_database():
 
     try:
         await _admin_execute(f'CREATE DATABASE "{ephemeral_name}"')
-    except Exception as exc:  # noqa: BLE001 — insufficient CREATEDB privilege etc.
+    except Exception as exc:  # insufficient CREATEDB privilege etc.
         pytest.skip(
             f"cannot create the ephemeral database on the configured server: {exc}"
         )
@@ -334,5 +334,5 @@ async def test_live_migration_additive_schema_on_ephemeral_database():
     finally:
         try:
             await _admin_execute(f'DROP DATABASE IF EXISTS "{ephemeral_name}"')
-        except Exception:  # noqa: BLE001, S110 — best-effort cleanup
+        except Exception:  # best-effort cleanup
             pass

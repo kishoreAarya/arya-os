@@ -22,7 +22,6 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.base import AgentResult
 from app.agents.storyboard import Shot
 from app.core.logging import get_logger
 from app.workflows.models import StageResult

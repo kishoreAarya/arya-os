@@ -19,7 +19,7 @@ It produces:
   - Actionable recommendations
   - ReusablePatterns for future content generation
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from app.core.logging import get_logger

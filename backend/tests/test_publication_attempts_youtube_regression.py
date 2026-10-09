@@ -27,7 +27,7 @@ from googleapiclient.errors import HttpError
 from app.agents.publishing import PublishingAgent
 from app.api.routers.publishing import PublishRequest, publish_asset
 from app.models.enums import PublicationAttemptStatus
-from app.models.publication import PublicationAttempt  # noqa: F401 — registers the table
+from app.models.publication import PublicationAttempt  # registers the table
 from app.platforms.youtube import YouTubeAdapter
 
 SECRET_MARKER = "SECRET-DO-NOT-PERSIST"

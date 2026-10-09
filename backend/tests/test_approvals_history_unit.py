@@ -13,7 +13,7 @@ are unchanged at the gate.
 import asyncio
 import uuid
 
-from app.main import app  # noqa: F401 — app import for the ASGI client fixtures
+from app.main import app  # app import for the ASGI client fixtures
 
 # ---------------------------------------------------------------------------
 # Helpers (real routes + disposable DB seeding/cleanup)
@@ -318,7 +318,7 @@ async def test_legacy_migration_invariants():
 
                 # Deliberately NAIVE: the legacy decided_at column is a
                 # naive timestamp and the migration copies it verbatim.
-                base = datetime(2026, 1, 1, 12, 0, 0)  # noqa: DTZ001
+                base = datetime(2026, 1, 1, 12, 0, 0)
                 decided_ids, notes = [], {}
                 for i in range(5):
                     action = ApprovalAction.APPROVE if i % 2 == 0 else ApprovalAction.REJECT

@@ -30,7 +30,6 @@ from app.schemas.cinematic import (
     MasterAudioPlan,
     SFXCacheEntry,
     SFXResolutionResult,
-    SoundDesignPlan,
 )
 
 logger = get_logger("arya.core.sound_resolver")

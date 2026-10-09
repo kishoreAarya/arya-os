@@ -66,8 +66,16 @@ jobs:
       - name: Install dev dependencies
         run: uv sync --extra dev
 
-      - name: Run Black (check only, no reformatting)
-        run: uv run black --check --diff backend
+      - name: Run Black ratchet (no new formatting debt)
+        # Phase 2 lint policy: the repository carries 223 files of
+        # pre-existing Black debt (manifest: tools/lint/black-debt-
+        # manifest.txt). Reformatting all of them in one commit was
+        # ruled out, but the gate must not be dropped either. The
+        # ratchet FAILS on (a) any file failing `black --check` that is
+        # not in the manifest (new debt — must be formatted), and
+        # (b) manifest entries that now pass (debt was paid — the
+        # manifest must shrink). See tools/lint/black_ratchet.py.
+        run: uv run python tools/lint/black_ratchet.py backend
 
   yaml-validate:
     name: YAML Validation

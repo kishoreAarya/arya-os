@@ -1,4 +1,3 @@
-from typing import Any
 """
 Shared media-provider dispatch (IMAGE_GENERATION, VIDEO_GENERATION,
 TTS, GPU_EXECUTION).
@@ -31,6 +30,7 @@ touched by this module or by this change — this file exists
 independently of `text_dispatch.py`, for the media capabilities only.
 """
 from inspect import signature
+from typing import Any
 
 from app.core.secrets import SecretNotConfigured, get_secrets_manager
 from app.providers import comfyui, elevenlabs, fal, replicate, runpod, together

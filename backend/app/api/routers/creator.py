@@ -27,7 +27,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,7 +42,7 @@ from app.models.core import Project, WorkflowRun
 from app.models.enums import PipelineStage, WorkflowMode, WorkflowStatus
 from app.models.media import Asset
 from app.models.system import SystemLog
-from app.providers.capabilities import Capability, PROVIDER_CAPABILITIES
+from app.providers.capabilities import PROVIDER_CAPABILITIES
 from app.storage import get_storage_provider
 
 logger = get_logger("arya.creator")

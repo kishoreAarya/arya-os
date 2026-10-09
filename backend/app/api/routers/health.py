@@ -13,7 +13,7 @@ Health Monitoring endpoints.
 /storage   — active storage backend + a round-trip write/read/delete
              smoke test.
 """
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,7 +39,7 @@ async def health(request: Request, db: AsyncSession = Depends(get_db)):
     try:
         await db.execute(text("SELECT 1"))
         checks["postgres"] = "ok"
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         # Public endpoint: never echo internal exception details (DSNs,
         # hostnames, credentials). Full detail goes to server-side logs only.
         logger.warning("health_check_failed", component="postgres", error=str(exc))
@@ -48,7 +48,7 @@ async def health(request: Request, db: AsyncSession = Depends(get_db)):
     try:
         pong = await request.app.state.redis.ping()
         checks["redis"] = "ok" if pong else "error: no pong"
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("health_check_failed", component="redis", error=str(exc))
         checks["redis"] = "error"
 
@@ -66,7 +66,7 @@ async def ready(request: Request, db: AsyncSession = Depends(get_db)):
         await storage.upload(test_key, b"ok")
         await storage.download(test_key)
         await storage.delete(test_key)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         # Public endpoint: generic error only; detail stays in server logs.
         logger.warning("health_check_failed", component="storage", error=str(exc))
         storage_ok = False
@@ -90,7 +90,7 @@ async def providers_status(db: AsyncSession = Depends(get_db)):
         if cap.secret_name:
             try:
                 secrets.get(cap.secret_name, required=True)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 has_secret = False
         db_row = db_providers.get(name)
         result.append(
@@ -111,7 +111,7 @@ async def database_status(db: AsyncSession = Depends(get_db)):
     try:
         run_count = (await db.execute(select(func.count()).select_from(WorkflowRun))).scalar_one()
         return {"status": "ok", "workflow_run_count": run_count}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return {"status": f"error: {exc}"}
 
 
@@ -125,7 +125,7 @@ async def storage_status():
         exists = await storage.exists(test_key)
         await storage.delete(test_key)
         return {"backend": settings.storage_backend, "status": "ok" if exists else "degraded"}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return {"backend": settings.storage_backend, "status": f"error: {exc}"}
 
 

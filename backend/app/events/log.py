@@ -66,5 +66,5 @@ async def log_event(
             )
             session.add(entry)
             await session.commit()
-    except Exception as exc:  # noqa: BLE001 — logging must never break the caller
+    except Exception as exc:  # logging must never break the caller
         logger.error("event_log_write_failed", event_type=event_type.value, error=str(exc))

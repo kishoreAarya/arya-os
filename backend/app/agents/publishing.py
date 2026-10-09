@@ -223,14 +223,14 @@ class PublishingAgent(BaseAgent):
                                             attempt_id=attempt_id_str,
                                             publish_status=healed_status.value,
                                         )
-                                except Exception as exc:  # noqa: BLE001 — heal is best-effort; the duplicate response stays truthful
+                                except Exception as exc:  # heal is best-effort; the duplicate response stays truthful
                                     try:
                                         await self._db.rollback()
                                         # Rollback expires ORM instances; rehydrate
                                         # (best-effort) so the duplicate response
                                         # below cannot trip a lazy load.
                                         await self._db.refresh(attempt)
-                                    except Exception:  # noqa: BLE001, S110 — best-effort session recovery
+                                    except Exception:  # best-effort session recovery
                                         pass
                                     logger.warning(
                                         "publishing_agent_video_writeback_heal_failed",
@@ -469,7 +469,7 @@ class PublishingAgent(BaseAgent):
 
         try:
             auth_result = await adapter.authenticate()
-        except Exception as exc:  # noqa: BLE001 — auth is a read-only call: no submission possible → FAILED
+        except Exception as exc:  # auth is a read-only call: no submission possible → FAILED
             logger.error("publishing_agent_authentication_error", platform=platform, error=str(exc))
             if attempt is not None:
                 await _attempt_failed(self._db, attempt, f"authentication error: {type(exc).__name__}")
@@ -563,20 +563,20 @@ class PublishingAgent(BaseAgent):
                 # resolved the row, that resolution stands).
                 try:
                     await self._db.refresh(attempt)
-                except Exception:  # noqa: BLE001, S110 — refresh best-effort
+                except Exception:  # refresh best-effort
                     pass
                 try:
                     await mark_failed(
                         self._db, attempt, f"permit denied: {exc.reason_code}"
                     )
-                except Exception:  # noqa: BLE001 — the denial stands regardless
+                except Exception:  # the denial stands regardless
                     logger.warning(
                         "publishing_agent_permit_denial_state_write_failed",
                         attempt_id=attempt_id_str,
                     )
                 try:
                     current_status = attempt.status.value
-                except Exception:  # noqa: BLE001 — reporting must never break the abort
+                except Exception:  # reporting must never break the abort
                     current_status = "unavailable"
                 return AgentResult(
                     success=False,
@@ -630,7 +630,7 @@ class PublishingAgent(BaseAgent):
                 credentials=auth_result.credentials,
                 is_dry_run=is_dry_run,
             )
-        except Exception as exc:  # noqa: BLE001 — external ambiguity: provider may hold the media → UNKNOWN
+        except Exception as exc:  # external ambiguity: provider may hold the media → UNKNOWN
             # External submission ambiguity (the provider may hold the
             # media): UNKNOWN — never silently FAILED.
             logger.error("publishing_agent_upload_error", platform=platform, error=str(exc))
@@ -702,7 +702,7 @@ class PublishingAgent(BaseAgent):
                 anchor_outcome = await persist_external_content_anchor(
                     self._db, attempt, upload_result.content_id
                 )
-            except Exception as exc:  # noqa: BLE001 — persistence itself raised: fail closed
+            except Exception as exc:  # persistence itself raised: fail closed
                 # The persistence layer normally converts execute/commit
                 # failures into UNCERTAIN; a raise escaping it is treated
                 # identically — never as success, never retried.
@@ -720,7 +720,7 @@ class PublishingAgent(BaseAgent):
                 # provider — surface its id for manual cleanup.
                 try:
                     current_status = attempt.status.value
-                except Exception:  # noqa: BLE001 — never let reporting break the abort
+                except Exception:  # never let reporting break the abort
                     current_status = "unavailable"
                 if anchor_outcome is TransitionOutcome.REFUSED:
                     # The attempt was resolved underneath this execution
@@ -829,7 +829,7 @@ class PublishingAgent(BaseAgent):
                         error=thumb_result.error,
                     )
                     # Non-fatal: video uploaded successfully, thumbnail failed.
-            except Exception as exc:  # noqa: BLE001 — non-fatal thumbnail ambiguity; publish below decides
+            except Exception as exc:  # non-fatal thumbnail ambiguity; publish below decides
                 # Non-fatal (parity with thumbnail rejection): the
                 # publication itself has not been submitted; the publish
                 # call below determines the attempt outcome.
@@ -879,7 +879,7 @@ class PublishingAgent(BaseAgent):
                 scheduled_at=scheduled_at,
                 is_dry_run=is_dry_run,
             )
-        except Exception as exc:  # noqa: BLE001 — ambiguity after possible submission → UNKNOWN
+        except Exception as exc:  # ambiguity after possible submission → UNKNOWN
             # Ambiguity after external submission may have occurred:
             # durable UNKNOWN — never auto-retried, never FAILED without
             # evidence (ratified §2/§11). If the CAS refuses, an operator
@@ -1016,7 +1016,7 @@ class PublishingAgent(BaseAgent):
                 )
             except (ValueError, TypeError):
                 logger.debug("video_id_not_uuid_skipping_row_update", video_id=video_id)
-            except Exception as exc:  # noqa: BLE001 — post-success bookkeeping must never falsify the publication
+            except Exception as exc:  # post-success bookkeeping must never falsify the publication
                 try:
                     await self._db.rollback()
                     # Rollback expires ORM instances; rehydrate the attempt
@@ -1024,7 +1024,7 @@ class PublishingAgent(BaseAgent):
                     # lazy load.
                     if attempt is not None:
                         await self._db.refresh(attempt)
-                except Exception:  # noqa: BLE001, S110 — best-effort session recovery
+                except Exception:  # best-effort session recovery
                     pass
                 writeback_warnings.append(
                     f"video writeback failed: {type(exc).__name__}: {exc}"
@@ -1065,7 +1065,7 @@ class PublishingAgent(BaseAgent):
                     await self._db.rollback()
                     if attempt is not None:
                         await self._db.refresh(attempt)
-                except Exception:  # noqa: BLE001, S110 — best-effort session recovery
+                except Exception:  # best-effort session recovery
                     pass
                 writeback_warnings.append(f"provenance log persist failed: {exc}")
                 logger.warning("publishing_log_persist_failed", error=str(exc))
@@ -1079,7 +1079,7 @@ class PublishingAgent(BaseAgent):
                     published_content_id=publish_result.published_content_id,
                     credentials=auth_result.credentials,
                 )
-            except Exception as exc:  # noqa: BLE001 — post-success recovery problem
+            except Exception as exc:  # post-success recovery problem
                 writeback_warnings.append(
                     f"public url fetch failed: {type(exc).__name__}: {exc}"
                 )

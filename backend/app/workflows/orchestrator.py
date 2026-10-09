@@ -27,12 +27,8 @@ from app.models.enums import PublishStatus
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.base import AgentResult
-from app.agents.registry import AGENT_REGISTRY
 from app.core.logging import get_logger
-from app.events.log import EventType, log_event
 from app.models.enums import PipelineStage, WorkflowStatus
-from app.services.pipeline_state import advance_stage
 from app.storage import get_storage_provider
 from app.workflows.models import StageResult, WorkflowResult
 from app.workflows.stage_executor import execute_stage, _merge_context

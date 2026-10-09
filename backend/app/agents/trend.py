@@ -38,7 +38,7 @@ from app.models.analytics import PerformanceLearningFeedback
 from app.providers.capabilities import Capability
 from app.providers.text_dispatch import build_text_generation_call
 from app.services.execution_engine import ExecutionEngine
-from app.services.trend_sources import TrendDiscoveryService, TrendSignal
+from app.services.trend_sources import TrendDiscoveryService
 
 
 @dataclass

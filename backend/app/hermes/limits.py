@@ -147,7 +147,7 @@ class JobLimitLedger:
                 self._allowed_total += 1
                 self._allowed_per_name[name] = self._allowed_per_name.get(name, 0) + 1
                 return None
-        except BaseException:  # noqa: BLE001 — counters must never fail open
+        except BaseException:  # counters must never fail open
             try:
                 self.note_internal_error()
             except Exception:
@@ -197,7 +197,7 @@ def make_limit_enforcing_hook(base_hook: Callable, ledger: JobLimitLedger) -> Ca
             _audit_final_outcome(tool_name, args, reason)
             name = tool_name if isinstance(tool_name, str) and tool_name else "<invalid>"
             return {"action": "block", "message": f"Blocked by AryaOS policy gate ({reason}): {name!r}"}
-        except BaseException:  # noqa: BLE001 — §12/§4: never raise, fail closed
+        except BaseException:  # §12/§4: never raise, fail closed
             try:
                 ledger.note_internal_error()
             except Exception:

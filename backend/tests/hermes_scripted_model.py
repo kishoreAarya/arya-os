@@ -104,7 +104,7 @@ class ScriptedModelServer:
                     raw = self.rfile.read(length) if length else b"{}"
                     try:
                         body = json.loads(raw)
-                    except Exception:  # noqa: BLE001 — malformed JSON recorded, never fatal
+                    except Exception:  # malformed JSON recorded, never fatal
                         body = {"_raw": raw.decode("utf-8", errors="replace")}
                     if "chat/completions" not in self.path:
                         # SDK warm-up probes (e.g. /models) never consume
@@ -121,7 +121,7 @@ class ScriptedModelServer:
                             turn = _script_exhausted()
                         outer.turns_served += 1
                     self._respond(outer._render(turn, body))
-                except Exception:  # noqa: BLE001, S110 — best-effort test server boundary
+                except Exception:  # best-effort test server boundary
                     pass  # malformed request -> dropped connection; tests assert observable behavior
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)

@@ -86,8 +86,8 @@ async def root():
     return {"service": "arya-os", "status": "running", "sprint": 3}
 
 
-import os
-from fastapi.staticfiles import StaticFiles
+import os  # noqa: E402 — grouped with the static-mount section that uses it
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 _frontend_dist = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),

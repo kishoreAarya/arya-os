@@ -21,7 +21,6 @@ import tempfile
 import textwrap
 import uuid
 from pathlib import Path
-from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 

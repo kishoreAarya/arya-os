@@ -114,7 +114,7 @@ class VoiceFirstAgent(BaseAgent):
         # Build raw segments with proportional timing
         raw_segments = []
         current_time = 0.0
-        for sentence, word_count in zip(sentences, word_counts):
+        for sentence, word_count in zip(sentences, word_counts, strict=False):
             segment_duration = (word_count / total_words) * total_duration
             segment_duration = max(segment_duration, 1.5)  # minimum 1.5s
             raw_segments.append({

@@ -884,7 +884,7 @@ async def _approval_gated_binding(tool_name: str, params, granted_operation=None
             from app.hermes.audit import record_final_outcome
 
             record_final_outcome(tool_name, params.model_dump(), mismatch_code)
-        except Exception:  # noqa: BLE001, S110 — authorization-preserving, best-effort audit (§13.1)
+        except Exception:  # authorization-preserving, best-effort audit (§13.1)
             pass
         return _err(
             mismatch_code,
@@ -1225,7 +1225,7 @@ def validate_capability_parameters(name: object, parameters: object) -> Capabili
             detail=_schema_error_detail(exc),
             validated=None,
         )
-    except BaseException:  # noqa: BLE001 — validation must never fail open
+    except BaseException:  # validation must never fail open
         return CapabilityValidation(
             ok=False,
             reason=CAPABILITY_SCHEMA_INVALID,
@@ -1270,7 +1270,7 @@ def make_capability_validating_hook(base_hook: Callable):
                     f"{validation.detail}): {tool_name!r}"
                 ),
             }
-        except BaseException:  # noqa: BLE001 — never raise, fail closed
+        except BaseException:  # never raise, fail closed
             return {
                 "action": "block",
                 "message": (
@@ -1315,7 +1315,7 @@ async def execute_capability(name: str, parameters: dict) -> dict:
     assert spec.binding is not None  # validated implies exposed
     try:
         return await spec.binding(validation.validated)
-    except BaseException as exc:  # noqa: BLE001 — structured failure, never raise
+    except BaseException as exc:  # structured failure, never raise
         logger.warning(
             "hermes_capability_binding_failed",
             capability=name,

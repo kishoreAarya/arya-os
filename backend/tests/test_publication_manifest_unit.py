@@ -199,7 +199,7 @@ def test_nan_and_infinity_rejected_in_any_position():
 
 
 def test_naive_timestamp_rejected():
-    naive = datetime(2030, 1, 1, 12, 0, 0)  # noqa: DTZ001 — naive BY INTENT
+    naive = datetime(2030, 1, 1, 12, 0, 0)  # naive BY INTENT
     with pytest.raises(PublicationManifestError) as ei:
         normalize_timestamp(naive)
     assert ei.value.reason_code == "naive_timestamp"
@@ -424,7 +424,7 @@ def test_models_are_additive_only():
     """Offline metadata check: publication_attempts/approval_checkpoints
     keep every pre-54B column (nullable additions only) and the new
     table carries the approved contract columns."""
-    import app.models  # noqa: F401 — registers all tables
+    import app.models  # registers all tables
     from app.database.base import Base
 
     def columns(table):

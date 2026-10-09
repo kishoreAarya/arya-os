@@ -19,7 +19,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import Settings, get_settings
 from app.core.logging import get_logger
-from app.core.secrets import SecretsManager, get_secrets_manager
+from app.core.secrets import SecretsManager
 
 logger = get_logger(__name__)
 

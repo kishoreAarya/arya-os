@@ -29,7 +29,6 @@ failure contract shared with the Postiz adapter).
 """
 import asyncio
 import datetime
-import json
 import os
 import socket
 import uuid
@@ -223,7 +222,7 @@ class YouTubeAdapter(PlatformAdapter):
                 success=True,
                 credentials=self._credentials,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.error(
                 "youtube_adapter_authentication_failed",
                 error=str(exc),
@@ -358,7 +357,7 @@ class YouTubeAdapter(PlatformAdapter):
                 success=False,
                 error=f"YouTube unreachable before upload (request not sent): {exc}",
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # Mid-exchange ambiguity (timeout, dropped connection, partial
             # resumable upload): the provider may hold the media — UNKNOWN.
             logger.error("youtube_adapter_upload_exception", error=str(exc))
@@ -447,7 +446,7 @@ class YouTubeAdapter(PlatformAdapter):
                 success=False,
                 error=f"YouTube unreachable before thumbnail (request not sent): {exc}",
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # Mid-exchange ambiguity: raise (the operator path decides the
             # attempt outcome from the publish call; thumbnails are non-fatal).
             logger.error("youtube_adapter_thumbnail_upload_exception", error=str(exc))
@@ -554,7 +553,7 @@ class YouTubeAdapter(PlatformAdapter):
                 success=False,
                 error=f"YouTube unreachable before publish (request not sent): {exc}",
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             # Ambiguity after possible submission (timeout, dropped
             # connection): raise -> UNKNOWN, never FAILED without evidence.
             logger.error("youtube_adapter_publish_exception", error=str(exc))
@@ -649,7 +648,7 @@ class YouTubeAdapter(PlatformAdapter):
                 else None,
             )
 
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.error(
                 "youtube_adapter_check_processing_failed",
                 video_id=content_id,
@@ -721,7 +720,7 @@ class YouTubeAdapter(PlatformAdapter):
 
             return result
 
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.error(
                 "youtube_adapter_fetch_analytics_failed",
                 video_id=published_content_id,

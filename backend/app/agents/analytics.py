@@ -99,7 +99,7 @@ class AnalyticsAgent(BaseAgent):
                 error=str(exc),
             )
             return AgentResult(success=False, error=str(exc))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.error(
                 "analytics_agent_fetch_failed",
                 platform=platform,
