@@ -124,11 +124,14 @@ review — this section is the procedure for deployment day):
   `downgrade()` branches DROP those tables — never run them against a
   database with real data.
 * [ ] 4.3 **PASS/FAIL:** verified database backup + **tested
-  restore** exist before the first production migration. The repo
-  provides **no backup/restore tooling or procedure** (NOT VERIFIED —
-  you must establish one, e.g. `pg_dump`/`pg_restore` against the
-  `arya_postgres_data` volume, and prove the restore works on a
-  scratch database).
+  restore** exist before the first production migration. Tooling now
+  ships with the repo: `tools/db/pg_backup.py` (atomic pg_dump with
+  checksum + manifest) and `tools/db/verify_restore.py` (disposable
+  isolated restore rehearsal) — see
+  `docs/DATABASE_BACKUP_RESTORE_RUNBOOK.md`. Both are unit-tested
+  against fakes; the FIRST real backup + verify cycle against the
+  production database is the operator's rehearsal and remains to be
+  executed and recorded here (NOT VERIFIED until then).
 * [ ] 4.4 Migration execution (deployment day): normal path is simply
   starting the backend (`docker compose -f docker-compose.prod.yml up
   -d backend`) — the entrypoint applies migrations and **exits
