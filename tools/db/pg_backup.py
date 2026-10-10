@@ -8,9 +8,19 @@ Safety contract (see docs/DATABASE_BACKUP_RESTORE_RUNBOOK.md):
   the username/database are expanded from the container's own
   environment by an in-container shell, and no password is used
   (local-socket auth inside the official postgres image).
-- Output is atomic: the dump streams to a temporary file in the
-  destination directory and is renamed only after success. A failed
-  dump never leaves a *.dump, manifest, or checksum behind.
+- Output: the dump AND both sidecars (manifest, checksum) are staged
+  as temporary files in the destination directory; the final paths
+  are then replaced by sequential renames (dump, manifest, checksum)
+  only after every write has succeeded — the set is not
+  transactional as a group. A failed run never leaves a *.dump,
+  manifest, or checksum behind, and a staging failure never destroys
+  a pre-existing backup set (--force collisions included); a rename
+  failure after the dump replacement removes the partially replaced
+  set and reports failure. No fsync durability is provided — see the
+  runbook's atomicity limits.
+- The source Alembic revision is recorded only when it can actually
+  be read: a never-migrated database records None, while a failed or
+  ambiguous revision read fails the whole backup (fail closed).
 - Any failed step exits non-zero; a partial dump is never labelled
   successful.
 - Destinations inside the repository worktree are refused (dumps must
@@ -129,17 +139,32 @@ def query_pg_server_version(compose_file: Path, service: str, runner) -> str:
 
 
 def query_alembic_revision(compose_file: Path, service: str, runner) -> str | None:
-    """Best-effort safe read; None when the table does not exist yet
-    (never-migrated database) or the read fails."""
+    """Return the source database's current Alembic revision, or None
+    when the alembic_version table does not exist (a never-migrated
+    database). Any OTHER failure — connection, auth, unexpected psql
+    output or exit — raises BackupError so the backup fails closed
+    instead of silently recording 'no revision'."""
+    probe = (
+        'exec psql --no-password --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" '
+        "--tuples-only --no-align --command "
+        '"SELECT to_regclass(\'public.alembic_version\') IS NOT NULL"'
+    )
+    present = _capture(build_container_query(compose_file, service, probe), runner).strip()
+    if present not in ("t", "f"):
+        raise BackupError(
+            f"could not determine whether alembic_version exists (psql said {present!r})"
+        )
+    if present == "f":
+        return None
     script = (
         'exec psql --no-password --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" '
         "--tuples-only --no-align --command "
-        '"SELECT version_num FROM alembic_version" 2>/dev/null'
+        '"SELECT version_num FROM alembic_version"'
     )
-    try:
-        return _capture(build_container_query(compose_file, service, script), runner).strip() or None
-    except BackupError:
-        return None
+    revision = _capture(build_container_query(compose_file, service, script), runner).strip()
+    if not revision:
+        raise BackupError("alembic_version exists but version_num is empty")
+    return revision
 
 
 def sha256_file(path: Path) -> str:
@@ -221,11 +246,10 @@ def run_backup(argv: list[str] | None = None, runner=subprocess.run) -> int:
             proc = runner(build_dump_command(compose_file, args.service), stdout=tmp_fh)
         if proc.returncode != 0:
             return fail(f"pg_dump failed (exit {proc.returncode}); no backup was written", tmp_path)
-        tmp_fh_size = tmp_path.stat().st_size
-        if tmp_fh_size == 0:
+        dump_size = tmp_path.stat().st_size
+        if dump_size == 0:
             return fail("pg_dump produced an empty dump; treating as failure", tmp_path)
         checksum = sha256_file(tmp_path)
-        os.replace(tmp_path, final_path)
     except Exception as exc:  # never label a partial dump successful
         return fail(f"backup failed: {exc}", tmp_path)
 
@@ -245,37 +269,62 @@ def run_backup(argv: list[str] | None = None, runner=subprocess.run) -> int:
         "backup": {
             "filename": final_name,
             "format": "pg_dump custom",
-            "size_bytes": final_path.stat().st_size,
+            "size_bytes": dump_size,
             "sha256": checksum,
         },
     }
+    manifest_path = dest / f"{final_name}.manifest.json"
+    sidecar_path = dest / f"{final_name}.sha256"
+    manifest_tmp: Path | None = None
+    sidecar_tmp: Path | None = None
+    committed = False
     try:
-        (dest / f"{final_name}.manifest.json").write_text(
-            json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
-        (dest / f"{final_name}.sha256").write_text(
-            f"{checksum}  {final_name}\n", encoding="utf-8"
-        )
+        # Stage BOTH sidecars as temp files first: with --force an
+        # existing backup set must survive any staging failure, so no
+        # final path is replaced until every write has succeeded. The
+        # renames then commit the new set (dump first, sidecars after).
+        m_fd, m_name = tempfile.mkstemp(prefix=".arya-backup-", suffix=".tmp", dir=dest)
+        os.close(m_fd)
+        manifest_tmp = Path(m_name)
+        s_fd, s_name = tempfile.mkstemp(prefix=".arya-backup-", suffix=".tmp", dir=dest)
+        os.close(s_fd)
+        sidecar_tmp = Path(s_name)
+        manifest_json = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+        manifest_tmp.write_text(manifest_json, encoding="utf-8")
+        sidecar_tmp.write_text(f"{checksum}  {final_name}\n", encoding="utf-8")
+        os.replace(tmp_path, final_path)
+        committed = True
+        os.replace(manifest_tmp, manifest_path)
+        os.replace(sidecar_tmp, sidecar_path)
     except OSError as exc:
-        # A dump without its complete manifest+checksum sidecars can
-        # never be verified; remove every artifact THIS RUN created
-        # (os.replace already placed the dump; one sidecar may exist if
-        # the other's write failed) so no partial backup survives.
-        # Pre-existing user files are never touched — the only paths
-        # removed are this run's timestamped outputs.
-        for artifact in (
-            final_path,
-            dest / f"{final_name}.manifest.json",
-            dest / f"{final_name}.sha256",
-        ):
-            try:
-                artifact.unlink(missing_ok=True)
-            except OSError:
-                pass
+        # A backup without its complete manifest+checksum sidecars can
+        # never be verified. Remove every artifact THIS RUN created:
+        # the staged temps always, and the final paths only once the
+        # dump rename already committed them (before that, the final
+        # paths may hold a PRE-EXISTING backup set, which stays
+        # untouched).
+        for artifact in (tmp_path, manifest_tmp, sidecar_tmp):
+            if artifact is not None:
+                try:
+                    artifact.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        if committed:
+            for artifact in (final_path, manifest_path, sidecar_path):
+                try:
+                    artifact.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        if committed:
+            outcome = "the partially replaced backup set was removed"
+        else:
+            outcome = (
+                "no final artifact was touched — any pre-existing backup "
+                "set is intact"
+            )
         print(
-            f"ERROR: backup succeeded but writing the manifest/checksum failed "
-            f"({exc}); the unlabelled dump and any partial sidecars were "
-            f"removed — no partial backup kept",
+            f"ERROR: backup succeeded but staging the manifest/checksum failed "
+            f"({exc}); no partial backup kept — {outcome}",
             file=sys.stderr,
         )
         return 1

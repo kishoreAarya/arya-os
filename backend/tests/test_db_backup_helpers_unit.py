@@ -11,6 +11,7 @@ and which failures must fail closed.
 import datetime
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -43,6 +44,7 @@ class FakeBackupRunner:
         'printf %s "$POSTGRES_DB"': ("arya_os", 0),
         "pg_dump --version": ("pg_dump (PostgreSQL) 16.9", 0),
         "SHOW server_version": ("16.9\n", 0),
+        "to_regclass('public.alembic_version')": ("t\n", 0),
         "SELECT version_num FROM alembic_version": ("a7b8c9d0e1f2\n", 0),
     }
 
@@ -205,16 +207,59 @@ def test_backup_preflight_failure_exits_nonzero(dest, frozen_clock):
     assert not list(dest.glob("*.dump"))
 
 
-def test_backup_survives_unreadable_alembic_revision(dest, frozen_clock):
+def test_backup_records_none_when_never_migrated(dest, frozen_clock):
+    """Probe says the table does not exist: revision is None, the
+    version_num query is never issued, and the backup succeeds."""
+    runner = FakeBackupRunner(
+        scripts={"to_regclass('public.alembic_version')": ("f\n", 0)}
+    )
+    rc = pg_backup.run_backup(["--dest", str(dest)], runner=runner)
+    assert rc == 0
+    manifest = json.loads((dest / f"{BACKUP_NAME}.manifest.json").read_text())
+    assert manifest["source"]["alembic_revision"] is None
+    assert not any(
+        "version_num" in " ".join(c) for c in runner.calls
+    ), "version_num must not be queried when the table is absent"
+
+
+def test_backup_fails_closed_when_revision_read_fails(dest, frozen_clock):
+    """Table exists (probe 't') but the version_num query fails: the
+    backup must fail rather than silently record 'no revision'."""
     rc = pg_backup.run_backup(
         ["--dest", str(dest)],
         runner=FakeBackupRunner(
             scripts={"SELECT version_num FROM alembic_version": ("", 1)}
         ),
     )
-    assert rc == 0
-    manifest = json.loads((dest / f"{BACKUP_NAME}.manifest.json").read_text())
-    assert manifest["source"]["alembic_revision"] is None
+    assert rc == 1
+    assert not list(dest.glob("*.dump"))
+    assert not list(dest.glob("*.manifest.json"))
+
+
+def test_backup_fails_closed_when_existence_probe_fails(dest, frozen_clock):
+    """The existence probe itself failing must fail the backup."""
+    rc = pg_backup.run_backup(
+        ["--dest", str(dest)],
+        runner=FakeBackupRunner(
+            scripts={"to_regclass('public.alembic_version')": ("", 1)}
+        ),
+    )
+    assert rc == 1
+    assert not list(dest.glob("*.dump"))
+
+
+@pytest.mark.parametrize("garbage", ["", "true", "NULL"])
+def test_backup_fails_closed_on_ambiguous_probe_output(dest, frozen_clock, garbage):
+    """Anything but a clean 't'/'f' from the probe is ambiguous and
+    must fail the backup (never silently treated as 'no revision')."""
+    rc = pg_backup.run_backup(
+        ["--dest", str(dest)],
+        runner=FakeBackupRunner(
+            scripts={"to_regclass('public.alembic_version')": (garbage, 0)}
+        ),
+    )
+    assert rc == 1
+    assert not list(dest.glob("*.dump"))
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +363,7 @@ class FakeVerifyRunner:
         restore_rc=0,
         tables="24",
         revision="a7b8c9d0e1f2",
+        revision_present="t",
         inspect_name=None,
         ready_rc=0,
         run_rc=0,
@@ -337,6 +383,7 @@ class FakeVerifyRunner:
         self.restore_rc = restore_rc
         self.tables = tables
         self.revision = revision
+        self.revision_present = revision_present
         self.inspect_name = inspect_name or self.NAME
         self.ready_rc = ready_rc
         self.run_rc = run_rc
@@ -393,6 +440,13 @@ class FakeVerifyRunner:
                 return subprocess.CompletedProcess(
                     cmd, 0, f"{self.row_counts.get(table, 0)}\n", ""
                 )
+            if "to_regclass" in joined:
+                # the alembic_version EXISTENCE probe (checked before
+                # the version_num query branch below, which also
+                # matches this command as a substring)
+                return subprocess.CompletedProcess(
+                    cmd, 0, f"{self.revision_present}\n", ""
+                )
             if "alembic_version" in joined:
                 return subprocess.CompletedProcess(cmd, 0, f"{self.revision}\n", "")
             return subprocess.CompletedProcess(cmd, 0, "", "")
@@ -422,6 +476,51 @@ def test_verify_revision_mismatch_fails(dest):
     dump = _write_backup(dest)
     runner = FakeVerifyRunner(revision="deadbeef")
     assert verify_restore.run_verify([str(dump)], runner=runner) == 1
+
+
+def test_verify_fails_when_manifest_lacks_revision_but_restore_has_one(dest, capsys):
+    """Manifest says the source was never migrated, but the restored
+    database HAS a revision: disagreement must fail closed."""
+    dump = _write_backup(dest, manifest_extra={"source": {"alembic_revision": None}})
+    runner = FakeVerifyRunner()  # probe 't', revision present
+    rc = verify_restore.run_verify([str(dump)], runner=runner)
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "manifest records none" in err
+    assert "take a fresh backup" in err
+
+
+def test_verify_fails_when_manifest_has_revision_but_restore_does_not(dest, capsys):
+    """Manifest records a revision, but the restored database has no
+    alembic_version table: disagreement must fail closed with a clear
+    error (not an opaque exec failure)."""
+    dump = _write_backup(dest)
+    runner = FakeVerifyRunner(revision_present="f")
+    rc = verify_restore.run_verify([str(dump)], runner=runner)
+    assert rc == 1
+    assert "no alembic_version table" in capsys.readouterr().err
+    assert not any(
+        "version_num" in " ".join(c) for c in runner.calls
+    ), "version_num must not be queried when the table is absent"
+
+
+def test_verify_never_migrated_agreement_passes(dest):
+    """Source never migrated (manifest None) + restored database also
+    without alembic_version: consistent, verification passes."""
+    dump = _write_backup(dest, manifest_extra={"source": {"alembic_revision": None}})
+    runner = FakeVerifyRunner(revision_present="f")
+    assert verify_restore.run_verify([str(dump)], runner=runner) == 0
+
+
+@pytest.mark.parametrize("garbage", ["", "true", "NULL"])
+def test_verify_fails_on_ambiguous_probe_output(dest, capsys, garbage):
+    """An unreadable existence probe must fail closed, never count as
+    'consistent with no revision'."""
+    dump = _write_backup(dest)
+    runner = FakeVerifyRunner(revision_present=garbage)
+    rc = verify_restore.run_verify([str(dump)], runner=runner)
+    assert rc == 1
+    assert "could not determine" in capsys.readouterr().err
 
 
 def test_verify_zero_tables_fails(dest):
@@ -667,19 +766,168 @@ def test_malformed_container_id_fails_safely_without_cleanup(dest, capsys, bad_s
 def test_checksum_sidecar_write_failure_cleans_all_artifacts(
     dest, frozen_clock, monkeypatch, capsys
 ):
+    """The checksum sidecar is STAGED to a temp path (its name does not
+    end in .sha256), so failure injection matches on the sidecar's
+    DATA (a '<64-hex>  <name>.dump\\n' line), not its filename."""
     real_write_text = Path.write_text
 
-    def _fail_sha256(self, data, encoding=None, errors=None, newline=None):
-        if self.name.endswith(".sha256"):
+    def _fail_checksum_sidecar(self, data, encoding=None, errors=None, newline=None):
+        if re.fullmatch(r"[0-9a-f]{64}  .+\.dump\n", data):
             raise OSError("disk full")
         return real_write_text(
             self, data, encoding=encoding, errors=errors, newline=newline
         )
 
-    monkeypatch.setattr(Path, "write_text", _fail_sha256)
+    monkeypatch.setattr(Path, "write_text", _fail_checksum_sidecar)
     rc = pg_backup.run_backup(["--dest", str(dest)], runner=FakeBackupRunner())
     assert rc == 1
     assert not list(dest.glob("*.dump")), "unlabelled dump must not survive"
     assert not list(dest.glob("*.manifest.json")), "orphan manifest must not survive"
     assert not list(dest.glob("*.sha256"))
+    assert not list(dest.glob(".arya-backup-*")), "staged temp artifacts removed"
     assert "no partial backup kept" in capsys.readouterr().err
+
+
+def test_force_collision_sidecar_failure_preserves_existing_backup_set(
+    dest, frozen_clock, monkeypatch
+):
+    """--force + same-timestamp collision + staging failure: the
+    pre-existing VALID backup set must survive byte-for-byte (the new
+    set is staged in temps and never committed)."""
+    old_dump = dest / BACKUP_NAME
+    old_dump.write_bytes(b"old-backup-bytes")
+    old_manifest = dest / f"{BACKUP_NAME}.manifest.json"
+    old_manifest.write_text('{"old": true}\n')
+    old_sidecar = dest / f"{BACKUP_NAME}.sha256"
+    old_sidecar.write_text(f"{'0' * 64}  {BACKUP_NAME}\n")
+    real_write_text = Path.write_text
+
+    def _fail_checksum_sidecar(self, data, encoding=None, errors=None, newline=None):
+        if re.fullmatch(r"[0-9a-f]{64}  .+\.dump\n", data):
+            raise OSError("disk full")
+        return real_write_text(
+            self, data, encoding=encoding, errors=errors, newline=newline
+        )
+
+    monkeypatch.setattr(Path, "write_text", _fail_checksum_sidecar)
+    rc = pg_backup.run_backup(
+        ["--dest", str(dest), "--force"], runner=FakeBackupRunner()
+    )
+    assert rc == 1
+    assert old_dump.read_bytes() == b"old-backup-bytes"
+    assert old_manifest.read_text() == '{"old": true}\n'
+    assert old_sidecar.read_text() == f"{'0' * 64}  {BACKUP_NAME}\n"
+    assert not list(dest.glob(".arya-backup-*")), "staged temp artifacts removed"
+
+
+def test_force_collision_success_replaces_entire_set(dest, frozen_clock):
+    """--force with a healthy run: all three artifacts of the colliding
+    old set are replaced by a consistent new set."""
+    old_dump = dest / BACKUP_NAME
+    old_dump.write_bytes(b"old-backup-bytes")
+    old_manifest = dest / f"{BACKUP_NAME}.manifest.json"
+    old_manifest.write_text('{"old": true}\n')
+    rc = pg_backup.run_backup(
+        ["--dest", str(dest), "--force"], runner=FakeBackupRunner()
+    )
+    assert rc == 0
+    assert old_dump.stat().st_size == 512
+    manifest = json.loads(old_manifest.read_text())
+    assert manifest["backup"]["sha256"] == pg_backup.sha256_file(old_dump)
+    assert (
+        (dest / f"{BACKUP_NAME}.sha256")
+        .read_text()
+        .startswith(manifest["backup"]["sha256"])
+    )
+
+
+def _seed_existing_backup_set(dest):
+    """Pre-create a valid-looking backup set under the frozen-stamp
+    name (the --force collision target)."""
+    old_dump = dest / BACKUP_NAME
+    old_dump.write_bytes(b"old-backup-bytes")
+    old_manifest = dest / f"{BACKUP_NAME}.manifest.json"
+    old_manifest.write_text('{"old": true}\n')
+    old_sidecar = dest / f"{BACKUP_NAME}.sha256"
+    old_sidecar.write_text(f"{'0' * 64}  {BACKUP_NAME}\n")
+    return old_dump, old_manifest, old_sidecar
+
+
+def _replace_failing_on(suffix: str):
+    """An os.replace wrapper that fails exactly when the destination
+    name ends with `suffix` and passes every other rename through to
+    the real os.replace — so a test can fail ONE specific final-path
+    replacement deterministically."""
+    real_replace = os.replace
+
+    def _replace(src, dst):
+        if Path(dst).name.endswith(suffix):
+            raise OSError(f"simulated rename failure for *{suffix}")
+        return real_replace(src, dst)
+
+    return _replace
+
+
+def test_dump_rename_failure_preserves_existing_backup_set(
+    dest, frozen_clock, monkeypatch, capsys
+):
+    """A — the FIRST final-path replacement (the dump rename) fails:
+    nothing was committed, so the pre-existing backup set must survive
+    byte-for-byte and every staged temp must be cleaned up."""
+    old_dump, old_manifest, old_sidecar = _seed_existing_backup_set(dest)
+    monkeypatch.setattr(pg_backup.os, "replace", _replace_failing_on(".dump"))
+    rc = pg_backup.run_backup(
+        ["--dest", str(dest), "--force"], runner=FakeBackupRunner()
+    )
+    assert rc == 1
+    assert old_dump.read_bytes() == b"old-backup-bytes"
+    assert old_manifest.read_text() == '{"old": true}\n'
+    assert old_sidecar.read_text() == f"{'0' * 64}  {BACKUP_NAME}\n"
+    assert not list(dest.glob(".arya-backup-*")), "staged temp artifacts removed"
+    err = capsys.readouterr().err
+    assert "pre-existing backup set is intact" in err
+
+
+def test_manifest_rename_failure_reports_and_removes_partial_set(
+    dest, frozen_clock, monkeypatch, capsys
+):
+    """B — the dump replacement succeeds, the MANIFEST replacement
+    fails. ACTUAL (documented) behavior: the command fails nonzero and
+    the committed cleanup removes the WHOLE set — the new dump AND the
+    previous manifest/sidecar — so no misleading checksum/manifest
+    pair can survive. The old set does NOT survive this failure."""
+    _seed_existing_backup_set(dest)
+    monkeypatch.setattr(pg_backup.os, "replace", _replace_failing_on(".manifest.json"))
+    rc = pg_backup.run_backup(
+        ["--dest", str(dest), "--force"], runner=FakeBackupRunner()
+    )
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "manifest/checksum failed" in err
+    assert "partially replaced backup set was removed" in err
+    assert not list(dest.glob("*.dump")), "no dump may survive (old set removed)"
+    assert not list(dest.glob("*.manifest.json")), "no manifest may survive"
+    assert not list(dest.glob("*.sha256")), "no checksum may survive"
+    assert not list(dest.glob(".arya-backup-*")), "staged temp artifacts removed"
+
+
+def test_sidecar_rename_failure_reports_and_removes_partial_set(
+    dest, frozen_clock, monkeypatch, capsys
+):
+    """C — the dump and manifest replacements succeed, the final
+    CHECKSUM replacement fails. Same committed-cleanup contract as B:
+    fail nonzero, report clearly, remove the whole partially replaced
+    set (nothing misleading left behind), clean all temps."""
+    _seed_existing_backup_set(dest)
+    monkeypatch.setattr(pg_backup.os, "replace", _replace_failing_on(".sha256"))
+    rc = pg_backup.run_backup(
+        ["--dest", str(dest), "--force"], runner=FakeBackupRunner()
+    )
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "manifest/checksum failed" in err
+    assert "partially replaced backup set was removed" in err
+    assert not list(dest.glob("*.dump"))
+    assert not list(dest.glob("*.manifest.json"))
+    assert not list(dest.glob("*.sha256"))
+    assert not list(dest.glob(".arya-backup-*"))

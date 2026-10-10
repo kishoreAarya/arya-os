@@ -52,11 +52,31 @@ and the safety properties it enforces:
     (usable with `sha256sum -c`)
 * The manifest records: UTC timestamp, database name, pg client and
   server versions, the source **Alembic revision**, file size, and
-  SHA-256 — never credentials.
-* Atomicity: the dump streams to a temporary file and is renamed only
-  after success. Any failure (dump error, empty dump, preflight
-  failure) exits non-zero, removes the temporary file, and writes
-  **no** manifest — a partial dump is never labelled successful.
+  SHA-256 — never credentials. The revision is `null` ONLY when the
+  source database was never migrated (no `alembic_version` table); a
+  revision that cannot be read fails the whole backup (fail closed)
+  instead of being silently recorded as absent.
+* Atomicity: the dump AND both sidecars (manifest, checksum) are
+  staged as temporary files and moved onto their final names only
+  after every write has succeeded. Any failure (dump error, empty
+  dump, preflight failure, sidecar staging failure) exits non-zero
+  and leaves **no** partial backup — and a staging failure never
+  destroys a pre-existing backup set, so an existing valid backup
+  cannot be silently lost when a replacement (`--force`) run fails.
+* Atomicity limits (exact guarantees): the three final files are
+  replaced by SEQUENTIAL renames — dump, then manifest, then
+  checksum — so the set is **not transactional as a group**.
+  Consequences:
+  * A process crash between renames may leave a mismatched set (for
+    example, a new dump beside the previous checksum). Verification
+    MUST fail closed on any checksum mismatch — never trust, reuse,
+    or "repair" such a set; take a fresh backup.
+  * A rename failure AFTER the dump replacement may cause the
+    previous backup set to be removed; the command reports the
+    failure (non-zero exit) when that happens.
+  * No `fsync` durability guarantee is provided: a successful backup
+    command is NOT a substitute for the subsequent checksum
+    verification (§3) and off-host copies (§6).
 * Destination safety: refuses directories inside the repository
   worktree (dumps must not be accidentally committable), refuses
   non-directory paths, and refuses to overwrite an existing backup
@@ -90,8 +110,12 @@ with **zero** docker side effects). Then it:
    `--exit-on-error` (the first restore error stops the restore — no
    partial datasets), `--no-owner --no-privileges`, capturing exit
    status.
-3. Sanity checks: at least one public table restored, and the restored
-   Alembic revision equals the manifest's.
+3. Sanity checks: at least one public table restored, and two-sided
+   Alembic revision agreement — the restored database must match the
+   manifest on both the PRESENCE of an `alembic_version` table and
+   its revision value. A manifest without a revision (never-migrated
+   source) passes only when the restored database is likewise
+   unmigrated; any disagreement fails closed with a clear error.
 4. Prints per-table row counts for **human review** (informational
    only; a completeness proof this is not). Tables with unusual names
    (anything outside plain `A-Za-z0-9_` identifiers — quotes,

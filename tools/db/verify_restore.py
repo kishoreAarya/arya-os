@@ -22,7 +22,9 @@ Safety contract (see docs/DATABASE_BACKUP_RESTORE_RUNBOOK.md):
 - pg_restore runs with --exit-on-error: the first restore error stops
   the restore instead of continuing with a partial dataset.
 - Exit code 0 only when checksum, restore, and every sanity check
-  (including the Alembic revision stamp) pass — and, unless --keep was
+  pass — the Alembic revision check is two-sided (the restored
+  database must agree with the manifest on both the PRESENCE of an
+  alembic_version table and its value) — and, unless --keep was
   requested, required container cleanup also succeeded. Table-count,
   revision, and row-count reporting establish the archive RESTORES and
   is schema-consistent — they do NOT prove business-data completeness
@@ -286,8 +288,32 @@ def run_verify(argv: list[str] | None = None, runner=subprocess.run) -> int:
         if tables <= 0:
             raise RestoreVerifyError("restore produced zero public tables — backup unusable")
 
+        # Alembic revision agreement — MANDATORY in both directions.
+        # The manifest's recorded revision (None = the SOURCE database
+        # was never migrated; a backup whose revision could not be
+        # read fails at backup time) must match the restored database:
+        # same presence AND same value. Anything else fails closed.
         expected_revision = manifest["source"].get("alembic_revision")
-        if expected_revision:
+        revision_present = (
+            cexec(
+                "psql",
+                "-U",
+                "postgres",
+                "-d",
+                SCRATCH_DB,
+                "--tuples-only",
+                "--no-align",
+                "--command",
+                "SELECT to_regclass('public.alembic_version') IS NOT NULL",
+            )
+            .stdout.strip()
+        )
+        if revision_present not in ("t", "f"):
+            raise RestoreVerifyError(
+                "could not determine whether the restored database has an "
+                f"alembic_version table (psql said {revision_present!r})"
+            )
+        if revision_present == "t":
             revision = (
                 cexec(
                     "psql",
@@ -302,10 +328,22 @@ def run_verify(argv: list[str] | None = None, runner=subprocess.run) -> int:
                 )
                 .stdout.strip()
             )
+            if not expected_revision:
+                raise RestoreVerifyError(
+                    "alembic revision disagreement: the restored database "
+                    f"reports {revision!r} but the manifest records none — "
+                    "the backup and its manifest disagree; take a fresh backup"
+                )
             if revision != expected_revision:
                 raise RestoreVerifyError(
                     f"alembic revision mismatch after restore: {revision!r} != {expected_revision!r}"
                 )
+        elif expected_revision:
+            raise RestoreVerifyError(
+                "alembic revision disagreement: the manifest records "
+                f"{expected_revision!r} but the restored database has no "
+                "alembic_version table"
+            )
 
         # INFORMATIONAL per-table row counts — best-effort by design:
         # - the catalog query itself only returns safe names (SQL-side
