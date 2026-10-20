@@ -1,0 +1,139 @@
+{
+  "stage": 19,
+  "component": "TriggerRegistry & TriggerEvaluationService",
+  "timestamp": "2026-10-02T16:15:00.000Z",
+  "triggers": [
+    {
+      "id": "trig-gh-issue-triage",
+      "version": 1,
+      "name": "GitHub High Priority Issue Triage",
+      "status": "ACTIVE",
+      "eventFilter": {
+        "sourceSystem": "github",
+        "resourceType": "issue",
+        "changeType": "created"
+      },
+      "conditions": {
+        "conjunction": "AND",
+        "conditions": [
+          {
+            "field": "data.issue.title",
+            "operator": "contains",
+            "value": "[URGENT]"
+          },
+          {
+            "field": "data.issue.severity_score",
+            "operator": "greater_than",
+            "value": 7
+          }
+        ]
+      },
+      "reaction": {
+        "intentType": "EXTERNAL_ACTION",
+        "actionCapability": "github.issues.create_comment",
+        "targetConnectorId": "conn-gh-prod-01",
+        "requiredScopes": ["repo:write"],
+        "payloadTemplate": {
+          "body": "Automated AryaOS Triage: Marked as urgent."
+        }
+      },
+      "declaredRiskLevel": "CRITICAL",
+      "evaluatedRiskLevel": "CRITICAL",
+      "requiresHumanApproval": true,
+      "createdAt": 1790957200000,
+      "updatedAt": 1790957200000
+    },
+    {
+      "id": "trig-stripe-charge-failed",
+      "version": 1,
+      "name": "Stripe Charge Failure Mission Pause",
+      "status": "ACTIVE",
+      "eventFilter": {
+        "sourceSystem": "stripe",
+        "resourceType": "charge",
+        "changeType": "failed"
+      },
+      "conditions": {
+        "conjunction": "AND",
+        "conditions": [
+          {
+            "field": "data.amount",
+            "operator": "greater_than",
+            "value": 50000
+          }
+        ]
+      },
+      "reaction": {
+        "intentType": "PAUSE_MISSION",
+        "missionId": "mission-customer-onboarding",
+        "reason": "Payment charge failed for premium account"
+      },
+      "declaredRiskLevel": "HIGH",
+      "evaluatedRiskLevel": "HIGH",
+      "requiresHumanApproval": true,
+      "createdAt": 1790957210000,
+      "updatedAt": 1790957210000
+    },
+    {
+      "id": "trig-deploy-observation",
+      "version": 2,
+      "name": "Deployment Status Observation Logger",
+      "status": "ACTIVE",
+      "eventFilter": {
+        "sourceSystem": "kubernetes",
+        "resourceType": "pod",
+        "changeType": "updated"
+      },
+      "conditions": {
+        "conjunction": "OR",
+        "conditions": [
+          {
+            "field": "data.status.phase",
+            "operator": "equals",
+            "value": "Running"
+          },
+          {
+            "field": "data.status.phase",
+            "operator": "equals",
+            "value": "Succeeded"
+          }
+        ]
+      },
+      "reaction": {
+        "intentType": "CREATE_OBSERVATION",
+        "observationTopic": "infra.k8s.pod_health",
+        "payloadTemplate": {
+          "podName": "{data.metadata.name}",
+          "status": "{data.status.phase}"
+        }
+      },
+      "declaredRiskLevel": "LOW",
+      "evaluatedRiskLevel": "LOW",
+      "requiresHumanApproval": false,
+      "createdAt": 1790957150000,
+      "updatedAt": 1790957230000
+    }
+  ],
+  "matchingTraces": [
+    {
+      "eventId": "evt-gh-webhook-9812",
+      "sourceSystem": "github",
+      "resourceType": "issue",
+      "changeType": "created",
+      "matchedTriggerIds": ["trig-gh-issue-triage"],
+      "unmatchedTriggerIds": ["trig-stripe-charge-failed", "trig-deploy-observation"],
+      "evaluationTimeMs": 0.42,
+      "conditionsResult": true
+    },
+    {
+      "eventId": "evt-k8s-pod-112",
+      "sourceSystem": "kubernetes",
+      "resourceType": "pod",
+      "changeType": "updated",
+      "matchedTriggerIds": ["trig-deploy-observation"],
+      "unmatchedTriggerIds": ["trig-gh-issue-triage", "trig-stripe-charge-failed"],
+      "evaluationTimeMs": 0.31,
+      "conditionsResult": true
+    }
+  ]
+}

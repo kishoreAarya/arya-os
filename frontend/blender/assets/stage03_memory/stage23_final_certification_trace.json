@@ -1,0 +1,114 @@
+{
+  "timestamp": "2026-10-03T17:58:30Z",
+  "stage": "Stage 23: Governed Recovery & Self-Healing Control Plane",
+  "phase": "Phase 13: Final Certification, Full Regression & Stage Freeze",
+  "status": "CERTIFIED_AND_FROZEN",
+  "metrics": {
+    "totalPassingTests": 1515,
+    "totalTests": 1515,
+    "passRate": 1.0,
+    "totalSuites": 45,
+    "stage23Tests": 392,
+    "phase13Tests": 16,
+    "typescriptErrors": 0,
+    "productionBuild": "PASS",
+    "externalNetworkCalls": 0,
+    "llmTokens": 0
+  },
+  "stage03Immutability": {
+    "blenderFile": "blender/stage03_memory_v2.blend",
+    "expectedSha256": "c4577c47fa60f8beb1f77a1feb25ffb84b34ff9c38cfc6dbd4a8bc2628c8a13f",
+    "actualSha256": "c4577c47fa60f8beb1f77a1feb25ffb84b34ff9c38cfc6dbd4a8bc2628c8a13f",
+    "match": true,
+    "glbsCount": 28,
+    "glbsIntact": 28,
+    "webglDrawCalls": "53-54",
+    "triangles": 86842
+  },
+  "canonicalTraces": {
+    "TraceA_SafeTransientFailure": {
+      "scenario": "Undispatched transient failure",
+      "action": "RETRY",
+      "governance": "POLICY_ALLOW",
+      "bounded": true,
+      "maxRetries": 2,
+      "duplicateExecution": false,
+      "verified": true
+    },
+    "TraceB_UnknownPostDispatchState": {
+      "scenario": "Post-dispatch timeout without confirmation",
+      "epistemicStatus": "UNKNOWN",
+      "action": "RECONCILE",
+      "blindReplayBlocked": true,
+      "probeReadOnly": true,
+      "verified": true
+    },
+    "TraceC_ConfirmedSuccess": {
+      "scenario": "Timeout where side-effect actually succeeded externally",
+      "reconciliationOutcome": "VERIFIED_SUCCESS",
+      "epistemicStatus": "CONFIRMED",
+      "action": "WAIT_OR_NOOP",
+      "duplicateExecutionBlocked": true,
+      "verified": true
+    },
+    "TraceD_PartialExecution": {
+      "scenario": "Multi-step saga with partial success",
+      "completedStepsPreserved": true,
+      "failedStepsCompensated": true,
+      "idempotencySeparated": true,
+      "verified": true
+    },
+    "TraceE_PolicyDenial": {
+      "scenario": "Recovery proposal denied by policy snapshot",
+      "action": "ABORT_AND_LOG",
+      "failClosed": true,
+      "executionPrevented": true,
+      "verified": true
+    },
+    "TraceF_HumanApprovalGate": {
+      "scenario": "High-risk compensation requiring human operator token",
+      "freshApprovalAction": "CONTINUE",
+      "expiredApprovalAction": "REQUIRE_APPROVAL",
+      "failClosed": true,
+      "verified": true
+    },
+    "TraceG_PolicyDriftAcrossRestart": {
+      "scenario": "Cold restart with mutated/drifted policy rules",
+      "revalidation": "MUTATION_DETECTED",
+      "outcome": "REQUIRE_APPROVAL",
+      "unauthorizedExecutionPrevented": true,
+      "verified": true
+    },
+    "TraceH_ConnectorRevocationAcrossRestart": {
+      "scenario": "Cold restart with connector permissions revoked",
+      "revalidation": "CONNECTOR_REVOKED",
+      "action": "ABORT",
+      "failClosed": true,
+      "verified": true
+    },
+    "TraceI_CascadeContainmentAcrossRestart": {
+      "scenario": "System-wide cascading failure threshold tripped",
+      "action": "ISOLATE",
+      "containmentPreservedAcrossRestart": true,
+      "runawayMitigated": true,
+      "verified": true
+    }
+  },
+  "boundsEnforcement": {
+    "MAX_RECOVERY_DEPTH": 3,
+    "MAX_AUTOMATIC_RETRIES": 2,
+    "MAX_RECONCILIATION_ATTEMPTS": 3,
+    "MAX_CASCADE_DEPTH": 5,
+    "MAX_CONCURRENT_AFFECTED_OPERATIONS": 50
+  },
+  "architecturalSingletons": {
+    "RecoveryControlPlane": 1,
+    "PolicyRegistry": 1,
+    "GovernanceControlPlane": 1,
+    "OperationalTruthService": 1,
+    "ExecutionPersistence": 1,
+    "ActionBusService": 1,
+    "ExecutionGateway": 1,
+    "ConnectorRegistry": 1
+  }
+}

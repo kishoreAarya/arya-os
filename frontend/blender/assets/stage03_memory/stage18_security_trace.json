@@ -1,0 +1,66 @@
+{
+  "stage": "Stage 18",
+  "generatedAt": "2026-10-02T21:05:00.000Z",
+  "securityAuditRecords": [
+    {
+      "test": "Cryptographic Signature Verification",
+      "vector": "tampered_signature_payload",
+      "expectedStatus": "INVALID_SIGNATURE",
+      "actualStatus": "INVALID_SIGNATURE",
+      "passed": true
+    },
+    {
+      "test": "Missing Signature Header",
+      "vector": "stripped_signature_headers",
+      "expectedStatus": "MISSING_SIGNATURE",
+      "actualStatus": "MISSING_SIGNATURE",
+      "passed": true
+    },
+    {
+      "test": "Timestamp Drift Verification",
+      "vector": "timestamp_drift_6_minutes_past",
+      "driftMs": 360000,
+      "maxAllowedMs": 300000,
+      "expectedStatus": "EXPIRED_TIMESTAMP",
+      "actualStatus": "EXPIRED_TIMESTAMP",
+      "passed": true
+    },
+    {
+      "test": "Connector Lifecycle State Guard",
+      "vector": "ingress_from_revoked_connector",
+      "connectorStatus": "REVOKED",
+      "expectedStatus": "CONNECTOR_REVOKED",
+      "actualStatus": "CONNECTOR_REVOKED",
+      "passed": true
+    },
+    {
+      "test": "Secret Sanitization",
+      "vector": "deeply_nested_bearer_and_passwords",
+      "fieldsScrubbed": [
+        "headers.Authorization",
+        "level1.level2.client_secret",
+        "level1.level2.password"
+      ],
+      "leakedSecretsFound": 0,
+      "passed": true
+    },
+    {
+      "test": "Consequential Action Gatekeeping",
+      "vector": "event_attempting_autonomous_issue_write",
+      "capabilityId": "github.issue_write",
+      "operatorApprovalProvided": false,
+      "expectedStatus": "REQUIRES_APPROVAL",
+      "actualStatus": "REQUIRES_APPROVAL",
+      "actionExecuted": false,
+      "passed": true
+    },
+    {
+      "test": "Rate Limit Flood Protection",
+      "vector": "burst_4_webhooks_window_limit_3",
+      "admitted": 3,
+      "rejected": 1,
+      "rejectionStatus": "RATE_LIMITED",
+      "passed": true
+    }
+  ]
+}

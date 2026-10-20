@@ -1,0 +1,51 @@
+{
+  "traceId": "trace-contra-resolution-001",
+  "timestamp": "2026-10-02T09:18:00.000Z",
+  "detection": {
+    "contradictionId": "contra:FACT_CONTRADICTION:fact:agent-evaluator::PERFORMS_WELL_FOR::complex_reasoning_vs_fact:agent-evaluator::UNDERPERFORMS_FOR::complex_reasoning",
+    "type": "FACT_CONTRADICTION",
+    "factA": "fact:agent-evaluator::PERFORMS_WELL_FOR::complex_reasoning",
+    "factB": "fact:agent-evaluator::UNDERPERFORMS_FOR::complex_reasoning",
+    "severity": "CRITICAL",
+    "detectedAt": "2026-10-02T09:17:30.000Z",
+    "status": "OPEN",
+    "rationale": "Direct predicate opposition for same subject and object with active temporal validity overlap"
+  },
+  "conflictingFacts": {
+    "factA": {
+      "id": "fact:agent-evaluator::PERFORMS_WELL_FOR::complex_reasoning",
+      "evidenceCount": 5,
+      "totalEvidenceWeight": 4.6,
+      "confidence": "HIGH",
+      "validity": "ACTIVE",
+      "sourceType": "STAGE11_EVALUATION"
+    },
+    "factB": {
+      "id": "fact:agent-evaluator::UNDERPERFORMS_FOR::complex_reasoning",
+      "evidenceCount": 1,
+      "totalEvidenceWeight": 0.8,
+      "confidence": "LOW",
+      "validity": "ACTIVE",
+      "sourceType": "STAGE11_EXPERIENCE"
+    }
+  },
+  "adjudication": {
+    "strategyUsed": "EVIDENCE_WEIGHTING",
+    "resolvedAt": "2026-10-02T09:18:00.000Z",
+    "resolvedBy": "AUTOMATED_EVIDENCE_WEIGHTING",
+    "resolutionStatus": "RESOLVED",
+    "preferredFact": "fact:agent-evaluator::PERFORMS_WELL_FOR::complex_reasoning",
+    "deprecateFact": "fact:agent-evaluator::UNDERPERFORMS_FOR::complex_reasoning",
+    "resolutionNote": "Dominant evidence weight (4.6 vs 0.8) strongly favors Fact A across multiple evaluation benchmark runs. Weaker Fact B transitioned to DISPUTED.",
+    "evidencePreserved": {
+      "factAEvidencePreserved": true,
+      "factBEvidencePreserved": true,
+      "recordsDeleted": 0
+    }
+  },
+  "postResolutionState": {
+    "factAValidity": "ACTIVE",
+    "factBValidity": "DISPUTED",
+    "factBStatus": "UNCERTAIN"
+  }
+}

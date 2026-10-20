@@ -1,0 +1,102 @@
+{
+  "stage": "STAGE_08_AUTONOMOUS_TASK_ORCHESTRATION",
+  "testSuite": "src/tests/GoalOrchestrationStage08.test.tsx",
+  "totalTests": 16,
+  "passed": 16,
+  "failed": 0,
+  "coverageCategories": [
+    {
+      "category": "1. Goal Creation & Interpretation",
+      "testCount": 2,
+      "passed": 2,
+      "tests": [
+        "interprets natural-language intent into a structured Goal grounded in memory context",
+        "assigns appropriate priority and approval policy based on intent sensitivity"
+      ]
+    },
+    {
+      "category": "2. Action Graph (DAG) & Plan Generation",
+      "testCount": 3,
+      "passed": 3,
+      "tests": [
+        "decomposes a goal into a dependency-aware Action Graph rather than a flat array",
+        "computes topological execution layers for dependency-aware concurrency",
+        "calculates plan cost and latency envelopes without fabricating numbers"
+      ]
+    },
+    {
+      "category": "3. Validation Scenario 1: End-to-End Multi-Step Autonomous Goal",
+      "testCount": 1,
+      "passed": 1,
+      "tests": [
+        "executes a multi-step goal autonomously through Stage 07 to full completion"
+      ]
+    },
+    {
+      "category": "4. Validation Scenario 2: Controlled Failure & Automated Provider Fallback",
+      "testCount": 1,
+      "passed": 1,
+      "tests": [
+        "handles primary provider failure by falling back according to Stage 06/07 policy"
+      ]
+    },
+    {
+      "category": "5. Validation Scenario 3: Partial Success, Failure Recovery & Plan Versioning",
+      "testCount": 1,
+      "passed": 1,
+      "tests": [
+        "preserves successful actions and generates Plan v2 when an intermediate node fails"
+      ]
+    },
+    {
+      "category": "6. Human Approval Boundary",
+      "testCount": 2,
+      "passed": 2,
+      "tests": [
+        "pauses execution at AWAITING_APPROVAL when consequential action requires operator confirmation",
+        "blocks action and goal when operator rejects consequential action"
+      ]
+    },
+    {
+      "category": "7. Operator Controls (Pause, Resume, Cancel)",
+      "testCount": 2,
+      "passed": 2,
+      "tests": [
+        "supports operator pause and resume of running goals",
+        "cancels goal and aborts running operations cleanly via AbortSignal"
+      ]
+    },
+    {
+      "category": "8. Security Hardening & Zero Secret Leakage",
+      "testCount": 1,
+      "passed": 1,
+      "tests": [
+        "guarantees that secrets are scrubbed from Goal, Plan, ActionNode, Observations, and MemoryEvents"
+      ]
+    },
+    {
+      "category": "9. Command Parser & Hook Lifecycle Integration",
+      "testCount": 2,
+      "passed": 2,
+      "tests": [
+        "recognizes ORCHESTRATE_GOAL commands in natural language",
+        "provides reactive goal state and controls via useGoalOrchestration hook"
+      ]
+    },
+    {
+      "category": "10. Spatial Command Console UI Transparency & Control Integration",
+      "testCount": 1,
+      "passed": 1,
+      "tests": [
+        "renders goal orchestration HUD with active plan, objective, and action status indicators"
+      ]
+    }
+  ],
+  "fullProjectRegressionStatus": {
+    "totalTestFiles": 30,
+    "totalPassedTests": 493,
+    "totalFailedTests": 0,
+    "regressionDetected": false,
+    "productionBuildStatus": "SUCCESS"
+  }
+}

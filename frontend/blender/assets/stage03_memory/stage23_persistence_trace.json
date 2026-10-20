@@ -1,0 +1,222 @@
+{
+  "traceMetadata": {
+    "stage": "Stage 23: Resilient Autonomous Operations & Recovery Control",
+    "phase": "Phase 9: Durable Recovery Control & Stage 09 Integration",
+    "timestamp": "2026-10-03T12:15:00.000Z",
+    "totalScenarios": 13,
+    "deterministic": true,
+    "storageBackend": "Stage 09 ExecutionPersistence (localStorage + in-memory fallback)",
+    "journalBackend": "Stage 09 ExecutionJournal (event-sourced append-only log)"
+  },
+  "scenarios": [
+    {
+      "scenarioId": "P9-SCN-01",
+      "name": "normal persisted decision",
+      "description": "Evaluates a valid recovery request and confirms atomic persistence into Stage 09 execution envelope and journal.",
+      "request": {
+        "requestId": "req-trace-01",
+        "operationId": "op-trace-01",
+        "confirmedSuccess": true
+      },
+      "persistedDecision": {
+        "decisionId": "rcdec_op-trace-01_1791029800000_trace1",
+        "requestId": "req-trace-01",
+        "operationId": "op-trace-01",
+        "classification": "SYSTEM_INTERRUPTION",
+        "recoveryOutcome": "NO_RECOVERY_REQUIRED",
+        "recommendedAction": "WAIT",
+        "lifecycleState": "DECIDED",
+        "epistemicStatus": "CONFIRMED"
+      },
+      "journalRecord": {
+        "eventType": "RECOVERY_CONTROL_DECIDED",
+        "newState": "DECIDED",
+        "actionId": "op-trace-01"
+      },
+      "durabilityVerified": true
+    },
+    {
+      "scenarioId": "P9-SCN-02",
+      "name": "restart",
+      "description": "Simulates browser/process restart by clearing in-memory cache and re-loading persisted decision from Stage 09 envelope.",
+      "preRestartDecisionId": "rcdec_op-trace-02_1791029800001_trace2",
+      "restartAction": "CLEAR_IN_MEMORY_STATE",
+      "postRestartLoadedDecision": {
+        "decisionId": "rcdec_op-trace-02_1791029800001_trace2",
+        "operationId": "op-trace-02",
+        "recoveryOutcome": "RETRY",
+        "retryCount": 1,
+        "recoveryDepth": 1
+      },
+      "durabilityVerified": true
+    },
+    {
+      "scenarioId": "P9-SCN-03",
+      "name": "stale decision",
+      "description": "Decision TTL expired during application downtime; revalidation marks decision EXPIRED and emits journal event.",
+      "decisionId": "rcdec_op-trace-03_1791029800002_trace3",
+      "expiresAt": 1791029700000,
+      "revalidationTime": 1791029800000,
+      "revalidationResult": {
+        "valid": false,
+        "isStale": true,
+        "isExpired": true,
+        "recommendedAction": "ESCALATE",
+        "reason": "Recovery control decision expired during downtime"
+      },
+      "journalRecord": {
+        "eventType": "RECOVERY_CONTROL_EXPIRED"
+      }
+    },
+    {
+      "scenarioId": "P9-SCN-04",
+      "name": "stale approval",
+      "description": "High-risk operation whose operator approval expired while offline fails closed to REQUIRE_APPROVAL upon restart.",
+      "decisionId": "rcdec_op-trace-04_1791029800003_trace4",
+      "riskLevel": "HIGH",
+      "revalidationContext": {
+        "humanApprovalExpired": true
+      },
+      "revalidationResult": {
+        "valid": false,
+        "isStale": true,
+        "requiresReevaluation": true,
+        "recommendedAction": "REQUIRE_APPROVAL",
+        "reason": "Governance authority has become stale; consequential action requires Stage 21 revalidation"
+      },
+      "journalRecord": {
+        "eventType": "RECOVERY_CONTROL_STALE"
+      }
+    },
+    {
+      "scenarioId": "P9-SCN-05",
+      "name": "completed operation",
+      "description": "External call completed successfully while AryaOS was offline; Stage 22 empirical truth prevents duplicate execution.",
+      "decisionId": "rcdec_op-trace-05_1791029800004_trace5",
+      "revalidationContext": {
+        "externalSuccess": true,
+        "observedOperationStatus": "SUCCEEDED"
+      },
+      "revalidationResult": {
+        "valid": true,
+        "isStale": false,
+        "requiresReevaluation": false,
+        "recommendedAction": "WAIT",
+        "reason": "Operation already completed successfully while offline (Stage 22 empirical truth)"
+      }
+    },
+    {
+      "scenarioId": "P9-SCN-06",
+      "name": "unknown operation",
+      "description": "Dispatched action with absent external verification preserves UNKNOWN epistemic state after restart without guessing.",
+      "decisionId": "rcdec_op-trace-06_1791029800005_trace6",
+      "revalidationContext": {
+        "externalStatusConfirmed": false
+      },
+      "revalidationResult": {
+        "valid": true,
+        "isStale": false,
+        "epistemicStatus": "UNKNOWN",
+        "recommendedAction": "RECONCILE",
+        "reason": "External state remains unconfirmed (epistemic honesty)"
+      }
+    },
+    {
+      "scenarioId": "P9-SCN-07",
+      "name": "interrupted reconciliation",
+      "description": "Reconciliation probe interrupted across restart; respects MAX_RECONCILIATION_ATTEMPTS=3 bound and escalates instead of looping.",
+      "decisionId": "rcdec_op-trace-07_1791029800006_trace7",
+      "reconciliationAttempts": 3,
+      "revalidationResult": {
+        "valid": false,
+        "isStale": false,
+        "requiresReevaluation": true,
+        "recommendedAction": "ESCALATE",
+        "reason": "Maximum reconciliation attempts (3) reached across restart; escalating to operator"
+      }
+    },
+    {
+      "scenarioId": "P9-SCN-08",
+      "name": "interrupted compensation",
+      "description": "Interrupted compensating reverse action must be verified against Stage 22 empirical state before any replay attempt.",
+      "decisionId": "rcdec_op-trace-08_1791029800007_trace8",
+      "recommendedAction": "COMPENSATE",
+      "revalidationContext": {
+        "observedOperationStatus": "COMPENSATED"
+      },
+      "revalidationResult": {
+        "valid": true,
+        "recommendedAction": "WAIT",
+        "reason": "Compensation already executed successfully; no repeat compensation required"
+      }
+    },
+    {
+      "scenarioId": "P9-SCN-09",
+      "name": "active cascade",
+      "description": "Active cascade containment decision (PAUSE) survives restart and cannot be downgraded to RETRY or RESUME.",
+      "decisionId": "rcdec_op-trace-09_1791029800008_trace9",
+      "containmentControl": "PAUSE",
+      "revalidationResult": {
+        "valid": true,
+        "recommendedAction": "PAUSE",
+        "reason": "Active cascade containment (PAUSE) survives restart and cannot be downgraded"
+      }
+    },
+    {
+      "scenarioId": "P9-SCN-10",
+      "name": "duplicate request",
+      "description": "Repeated recovery request for already evaluated requestId returns cached persisted decision idempotently.",
+      "requestId": "req-trace-10",
+      "firstEvaluationDecisionId": "rcdec_op-trace-10_1791029800009_trace10",
+      "subsequentEvaluationDecisionId": "rcdec_op-trace-10_1791029800009_trace10",
+      "isIdempotent": true
+    },
+    {
+      "scenarioId": "P9-SCN-11",
+      "name": "lease protection",
+      "description": "Worker Alpha acquires single-runtime recovery lease; Worker Beta is blocked from concurrent execution until release.",
+      "decisionId": "rcdec_op-trace-11_1791029800010_trace11",
+      "workerAlphaAcquisition": {
+        "acquired": true,
+        "leaseId": "rclease_op-trace-11_worker-alpha"
+      },
+      "workerBetaAcquisition": {
+        "acquired": false,
+        "failureReason": "Recovery decision is currently leased by worker 'worker-alpha'"
+      },
+      "workerAlphaRelease": true,
+      "workerBetaPostReleaseAcquisition": {
+        "acquired": true
+      }
+    },
+    {
+      "scenarioId": "P9-SCN-12",
+      "name": "governance revalidation",
+      "description": "Privileged connector operation re-evaluates Stage 21 authority upon cold start and blocks unapproved execution.",
+      "decisionId": "rcdec_op-trace-12_1791029800011_trace12",
+      "capabilityId": "stripe.transfer_funds",
+      "revalidationContext": {
+        "connectorPermissionRevoked": true
+      },
+      "revalidationResult": {
+        "valid": false,
+        "isStale": true,
+        "recommendedAction": "REQUIRE_APPROVAL",
+        "reason": "Governance authority has become stale; consequential action requires Stage 21 revalidation"
+      }
+    },
+    {
+      "scenarioId": "P9-SCN-13",
+      "name": "safe escalation",
+      "description": "Supersedes expired or invalid recovery decision with an immutable governed escalation record.",
+      "oldDecisionId": "rcdec_op-trace-13_old",
+      "supersedingDecisionId": "rcdec_op-trace-13_super",
+      "supersessionReason": "Operator escalation after restart",
+      "oldDecisionState": "EXPIRED",
+      "newDecisionState": "DECIDED",
+      "journalRecord": {
+        "eventType": "RECOVERY_CONTROL_SUPERSEDED"
+      }
+    }
+  ]
+}

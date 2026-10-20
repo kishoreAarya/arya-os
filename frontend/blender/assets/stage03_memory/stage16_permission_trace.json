@@ -1,0 +1,79 @@
+{
+  "stage": 16,
+  "title": "Connector Fabric Permission Evaluation Trace",
+  "timestamp": "2026-10-02T05:55:00.000Z",
+  "authorizations": [
+    {
+      "testIndex": 11,
+      "case": "Default DENY when operation unpermitted",
+      "connectorId": "connector_filesystem",
+      "operation": "destroy_database",
+      "resourceTarget": "/workspace",
+      "result": {
+        "authorized": false,
+        "reason": "Connector 'connector_filesystem' lacks permission for operation 'destroy_database' on target '/workspace'. (Default DENY)"
+      }
+    },
+    {
+      "testIndex": 12,
+      "case": "Scope Enforcement Rejection",
+      "connectorId": "connector_filesystem",
+      "operation": "read_file",
+      "resourceTarget": "/etc/shadow",
+      "result": {
+        "authorized": false,
+        "reason": "Target '/etc/shadow' falls outside authorized scope for connector 'connector_filesystem'."
+      }
+    },
+    {
+      "testIndex": 20,
+      "case": "Agent Capability Grant Check",
+      "connectorId": "connector_filesystem",
+      "capabilityId": "filesystem.read",
+      "operation": "read_file",
+      "agentId": "agent_coder_01",
+      "resourceTarget": "/workspace/src/index.ts",
+      "result": {
+        "authorized": true
+      }
+    },
+    {
+      "testIndex": 20,
+      "case": "Ungranted Agent Rejection",
+      "connectorId": "connector_filesystem",
+      "capabilityId": "filesystem.read",
+      "operation": "read_file",
+      "agentId": "agent_untrusted_02",
+      "resourceTarget": "/workspace/src/index.ts",
+      "result": {
+        "authorized": false,
+        "reason": "Agent 'agent_untrusted_02' does not have an active capability grant for 'filesystem.read' on '/workspace/src/index.ts' (Default DENY)."
+      }
+    },
+    {
+      "testIndex": 21,
+      "case": "Mission Capability Grant Check",
+      "connectorId": "connector_filesystem",
+      "capabilityId": "filesystem.read",
+      "operation": "read_file",
+      "missionId": "mis_alpha_build",
+      "resourceTarget": "/workspace/package.json",
+      "result": {
+        "authorized": true
+      }
+    },
+    {
+      "testIndex": 21,
+      "case": "Ungranted Mission Rejection",
+      "connectorId": "connector_filesystem",
+      "capabilityId": "filesystem.read",
+      "operation": "read_file",
+      "missionId": "mis_unregistered_99",
+      "resourceTarget": "/workspace/package.json",
+      "result": {
+        "authorized": false,
+        "reason": "Mission 'mis_unregistered_99' does not have an active capability grant for 'filesystem.read' (Default DENY)."
+      }
+    }
+  ]
+}

@@ -25,14 +25,23 @@ from typing import Any, Dict, List
 from app.models.media import Video
 from app.models.enums import PublishStatus
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.base import AgentResult
 from app.agents.registry import AGENT_REGISTRY
 from app.core.logging import get_logger
 from app.events.log import EventType, log_event
-from app.models.enums import PipelineStage, WorkflowStatus
+from app.models.approval import ApprovalAction, ApprovalCheckpoint
+from app.models.content import Script, Storyboard
+from app.models.core import WorkflowRun
+from app.models.enums import ApprovalStage, PipelineStage, WorkflowMode, WorkflowStatus
 from app.services.pipeline_state import advance_stage
+from app.services.workflow_execution_service import (
+    hydrate_resume_context,
+    suspend_for_approval,
+    update_heartbeat,
+)
 from app.storage import get_storage_provider
 from app.workflows.models import StageResult, WorkflowResult
 from app.workflows.stage_executor import execute_stage, _merge_context
@@ -102,13 +111,15 @@ class Orchestrator:
    error information is returned.
    """
 
-   def __init__(self, db: AsyncSession, max_retries: int = 3) -> None:
+   def __init__(self, db: AsyncSession, max_retries: int = 3, worker_id: str | None = None) -> None:
        self._db = db
        self._max_retries = max(0, max_retries)
+       self._worker_id = worker_id
        logger.info(
            "orchestrator_initialized",
            stage_count=len(_PIPELINE),
            max_retries=self._max_retries,
+           worker_id=self._worker_id,
        )
 
    def _get_pipeline(self, context: Dict[str, Any]) -> List[str]:
@@ -121,13 +132,15 @@ class Orchestrator:
        self,
        workflow_run_id: uuid.UUID,
        workflow_input: Dict[str, Any],
+       resume_from_stage: str | None = None,
    ) -> WorkflowResult:
        """
-       Execute the full pipeline sequentially.
+       Execute the full pipeline sequentially, with support for resuming from a stage.
 
        Args:
            workflow_run_id: The persistent WorkflowRun UUID.
            workflow_input: Initial input parameters (topic, style, etc.).
+           resume_from_stage: Optional stage to resume execution from.
 
        Returns:
            WorkflowResult with final status, outputs, and timing.
@@ -135,11 +148,11 @@ class Orchestrator:
        logger.info(
            "workflow_started",
            workflow_run_id=str(workflow_run_id),
+           resume_from_stage=resume_from_stage,
        )
 
        started_at = datetime.now(timezone.utc)
        start_perf = time.perf_counter()
-       completed_stages: List[str] = []
        stage_results: List[StageResult] = []
        total_cost_usd = 0.0
 
@@ -185,13 +198,49 @@ class Orchestrator:
            )
 
        context["workflow_run_id"] = str(workflow_run_id)
-       pipeline = self._get_pipeline(context)
 
-       for stage_key in pipeline:
+       # Hydrate execution context from persisted database artifacts if available
+       try:
+           context = await hydrate_resume_context(self._db, workflow_run_id, context)
+       except Exception as exc:
+           logger.warning("hydrate_resume_context_warning", error=str(exc))
+
+       # Query workflow mode
+       workflow_mode = WorkflowMode.AUTONOMOUS
+       try:
+           run_row = await self._db.get(WorkflowRun, workflow_run_id)
+           if run_row:
+               if getattr(run_row, "mode", None):
+                   workflow_mode = run_row.mode
+               if getattr(run_row, "total_cost_usd", None) is not None and resume_from_stage:
+                   total_cost_usd = float(run_row.total_cost_usd)
+       except Exception:
+           pass
+
+       pipeline = self._get_pipeline(context)
+       if resume_from_stage and resume_from_stage in pipeline:
+           start_idx = pipeline.index(resume_from_stage)
+           completed_stages = list(pipeline[:start_idx])
+           stages_to_run = pipeline[start_idx:]
+       else:
+           completed_stages = []
+           stages_to_run = list(pipeline)
+
+       for stage_key in stages_to_run:
+           # Heartbeat before stage
+           await update_heartbeat(self._db, workflow_run_id, worker_id=self._worker_id)
+
            result = await self._execute_stage(stage_key, context)
            stage_results.append(result)
 
            if not result.success:
+               try:
+                   run_row = await self._db.get(WorkflowRun, workflow_run_id)
+                   if run_row:
+                       run_row.last_completed_stage = completed_stages[-1] if completed_stages else None
+                       await self._db.commit()
+               except Exception:
+                   pass
                return self._build_result(
                    workflow_run_id=workflow_run_id,
                    status=WorkflowStatus.FAILED.value,
@@ -233,29 +282,127 @@ class Orchestrator:
                platform=context.get("platform"),
            )
 
+           # Persist the Script aggregate
+           if stage_key == "script":
+               script_content = (
+                   context.get("script_content")
+                   or (context.get("script") if isinstance(context.get("script"), str) else None)
+                   or (context.get("script", {}).get("content") if isinstance(context.get("script"), dict) else None)
+               )
+               if script_content:
+                   try:
+                       s_stmt = (
+                           select(Script)
+                           .where(Script.workflow_run_id == workflow_run_id)
+                           .order_by(Script.created_at.desc())
+                           .limit(1)
+                       )
+                       s_res = await self._db.execute(s_stmt)
+                       existing_script = s_res.scalar_one_or_none()
+                       if not existing_script:
+                           script_row = Script(
+                               workflow_run_id=workflow_run_id,
+                               content=str(script_content),
+                               word_count=len(str(script_content).split()),
+                           )
+                           self._db.add(script_row)
+                           await self._db.flush()
+                           context["script_id"] = str(script_row.id)
+                       else:
+                           context["script_id"] = str(existing_script.id)
+                   except Exception as exc:
+                       logger.warning("script_persistence_warning", error=str(exc))
+
+           # Persist the Storyboard aggregate
+           if stage_key == "storyboard":
+               shots_data = context.get("storyboard") or context.get("shots")
+               script_id = context.get("script_id")
+               if shots_data and script_id:
+                   try:
+                       sb_stmt = (
+                           select(Storyboard)
+                           .where(Storyboard.script_id == uuid.UUID(str(script_id)))
+                           .order_by(Storyboard.created_at.desc())
+                           .limit(1)
+                       )
+                       sb_res = await self._db.execute(sb_stmt)
+                       existing_sb = sb_res.scalar_one_or_none()
+                       if not existing_sb:
+                           sb_shots = shots_data if isinstance(shots_data, (dict, list)) else {"shots": shots_data}
+                           sb_row = Storyboard(
+                               script_id=uuid.UUID(str(script_id)),
+                               shots=sb_shots if isinstance(sb_shots, dict) else {"shots": sb_shots},
+                           )
+                           self._db.add(sb_row)
+                           await self._db.flush()
+                           context["storyboard_id"] = str(sb_row.id)
+                       else:
+                           context["storyboard_id"] = str(existing_sb.id)
+                   except Exception as exc:
+                       logger.warning("storyboard_persistence_warning", error=str(exc))
+
            # Persist the Video aggregate immediately after successful video assembly.
            if stage_key == "video_assembler":
                video_storage_path = context.get("video_storage_path")
 
                if video_storage_path:
-                   video_row = Video(
-                       workflow_run_id=workflow_run_id,
-                       storage_path=video_storage_path,
-                       duration_seconds=context.get("video_duration_seconds"),
-                       publish_status=PublishStatus.DRAFT,
-                       aspect_ratio=context.get("aspect_ratio", "16:9"),
+                   try:
+                       v_stmt = (
+                           select(Video)
+                           .where(Video.workflow_run_id == workflow_run_id)
+                           .order_by(Video.created_at.desc())
+                           .limit(1)
+                       )
+                       v_res = await self._db.execute(v_stmt)
+                       existing_video = v_res.scalar_one_or_none()
+                       if not existing_video:
+                           video_row = Video(
+                               workflow_run_id=workflow_run_id,
+                               storage_path=video_storage_path,
+                               duration_seconds=context.get("video_duration_seconds"),
+                               publish_status=PublishStatus.DRAFT,
+                               aspect_ratio=context.get("aspect_ratio", "16:9"),
+                           )
+
+                           self._db.add(video_row)
+                           await self._db.flush()
+
+                           context["video_id"] = str(video_row.id)
+                       else:
+                           context["video_id"] = str(existing_video.id)
+
+                       logger.info(
+                           "video_row_created",
+                           video_id=context.get("video_id"),
+                           storage_path=video_storage_path,
+                       )
+                   except Exception as exc:
+                       logger.warning("video_persistence_warning", error=str(exc))
+
+           # Persist last_completed_stage
+           try:
+               run_row = await self._db.get(WorkflowRun, workflow_run_id)
+               if run_row:
+                   run_row.last_completed_stage = stage_key
+                   await self._db.commit()
+           except Exception as exc:
+               logger.warning("last_completed_stage_update_warning", stage=stage_key, error=str(exc))
+
+           # Advance WorkflowRun.current_stage in persistent storage
+           target_stage = _KEY_TO_PIPELINE_STAGE.get(stage_key)
+           if target_stage:
+               try:
+                   await advance_stage(self._db, workflow_run_id, target_stage)
+               except Exception as exc:
+                   logger.warning(
+                       "stage_advance_warning",
+                       stage=stage_key,
+                       target_stage=target_stage.value,
+                       error=str(exc),
                    )
 
-                   self._db.add(video_row)
-                   await self._db.flush()
-
-                   context["video_id"] = str(video_row.id)
-
-                   logger.info(
-                       "video_row_created",
-                       video_id=context["video_id"],
-                       storage_path=video_storage_path,
-                   )
+           # Heartbeat after stage
+           await update_heartbeat(self._db, workflow_run_id, worker_id=self._worker_id)
 
            logger.info(
                "stage_completed",
@@ -264,6 +411,84 @@ class Orchestrator:
                progress=f"{len(completed_stages)}/{len(pipeline)}",
                cost_usd=result.cost_usd,
            )
+
+           # Check approval boundaries for human-in-the-loop workflows
+           if workflow_mode in (WorkflowMode.MANUAL, WorkflowMode.ASSISTED):
+               approval_stage_enum: ApprovalStage | None = None
+               ref_table: str = ""
+               ref_id: uuid.UUID = workflow_run_id
+
+               if stage_key == "script":
+                   approval_stage_enum = ApprovalStage.SCRIPT
+                   ref_table = "scripts"
+                   if context.get("script_id"):
+                       try:
+                           ref_id = uuid.UUID(str(context["script_id"]))
+                       except (ValueError, TypeError):
+                           pass
+               elif stage_key == "video_assembler":
+                   approval_stage_enum = ApprovalStage.VIDEO
+                   ref_table = "videos"
+                   if context.get("video_id"):
+                       try:
+                           ref_id = uuid.UUID(str(context["video_id"]))
+                       except (ValueError, TypeError):
+                           pass
+
+               if approval_stage_enum is not None:
+                   try:
+                       cp_stmt = (
+                           select(ApprovalCheckpoint)
+                           .where(
+                               ApprovalCheckpoint.workflow_run_id == workflow_run_id,
+                               ApprovalCheckpoint.stage == approval_stage_enum,
+                           )
+                           .order_by(ApprovalCheckpoint.created_at.desc())
+                           .limit(1)
+                       )
+                       cp_res = await self._db.execute(cp_stmt)
+                       cp = cp_res.scalar_one_or_none()
+
+                       if cp is not None and cp.action == ApprovalAction.APPROVE:
+                           logger.info(
+                               "approval_checkpoint_previously_approved",
+                               stage=stage_key,
+                               checkpoint_id=str(cp.id),
+                           )
+                       else:
+                           if cp is None:
+                               cp = ApprovalCheckpoint(
+                                   workflow_run_id=workflow_run_id,
+                                   stage=approval_stage_enum,
+                                   reference_table=ref_table,
+                                   reference_id=ref_id,
+                               )
+                               self._db.add(cp)
+                               await self._db.flush()
+
+                           if cp.action is None:
+                               await suspend_for_approval(self._db, workflow_run_id, cp.id)
+                               logger.info(
+                                   "workflow_suspended_for_approval",
+                                   workflow_run_id=str(workflow_run_id),
+                                   stage=stage_key,
+                                   checkpoint_id=str(cp.id),
+                               )
+                               return self._build_result(
+                                   workflow_run_id=workflow_run_id,
+                                   status=WorkflowStatus.AWAITING_APPROVAL.value,
+                                   success=True,
+                                   completed_stages=completed_stages,
+                                   failed_stage=None,
+                                   stage_results=stage_results,
+                                   error=None,
+                                   started_at=started_at,
+                                   start_perf=start_perf,
+                                   total_cost_usd=total_cost_usd,
+                                   context=context,
+                               )
+                   except Exception as exc:
+                       logger.error("approval_boundary_check_error", stage=stage_key, error=str(exc))
 
        return self._build_result(
            workflow_run_id=workflow_run_id,
@@ -634,6 +859,11 @@ class Orchestrator:
    ) -> WorkflowResult:
        """Build the final WorkflowResult."""
        total_time_ms = round((time.perf_counter() - start_perf) * 1000, 3)
+       completed_at = (
+           None
+           if status == WorkflowStatus.AWAITING_APPROVAL.value
+           else datetime.now(timezone.utc)
+       )
        return WorkflowResult(
            workflow_id=str(workflow_run_id),
            status=status,
@@ -643,7 +873,7 @@ class Orchestrator:
            stage_results=stage_results,
            error=error,
            started_at=started_at,
-           completed_at=datetime.now(timezone.utc),
+           completed_at=completed_at,
            total_execution_time_ms=total_time_ms,
            total_cost_usd=total_cost_usd,
            artifacts={

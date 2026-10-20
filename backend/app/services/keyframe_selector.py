@@ -16,7 +16,6 @@ from __future__ import annotations
 import math
 import os
 import tempfile
-import urllib.request
 from typing import Any
 
 from PIL import Image, ImageFilter, ImageStat
@@ -124,12 +123,14 @@ def evaluate_candidate(
         # Download or locate local file
         local_path = image_path_or_url
         if image_path_or_url.startswith(("http://", "https://")):
+            from app.utils.asset_manager import ensure_local_asset, ensure_local_asset_sync
+
             try:
-                fd, tmp = tempfile.mkstemp(suffix=".img", prefix="arya_cand_")
-                os.close(fd)
-                req = urllib.request.Request(image_path_or_url, headers={"User-Agent": "AryaOS/1.0"})
-                with urllib.request.urlopen(req, timeout=30) as resp, open(tmp, "wb") as f:
-                    f.write(resp.read())
+                tmp = ensure_local_asset_sync(
+                    image_path_or_url,
+                    timeout_seconds=30.0,
+                    max_bytes=20 * 1024 * 1024,
+                )
                 local_path = tmp
                 is_temp = True
             except Exception as exc:

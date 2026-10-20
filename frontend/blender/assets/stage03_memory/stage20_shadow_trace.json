@@ -1,0 +1,214 @@
+{
+  "stage": 20,
+  "subsystem": "PolicyShadowService & PolicyEvaluationService",
+  "timestamp": "2026-10-03T06:08:15.014Z",
+  "summary": {
+    "totalEvaluations": 3,
+    "divergentEvaluations": 2,
+    "nonDivergentEvaluations": 1,
+    "realExecutionOccurred": false,
+    "executionBoundaryInvariant": "SHADOW_EVALUATION strictly isolated from REAL_EXECUTION: 0 side-effects executed"
+  },
+  "traces": [
+    {
+      "traceId": "trace-shadow-01-connector-burst",
+      "evaluationMode": "SHADOW_MODE",
+      "realExecutionOccurred": false,
+      "executionStatus": "SKIPPED_SHADOW_ONLY",
+      "authorizationStatus": "ADVISORY_PENDING_OPERATOR_APPROVAL",
+      "candidatePolicy": {
+        "id": "pol-shadow-github-throttle",
+        "version": 1,
+        "name": "GitHub Connector Burst Limiter",
+        "status": "CANDIDATE",
+        "priority": "RESOURCE_LIMITS",
+        "scope": {
+          "scopeType": "CONNECTOR",
+          "targetId": "conn-github-prod"
+        },
+        "predictedEffect": {
+          "type": "LIMIT",
+          "constraint": {
+            "rateLimitPerHour": 60,
+            "maxConcurrentActions": 2
+          },
+          "reason": "Empirical 429 errors observed during previous burst runs"
+        },
+        "provenance": {
+          "authorId": "user-operator-admin",
+          "createdAt": 1790958600000,
+          "updatedAt": 1790958600000,
+          "evidence": {
+            "confidenceScore": 0.95,
+            "description": "Empirical observation from production execution"
+          },
+          "changeLog": [
+            {
+              "version": 1,
+              "timestamp": 1790958600000,
+              "changedBy": "user-operator-admin",
+              "description": "Initial candidate creation"
+            }
+          ],
+          "learningSignalId": "sig-connector-github-rate-burst"
+        }
+      },
+      "evaluationContext": {
+        "connectorId": "conn-github-prod",
+        "requestFrequency": 95,
+        "taskType": "issue_sync",
+        "agentId": "agent-sync"
+      },
+      "runtimeOutcome": {
+        "activePolicyId": "pol-runtime-allow-standard",
+        "activeEffect": "ALLOW",
+        "executionOutcome": "REAL_EXECUTION_PERMITTED_BY_ACTIVE_POLICY"
+      },
+      "shadowEvaluation": {
+        "wouldApply": true,
+        "projectedEffect": "LIMIT",
+        "isDivergent": true,
+        "differenceExplanation": "Divergence Detected: Runtime chose 'ALLOW', whereas Shadow Policy 'pol-shadow-github-throttle' would have enforced 'LIMIT' (Empirical 429 errors observed during previous burst runs)."
+      },
+      "provenance": {
+        "evaluatedAt": 1791007695013,
+        "shadowRecordId": "shadow-pol-shadow-github-throttle-1791007695013-q7nv",
+        "persistedInJournal": true
+      }
+    },
+    {
+      "traceId": "trace-shadow-02-destructive-guard",
+      "evaluationMode": "SHADOW_MODE",
+      "realExecutionOccurred": false,
+      "executionStatus": "SKIPPED_SHADOW_ONLY",
+      "authorizationStatus": "ADVISORY_PENDING_OPERATOR_APPROVAL",
+      "candidatePolicy": {
+        "id": "pol-shadow-destructive-guard",
+        "version": 1,
+        "name": "Destructive Action Freeze Guard",
+        "status": "CANDIDATE",
+        "priority": "SECURITY",
+        "scope": {
+          "scopeType": "AGENT",
+          "targetId": "agent-analyst"
+        },
+        "predictedEffect": {
+          "type": "DENY",
+          "reason": "Automated destructive deletions are prohibited in candidate policy"
+        },
+        "provenance": {
+          "authorId": "user-operator-admin",
+          "createdAt": 1790958600000,
+          "updatedAt": 1790958600000,
+          "evidence": {
+            "confidenceScore": 0.95,
+            "description": "Empirical observation from production execution"
+          },
+          "changeLog": [
+            {
+              "version": 1,
+              "timestamp": 1790958600000,
+              "changedBy": "user-operator-admin",
+              "description": "Initial candidate creation"
+            }
+          ],
+          "learningSignalId": "sig-security-deletion-guard"
+        }
+      },
+      "evaluationContext": {
+        "agentId": "agent-analyst",
+        "actionType": "destructive_delete",
+        "taskType": "cleanup"
+      },
+      "runtimeOutcome": {
+        "activePolicyId": "pol-runtime-allow-standard",
+        "activeEffect": "ALLOW",
+        "executionOutcome": "REAL_EXECUTION_PERMITTED_BY_ACTIVE_POLICY"
+      },
+      "shadowEvaluation": {
+        "wouldApply": true,
+        "projectedEffect": "DENY",
+        "isDivergent": true,
+        "differenceExplanation": "Divergence Detected: Runtime chose 'ALLOW', whereas Shadow Policy 'pol-shadow-destructive-guard' would have enforced 'DENY' (Automated destructive deletions are prohibited in candidate policy)."
+      },
+      "provenance": {
+        "evaluatedAt": 1791007695013,
+        "shadowRecordId": "shadow-pol-shadow-destructive-guard-1791007695013-ec97",
+        "persistedInJournal": true
+      }
+    },
+    {
+      "traceId": "trace-shadow-03-non-matching-condition",
+      "evaluationMode": "SHADOW_MODE",
+      "realExecutionOccurred": false,
+      "executionStatus": "SKIPPED_SHADOW_ONLY",
+      "authorizationStatus": "ADVISORY_PENDING_OPERATOR_APPROVAL",
+      "candidatePolicy": {
+        "id": "pol-shadow-github-throttle",
+        "version": 1,
+        "name": "GitHub Connector Burst Limiter",
+        "status": "CANDIDATE",
+        "priority": "RESOURCE_LIMITS",
+        "scope": {
+          "scopeType": "CONNECTOR",
+          "targetId": "conn-github-prod"
+        },
+        "predictedEffect": {
+          "type": "LIMIT",
+          "constraint": {
+            "rateLimitPerHour": 60,
+            "maxConcurrentActions": 2
+          },
+          "reason": "Empirical 429 errors observed during previous burst runs"
+        },
+        "provenance": {
+          "authorId": "user-operator-admin",
+          "createdAt": 1790958600000,
+          "updatedAt": 1790958600000,
+          "evidence": {
+            "confidenceScore": 0.95,
+            "description": "Empirical observation from production execution"
+          },
+          "changeLog": [
+            {
+              "version": 1,
+              "timestamp": 1790958600000,
+              "changedBy": "user-operator-admin",
+              "description": "Initial candidate creation"
+            }
+          ],
+          "learningSignalId": "sig-connector-github-rate-burst"
+        }
+      },
+      "evaluationContext": {
+        "connectorId": "conn-github-prod",
+        "requestFrequency": 30,
+        "taskType": "issue_sync"
+      },
+      "runtimeOutcome": {
+        "activePolicyId": "pol-runtime-allow-standard",
+        "activeEffect": "ALLOW",
+        "executionOutcome": "REAL_EXECUTION_PERMITTED_BY_ACTIVE_POLICY"
+      },
+      "shadowEvaluation": {
+        "wouldApply": false,
+        "projectedEffect": "ALLOW",
+        "isDivergent": false,
+        "differenceExplanation": "Conditions not met: Shadow Policy 'pol-shadow-github-throttle' would not have triggered."
+      },
+      "provenance": {
+        "evaluatedAt": 1791007695013,
+        "shadowRecordId": "shadow-pol-shadow-github-throttle-1791007695013-k36s",
+        "persistedInJournal": true
+      }
+    }
+  ],
+  "architecturalInvariantsVerified": {
+    "LEARNING ≠ AUTHORITY": true,
+    "EXPERIENCE ≠ PERMISSION": true,
+    "RECOMMENDATION ≠ POLICY": true,
+    "POLICY ≠ APPROVAL": true,
+    "APPROVAL ≠ EXECUTION": true,
+    "SHADOW ≠ EXECUTION": true
+  }
+}

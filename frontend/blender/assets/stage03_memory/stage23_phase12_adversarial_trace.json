@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "stage": "Stage 23: Recovery Control Plane & Autonomous Healing",
+  "phase": "Phase 12: Adversarial Security Hardening & Recovery Operational HUD",
+  "timestamp": "2026-10-03T17:30:00Z",
+  "blenderMasterSha256": "c4577c47fa60f8beb1f77a1feb25ffb84b34ff9c38cfc6dbd4a8bc2628c8a13f",
+  "testSuiteSummary": {
+    "totalSuites": 45,
+    "totalTests": 1499,
+    "stage23Tests": 376,
+    "phase12Tests": 62,
+    "passRate": "100%",
+    "typeScriptErrors": 0,
+    "buildStatus": "PASS"
+  },
+  "adversarialCategories": [
+    {
+      "categoryId": "CAT_01_PERSISTED_STATE_TAMPERING",
+      "name": "Persisted State Tampering Defense",
+      "testIds": [315, 316, 317, 318, 319],
+      "invariants": [
+        "Tampered identifiers (planId, operationId, decisionId, idempotencyKey) fail closed",
+        "Corrupted retry counters or negative recovery depth are sanitized or rejected",
+        "Tampered policy snapshot bindings cause immediate invalidation",
+        "Modified lifecycle state without valid causal transition is rejected",
+        "Tampered compensation or reconciliation IDs reject execution"
+      ],
+      "status": "VERIFIED_DEFENDED"
+    },
+    {
+      "categoryId": "CAT_02_AUTHORITY_SPOOFING",
+      "name": "Authority Spoofing & Actor Impersonation",
+      "testIds": [320, 321, 322, 323, 324],
+      "invariants": [
+        "Synthetic admin or elevated actor claims fail closed",
+        "Forged security context tokens are rejected by signature and hash",
+        "Missing actor credentials fail closed with zero ambient authority",
+        "Revoked actor or degraded credentials halt recovery evaluation",
+        "Cross-tenant recovery delegation requests are strictly rejected"
+      ],
+      "status": "VERIFIED_DEFENDED"
+    },
+    {
+      "categoryId": "CAT_03_HUMAN_APPROVAL_ATTACKS",
+      "name": "Human Approval Manipulation & Replay",
+      "testIds": [325, 326, 327, 328, 329],
+      "invariants": [
+        "Replay of expired approval tokens (>5m TTL) fails closed",
+        "Cross-request approval token substitution is rejected",
+        "Forged operator signature tokens fail cryptographic validation",
+        "Unapproved escalation from low-risk to critical-risk fails closed",
+        "Multiple concurrent re-approval attempts are strictly serialized"
+      ],
+      "status": "VERIFIED_DEFENDED"
+    },
+    {
+      "categoryId": "CAT_04_POLICY_HIERARCHY_ENFORCEMENT",
+      "name": "Policy Hierarchy Override Protection",
+      "testIds": [330, 331, 332, 333, 334],
+      "invariants": [
+        "Low-priority optimization policy cannot override SYSTEM_SAFETY or SECURITY DENY",
+        "Agent-level policy cannot elevate recovery authority above MISSION_POLICY",
+        "Shadow policies cannot dictate production recovery actions",
+        "Conflicting policy evaluations resolve to the most restrictive fail-closed outcome",
+        "Stale policy snapshot cannot authorize elevated actions"
+      ],
+      "status": "VERIFIED_DEFENDED"
+    },
+    {
+      "categoryId": "CAT_05_EPISTEMIC_TRUTH_SEPARATION",
+      "name": "Operational Truth Epistemic Separation",
+      "testIds": [335, 336, 337, 338, 339],
+      "invariants": [
+        "Recovery state UNKNOWN cannot be converted to SUCCESS without empirical verification",
+        "Recovery state UNKNOWN cannot trigger destructive compensation blindly",
+        "INFERRED state cannot bypass operator approval required for CONFIRMED state",
+        "Fabricated audit evidence is detected and rejected via audit integrity checks",
+        "Empirical Stage 22 truth supersedes unverified speculative recovery signals"
+      ],
+      "status": "VERIFIED_DEFENDED"
+    },
+    {
+      "categoryId": "CAT_06_RECURSION_AND_LOOP_BOUNDS",
+      "name": "Recovery Loop & Cascade Depth Limits",
+      "testIds": [340, 341, 342, 343, 344],
+      "invariants": [
+        "Recovery depth cannot exceed MAX_RECOVERY_DEPTH (3) under any attack vector",
+        "Circular causal cycles in failure chains are detected and truncated",
+        "Cascade blast radius expansion is strictly bounded by MAX_CASCADE_DEPTH (5)",
+        "Cascading compensation failures abort immediately rather than recursing infinitely",
+        "Repeated rapid failure bursts trigger fail-closed ISOLATE rather than runaway loops"
+      ],
+      "status": "VERIFIED_DEFENDED"
+    },
+    {
+      "categoryId": "CAT_07_PROTOTYPE_POLLUTION_DEFENSE",
+      "name": "Prototype Pollution & Object Injection",
+      "testIds": [345, 346, 347, 348, 349],
+      "invariants": [
+        "__proto__, constructor, and prototype injection attempts are stripped or rejected",
+        "Nested payload recursion with cyclic references does not cause stack overflow",
+        "Object prototype modifications do not pollute recovery control plane state",
+        "Sanitized recovery records preserve clean prototypes and safe own properties",
+        "Deep JSON deserialization validates own properties exclusively"
+      ],
+      "status": "VERIFIED_DEFENDED"
+    },
+    {
+      "categoryId": "CAT_08_SECRET_AND_CREDENTIAL_INJECTION",
+      "name": "Credential & Secret Injection Prevention",
+      "testIds": [350, 351, 352, 353, 354],
+      "invariants": [
+        "Raw API keys, bearer tokens, and private keys in recovery payloads are rejected",
+        "Audit log events scrub sensitive tokens and credential references",
+        "Recovery persistence rejects payloads containing forbidden credential patterns",
+        "Connector credentials remain strictly abstract references (CredentialRef)",
+        "HUD telemetry displays zero secret data or authorization tokens"
+      ],
+      "status": "VERIFIED_DEFENDED"
+    },
+    {
+      "categoryId": "CAT_09_PAYLOAD_BOUNDS_AND_DOS",
+      "name": "Payload Size Bounds & Denial of Service",
+      "testIds": [355, 356, 357, 358, 359],
+      "invariants": [
+        "Oversized payloads (>64KB) are rejected before memory allocation or dispatch",
+        "Deeply nested JSON trees (>20 depth) fail safe sanitization",
+        "Excessive array element counts (>1000 items) are rejected",
+        "Rapid burst recovery requests are rate-limited and bounded",
+        "Memory leak prevention ensures completed recovery planes are garbage-collected"
+      ],
+      "status": "VERIFIED_DEFENDED"
+    },
+    {
+      "categoryId": "CAT_10_IDEMPOTENCY_AND_RACE_CONDITIONS",
+      "name": "Idempotency Safety & Concurrent Control",
+      "testIds": [360, 361, 362, 363, 364],
+      "invariants": [
+        "Duplicate requests with identical idempotencyKey return identical frozen responses",
+        "Concurrent recovery evaluations for same operation are serialized via mutex/lease",
+        "Interleaved restart and reconciliation events preserve strictly monotonic state",
+        "Reconciliation probe completions are idempotent across duplicate arrivals",
+        "Compensation execution is strictly at-most-once per failure node"
+      ],
+      "status": "VERIFIED_DEFENDED"
+    },
+    {
+      "categoryId": "CAT_11_STATE_MACHINE_FUZZING",
+      "name": "Recovery Lifecycle State Machine Fuzzing",
+      "testIds": [365, 366, 367, 368, 369],
+      "invariants": [
+        "COMPLETED state is terminal; transition to READY or DISPATCHED is blocked",
+        "REJECTED state cannot be transitioned to APPROVED without new evaluation",
+        "ABORTED state cannot be resumed",
+        "EXPIRED approval token cannot execute",
+        "UNKNOWN state requires reconciliation before moving to active recovery"
+      ],
+      "status": "VERIFIED_DEFENDED"
+    },
+    {
+      "categoryId": "CAT_12_CROSS_LAYER_AUTHORITY_INTERSECTION",
+      "name": "Fail-Closed Cross-Layer Authority Intersection",
+      "testIds": [370, 371, 372, 373, 374, 375, 376],
+      "invariants": [
+        "Effective Authority = Policy ∩ Connector Permissions ∩ Action Authorization ∩ Human Approval ∩ Mission Constraints",
+        "If any single authority layer denies or is unavailable, effective authority is DENY",
+        "Connector in ERROR or UNAVAILABLE state halts execution regardless of Policy ALLOW",
+        "Mission in PAUSED or CANCELLED state halts execution regardless of Connector ALLOW",
+        "Zero ambient authority: empty permissions always produce DENY"
+      ],
+      "status": "VERIFIED_DEFENDED"
+    }
+  ],
+  "hudValidation": {
+    "component": "src/components/spatial/RecoveryControlHUD.tsx",
+    "parentMount": "src/components/spatial/SpatialCommandConsole.tsx",
+    "renderingDomain": "PURE_DOM_OVERLAY",
+    "threeJsFootprint": {
+      "drawCalls": 0,
+      "triangles": 0,
+      "geometries": 0,
+      "materials": 0
+    },
+    "epistemicSafety": {
+      "badgeTypes": ["UNKNOWN", "OBSERVED", "CONFIRMED", "INFERRED", "PROJECTED"],
+      "authorityRole": "STRICTLY_OBSERVATIONAL",
+      "mutationAuthority": false
+    }
+  }
+}

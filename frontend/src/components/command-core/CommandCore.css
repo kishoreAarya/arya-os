@@ -1,0 +1,186 @@
+/* ==========================================================================
+   AryaOS V1 — Stage 3: Spatial Command Core Instrument
+   Cinematic Intelligence & Layered Command Aesthetics
+   ========================================================================== */
+
+.command-core-card {
+  position: relative;
+  background: linear-gradient(180deg, rgba(14, 19, 30, 0.94) 0%, rgba(8, 11, 18, 0.98) 100%);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-lg);
+  padding: 0.875rem 1.25rem 0.75rem;
+  box-shadow: 0 8px 30px -4px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  overflow: hidden;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+  user-select: none;
+}
+
+.command-core-card:hover {
+  border-color: rgba(59, 130, 246, 0.25);
+  box-shadow: 0 12px 36px -4px rgba(0, 0, 0, 0.75), 0 0 18px rgba(59, 130, 246, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.command-core-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  z-index: 2;
+  margin-bottom: 0.25rem;
+}
+
+.command-core-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-primary);
+}
+
+.command-core-canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+@media (max-width: 1400px) {
+  .command-core-canvas-wrap {
+    height: 185px;
+  }
+}
+
+@media (max-width: 1280px) {
+  .command-core-canvas-wrap {
+    height: 170px;
+  }
+}
+
+.command-core-canvas-wrap canvas {
+  pointer-events: none;
+}
+
+/* Fallback 2D Command Instrument (JSDOM / headless / non-WebGL) */
+.command-core-fallback {
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.command-core-fallback-inner {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Semantic State Badges on Command HUD */
+.core-state-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: all 0.25s ease;
+  font-family: inherit;
+}
+
+/* Normal States: Cool Steel / Slate / Restrained Electric Blue */
+.core-state-idle {
+  background: rgba(148, 163, 184, 0.1);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.core-state-configuring {
+  background: rgba(129, 140, 248, 0.1);
+  color: #a5b4fc;
+  border: 1px solid rgba(129, 140, 248, 0.3);
+  box-shadow: 0 0 8px rgba(129, 140, 248, 0.15);
+}
+
+.core-state-ready {
+  background: rgba(56, 189, 248, 0.1);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.32);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+}
+
+.core-state-generating {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.28);
+}
+
+.core-state-processing {
+  background: rgba(96, 165, 250, 0.15);
+  color: #93c5fd;
+  border: 1px solid rgba(96, 165, 250, 0.4);
+  box-shadow: 0 0 12px rgba(96, 165, 250, 0.28);
+}
+
+.core-state-complete {
+  background: rgba(52, 211, 153, 0.12);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.2);
+}
+
+/* Error State: Restrained Crimson, clearly distinguished from normal */
+.core-state-error {
+  background: rgba(239, 68, 68, 0.14);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.25);
+}
+
+.core-pulse-led {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+/* Micro Telemetry Readout */
+.command-core-telemetry {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 0.5rem;
+  margin-top: 0.25rem;
+  font-family: inherit;
+  letter-spacing: 0.01em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .command-core-card {
+    transition: none !important;
+  }
+}
+

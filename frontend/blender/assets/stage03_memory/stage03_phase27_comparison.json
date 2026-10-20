@@ -1,0 +1,944 @@
+{
+  "metadata": {
+    "phase": "2.7",
+    "date": "2026-10-01",
+    "solution": "Phase 2.7 Cinematic Lighting Distribution Reconstruction (Layer 1 Environmental Fill + Layer 2 Multi-tier Reactor Warmth + Layer 3 Atmospheric Depth + Shadow-Midtone Lift)",
+    "config": {
+      "variant": "E",
+      "toneMapping": "ACESFilmic",
+      "exposure": 0.96,
+      "envOptions": {
+        "zenithColor": "#16202c",
+        "horizonColor": "#4e6278",
+        "groundColor": "#0e151e",
+        "warmGlowRadius": 118,
+        "warmGlowIntensity": 0.42,
+        "cloudBands": true
+      },
+      "fogType": "linear",
+      "fogNear": 19.5,
+      "fogFar": 182.0,
+      "fogColor": "#4e6278",
+      "hemisphereIntensity": 0.3,
+      "hemisphereSkyColor": "#4e6278",
+      "hemisphereGroundColor": "#18202a",
+      "ambientIntensity": 0.44,
+      "ambientColor": "#1e2c3c",
+      "coreIntensity": 11.2,
+      "coreColor": "#ffa030",
+      "daisBounceIntensity": 7.0,
+      "daisBounceRange": 35.0,
+      "daisBounceColor": "#ff9624",
+      "tertiaryStairsIntensity": 2.0,
+      "tertiaryStairsColor": "#ff9028",
+      "pedestalIntensity": 4.2,
+      "canopyIntensity": 4.2,
+      "planarReflection": true,
+      "planarIntensity": 0.36,
+      "planarTint": "#0e1622",
+      "floorColor": "#0e141c",
+      "floorRoughness": 0.25,
+      "floorClearcoat": 0.6,
+      "floorClearcoatRoughness": 0.13,
+      "glassColor": "#141e2a",
+      "glassOpacity": 0.2,
+      "renderMode": "standard"
+    }
+  },
+  "views": {
+    "hero": {
+      "camera": "CAM_CinematicHero",
+      "title": "Cinematic Hero Establishing",
+      "performance": {
+        "drawCalls": 53,
+        "triangles": 86842,
+        "points": 0,
+        "lines": 0,
+        "geometries": 63,
+        "textures": 9,
+        "gpuMemoryMb": 4.57,
+        "frameTimeMs": 1.66,
+        "fps": 602.4
+      },
+      "vs_target_reference": {
+        "overall": {
+          "mae": 41.6717,
+          "rmse": 56.7716,
+          "psnr": 13.05,
+          "ssim": 0.1285,
+          "max_diff": 255.0,
+          "mean_lum": 42.39,
+          "mean_rgb": [
+            35.76,
+            43.66,
+            53.26
+          ],
+          "warm_pixels_pct": 1.62
+        },
+        "regions": {
+          "floor": {
+            "mae": 39.1894,
+            "rmse": 55.2539,
+            "target_mean_rgb": [
+              44.1,
+              44.44,
+              44.77
+            ],
+            "render_mean_rgb": [
+              27.22,
+              31.87,
+              37.99
+            ],
+            "error_share_pct": 32.92
+          },
+          "core": {
+            "mae": 61.7645,
+            "rmse": 77.0765,
+            "target_mean_rgb": [
+              93.75,
+              82.28,
+              72.44
+            ],
+            "render_mean_rgb": [
+              34.12,
+              39.15,
+              44.33
+            ],
+            "error_share_pct": 17.79
+          },
+          "sky": {
+            "mae": 41.094,
+            "rmse": 56.4712,
+            "target_mean_rgb": [
+              67.7,
+              71.4,
+              73.72
+            ],
+            "render_mean_rgb": [
+              37.64,
+              47.44,
+              59.32
+            ],
+            "error_share_pct": 34.51
+          },
+          "left_colonnade": {
+            "mae": 41.2778,
+            "rmse": 52.9131,
+            "target_mean_rgb": [
+              61.95,
+              71.16,
+              77.52
+            ],
+            "render_mean_rgb": [
+              48.7,
+              62.27,
+              78.26
+            ],
+            "error_share_pct": 13.87
+          },
+          "right_colonnade": {
+            "mae": 30.5609,
+            "rmse": 40.2721,
+            "target_mean_rgb": [
+              63.37,
+              72.01,
+              78.17
+            ],
+            "render_mean_rgb": [
+              44.63,
+              54.39,
+              66.38
+            ],
+            "error_share_pct": 10.27
+          }
+        }
+      },
+      "vs_clean_benchmark": {
+        "overall": {
+          "mae": 34.3725,
+          "rmse": 43.8123,
+          "psnr": 15.3,
+          "ssim": 0.2943,
+          "max_diff": 255.0,
+          "mean_lum": 42.39,
+          "mean_rgb": [
+            35.76,
+            43.66,
+            53.26
+          ],
+          "warm_pixels_pct": 1.62
+        },
+        "regions": {
+          "floor": {
+            "mae": 27.8554,
+            "rmse": 42.3465,
+            "target_mean_rgb": [
+              10.74,
+              11.58,
+              13.12
+            ],
+            "render_mean_rgb": [
+              27.22,
+              31.87,
+              37.99
+            ],
+            "error_share_pct": 28.36
+          },
+          "core": {
+            "mae": 35.3188,
+            "rmse": 48.7387,
+            "target_mean_rgb": [
+              23.24,
+              25.62,
+              28.58
+            ],
+            "render_mean_rgb": [
+              34.12,
+              39.15,
+              44.33
+            ],
+            "error_share_pct": 12.33
+          },
+          "sky": {
+            "mae": 33.7,
+            "rmse": 40.108,
+            "target_mean_rgb": [
+              13.88,
+              16.41,
+              20.39
+            ],
+            "render_mean_rgb": [
+              37.64,
+              47.44,
+              59.32
+            ],
+            "error_share_pct": 34.32
+          },
+          "left_colonnade": {
+            "mae": 43.2446,
+            "rmse": 47.6511,
+            "target_mean_rgb": [
+              19.81,
+              24.5,
+              31.17
+            ],
+            "render_mean_rgb": [
+              48.7,
+              62.27,
+              78.26
+            ],
+            "error_share_pct": 17.61
+          },
+          "right_colonnade": {
+            "mae": 44.9871,
+            "rmse": 46.842,
+            "target_mean_rgb": [
+              8.96,
+              10.33,
+              12.79
+            ],
+            "render_mean_rgb": [
+              44.63,
+              54.39,
+              66.38
+            ],
+            "error_share_pct": 18.32
+          }
+        }
+      },
+      "vs_phase26_baseline": {
+        "overall": {
+          "mae": 2.7175,
+          "rmse": 4.0719,
+          "psnr": 35.93,
+          "ssim": 0.9943,
+          "max_diff": 170.0,
+          "mean_lum": 42.39,
+          "mean_rgb": [
+            35.76,
+            43.66,
+            53.26
+          ],
+          "warm_pixels_pct": 1.62
+        },
+        "regions": {
+          "floor": {
+            "mae": 1.8185,
+            "rmse": 3.757,
+            "target_mean_rgb": [
+              25.71,
+              30.14,
+              35.8
+            ],
+            "render_mean_rgb": [
+              27.22,
+              31.87,
+              37.99
+            ],
+            "error_share_pct": 23.42
+          },
+          "core": {
+            "mae": 2.0011,
+            "rmse": 3.094,
+            "target_mean_rgb": [
+              32.48,
+              37.23,
+              41.96
+            ],
+            "render_mean_rgb": [
+              34.12,
+              39.15,
+              44.33
+            ],
+            "error_share_pct": 8.84
+          },
+          "sky": {
+            "mae": 3.5713,
+            "rmse": 4.7576,
+            "target_mean_rgb": [
+              34.47,
+              43.98,
+              55.24
+            ],
+            "render_mean_rgb": [
+              37.64,
+              47.44,
+              59.32
+            ],
+            "error_share_pct": 46.0
+          },
+          "left_colonnade": {
+            "mae": 3.8254,
+            "rmse": 4.4944,
+            "target_mean_rgb": [
+              45.45,
+              58.55,
+              73.76
+            ],
+            "render_mean_rgb": [
+              48.7,
+              62.27,
+              78.26
+            ],
+            "error_share_pct": 19.71
+          },
+          "right_colonnade": {
+            "mae": 2.8777,
+            "rmse": 3.5849,
+            "target_mean_rgb": [
+              42.01,
+              51.59,
+              63.16
+            ],
+            "render_mean_rgb": [
+              44.63,
+              54.39,
+              66.38
+            ],
+            "error_share_pct": 14.83
+          }
+        }
+      },
+      "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase27_hero.png",
+      "diff_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase27_diff_hero.png",
+      "heat_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase27_heat_hero.png",
+      "panel_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase27_panel_hero.png"
+    },
+    "monumental": {
+      "camera": "CAM_MonumentalLowAngle",
+      "title": "Monumental Rotunda Colonnade",
+      "performance": {
+        "drawCalls": 53,
+        "triangles": 86842,
+        "points": 0,
+        "lines": 0,
+        "geometries": 63,
+        "textures": 9,
+        "gpuMemoryMb": 4.57,
+        "frameTimeMs": 1.08,
+        "fps": 928.8
+      },
+      "vs_target_reference": {
+        "overall": {
+          "mae": 45.4825,
+          "rmse": 61.3311,
+          "psnr": 12.38,
+          "ssim": 0.0303,
+          "max_diff": 255.0,
+          "mean_lum": 32.12,
+          "mean_rgb": [
+            27.18,
+            32.96,
+            40.79
+          ],
+          "warm_pixels_pct": 2.49
+        },
+        "regions": {
+          "floor": {
+            "mae": 43.631,
+            "rmse": 60.3555,
+            "target_mean_rgb": [
+              51.53,
+              55.86,
+              55.49
+            ],
+            "render_mean_rgb": [
+              25.71,
+              28.39,
+              33.51
+            ],
+            "error_share_pct": 33.58
+          },
+          "core": {
+            "mae": 51.3189,
+            "rmse": 64.9356,
+            "target_mean_rgb": [
+              60.65,
+              59.65,
+              54.23
+            ],
+            "render_mean_rgb": [
+              23.64,
+              29.24,
+              36.15
+            ],
+            "error_share_pct": 13.54
+          },
+          "sky": {
+            "mae": 49.5089,
+            "rmse": 65.4302,
+            "target_mean_rgb": [
+              63.84,
+              74.47,
+              79.21
+            ],
+            "render_mean_rgb": [
+              30.06,
+              38.62,
+              49.15
+            ],
+            "error_share_pct": 38.1
+          },
+          "left_colonnade": {
+            "mae": 38.5328,
+            "rmse": 51.598,
+            "target_mean_rgb": [
+              49.62,
+              60.44,
+              64.85
+            ],
+            "render_mean_rgb": [
+              22.17,
+              28.58,
+              36.84
+            ],
+            "error_share_pct": 11.86
+          },
+          "right_colonnade": {
+            "mae": 42.2606,
+            "rmse": 57.2538,
+            "target_mean_rgb": [
+              53.35,
+              64.19,
+              68.77
+            ],
+            "render_mean_rgb": [
+              28.02,
+              34.47,
+              42.8
+            ],
+            "error_share_pct": 13.01
+          }
+        }
+      },
+      "vs_clean_benchmark": {
+        "overall": {
+          "mae": 31.2943,
+          "rmse": 43.2125,
+          "psnr": 15.42,
+          "ssim": 0.1826,
+          "max_diff": 254.0,
+          "mean_lum": 32.12,
+          "mean_rgb": [
+            27.18,
+            32.96,
+            40.79
+          ],
+          "warm_pixels_pct": 2.49
+        },
+        "regions": {
+          "floor": {
+            "mae": 29.5897,
+            "rmse": 40.3124,
+            "target_mean_rgb": [
+              13.99,
+              15.46,
+              17.92
+            ],
+            "render_mean_rgb": [
+              25.71,
+              28.39,
+              33.51
+            ],
+            "error_share_pct": 33.09
+          },
+          "core": {
+            "mae": 27.0278,
+            "rmse": 40.5985,
+            "target_mean_rgb": [
+              11.77,
+              13.05,
+              15.34
+            ],
+            "render_mean_rgb": [
+              23.64,
+              29.24,
+              36.15
+            ],
+            "error_share_pct": 10.36
+          },
+          "sky": {
+            "mae": 31.6854,
+            "rmse": 44.4857,
+            "target_mean_rgb": [
+              12.62,
+              14.82,
+              18.22
+            ],
+            "render_mean_rgb": [
+              30.06,
+              38.62,
+              49.15
+            ],
+            "error_share_pct": 35.44
+          },
+          "left_colonnade": {
+            "mae": 33.0125,
+            "rmse": 46.1407,
+            "target_mean_rgb": [
+              15.72,
+              18.06,
+              21.55
+            ],
+            "render_mean_rgb": [
+              22.17,
+              28.58,
+              36.84
+            ],
+            "error_share_pct": 14.77
+          },
+          "right_colonnade": {
+            "mae": 36.2381,
+            "rmse": 50.298,
+            "target_mean_rgb": [
+              17.24,
+              19.65,
+              23.2
+            ],
+            "render_mean_rgb": [
+              28.02,
+              34.47,
+              42.8
+            ],
+            "error_share_pct": 16.21
+          }
+        }
+      },
+      "vs_phase26_baseline": {
+        "overall": {
+          "mae": 2.6743,
+          "rmse": 4.145,
+          "psnr": 35.78,
+          "ssim": 0.9908,
+          "max_diff": 128.0,
+          "mean_lum": 32.12,
+          "mean_rgb": [
+            27.18,
+            32.96,
+            40.79
+          ],
+          "warm_pixels_pct": 2.49
+        },
+        "regions": {
+          "floor": {
+            "mae": 1.9613,
+            "rmse": 2.8108,
+            "target_mean_rgb": [
+              24.01,
+              26.53,
+              31.22
+            ],
+            "render_mean_rgb": [
+              25.71,
+              28.39,
+              33.51
+            ],
+            "error_share_pct": 25.67
+          },
+          "core": {
+            "mae": 2.0301,
+            "rmse": 3.6168,
+            "target_mean_rgb": [
+              21.96,
+              27.3,
+              33.68
+            ],
+            "render_mean_rgb": [
+              23.64,
+              29.24,
+              36.15
+            ],
+            "error_share_pct": 9.11
+          },
+          "sky": {
+            "mae": 3.509,
+            "rmse": 5.3034,
+            "target_mean_rgb": [
+              26.99,
+              35.24,
+              45.08
+            ],
+            "render_mean_rgb": [
+              30.06,
+              38.62,
+              49.15
+            ],
+            "error_share_pct": 45.93
+          },
+          "left_colonnade": {
+            "mae": 2.3243,
+            "rmse": 3.5348,
+            "target_mean_rgb": [
+              20.34,
+              26.37,
+              33.92
+            ],
+            "render_mean_rgb": [
+              22.17,
+              28.58,
+              36.84
+            ],
+            "error_share_pct": 12.17
+          },
+          "right_colonnade": {
+            "mae": 3.186,
+            "rmse": 4.7391,
+            "target_mean_rgb": [
+              25.24,
+              31.46,
+              39.03
+            ],
+            "render_mean_rgb": [
+              28.02,
+              34.47,
+              42.8
+            ],
+            "error_share_pct": 16.68
+          }
+        }
+      },
+      "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase27_monumental.png",
+      "diff_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase27_diff_monumental.png",
+      "heat_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase27_heat_monumental.png",
+      "panel_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase27_panel_monumental.png"
+    },
+    "detail": {
+      "camera": "CAM_ArchiveDetail",
+      "title": "Archival Vitrine Detail",
+      "performance": {
+        "drawCalls": 53,
+        "triangles": 86842,
+        "points": 0,
+        "lines": 0,
+        "geometries": 63,
+        "textures": 9,
+        "gpuMemoryMb": 4.57,
+        "frameTimeMs": 1.21,
+        "fps": 828.7
+      },
+      "vs_target_reference": {
+        "overall": {
+          "mae": 55.0336,
+          "rmse": 75.3543,
+          "psnr": 10.59,
+          "ssim": 0.1245,
+          "max_diff": 255.0,
+          "mean_lum": 42.78,
+          "mean_rgb": [
+            43.38,
+            42.45,
+            42.91
+          ],
+          "warm_pixels_pct": 20.68
+        },
+        "regions": {
+          "floor": {
+            "mae": 47.326,
+            "rmse": 67.1213,
+            "target_mean_rgb": [
+              68.68,
+              53.63,
+              43.02
+            ],
+            "render_mean_rgb": [
+              36.44,
+              31.82,
+              28.88
+            ],
+            "error_share_pct": 30.1
+          },
+          "core": {
+            "mae": 69.9448,
+            "rmse": 92.2548,
+            "target_mean_rgb": [
+              100.14,
+              96.43,
+              94.26
+            ],
+            "render_mean_rgb": [
+              34.49,
+              38.61,
+              42.75
+            ],
+            "error_share_pct": 15.25
+          },
+          "sky": {
+            "mae": 55.6171,
+            "rmse": 73.6254,
+            "target_mean_rgb": [
+              86.8,
+              90.34,
+              93.8
+            ],
+            "render_mean_rgb": [
+              49.64,
+              52.69,
+              57.63
+            ],
+            "error_share_pct": 35.37
+          },
+          "left_colonnade": {
+            "mae": 69.0964,
+            "rmse": 93.6724,
+            "target_mean_rgb": [
+              96.17,
+              78.78,
+              67.78
+            ],
+            "render_mean_rgb": [
+              19.15,
+              20.85,
+              24.05
+            ],
+            "error_share_pct": 17.58
+          },
+          "right_colonnade": {
+            "mae": 48.8931,
+            "rmse": 62.9128,
+            "target_mean_rgb": [
+              98.36,
+              99.18,
+              100.06
+            ],
+            "render_mean_rgb": [
+              86.82,
+              79.36,
+              72.08
+            ],
+            "error_share_pct": 12.44
+          }
+        }
+      },
+      "vs_clean_benchmark": {
+        "overall": {
+          "mae": 38.2727,
+          "rmse": 52.2657,
+          "psnr": 13.77,
+          "ssim": 0.1354,
+          "max_diff": 232.0,
+          "mean_lum": 42.78,
+          "mean_rgb": [
+            43.38,
+            42.45,
+            42.91
+          ],
+          "warm_pixels_pct": 20.68
+        },
+        "regions": {
+          "floor": {
+            "mae": 37.1634,
+            "rmse": 57.3532,
+            "target_mean_rgb": [
+              19.67,
+              20.2,
+              22.26
+            ],
+            "render_mean_rgb": [
+              36.44,
+              31.82,
+              28.88
+            ],
+            "error_share_pct": 33.99
+          },
+          "core": {
+            "mae": 36.5489,
+            "rmse": 49.572,
+            "target_mean_rgb": [
+              7.21,
+              6.97,
+              7.07
+            ],
+            "render_mean_rgb": [
+              34.49,
+              38.61,
+              42.75
+            ],
+            "error_share_pct": 11.46
+          },
+          "sky": {
+            "mae": 42.7972,
+            "rmse": 49.8962,
+            "target_mean_rgb": [
+              17.55,
+              19.41,
+              22.74
+            ],
+            "render_mean_rgb": [
+              49.64,
+              52.69,
+              57.63
+            ],
+            "error_share_pct": 39.14
+          },
+          "left_colonnade": {
+            "mae": 21.5559,
+            "rmse": 39.5125,
+            "target_mean_rgb": [
+              9.62,
+              7.94,
+              6.62
+            ],
+            "render_mean_rgb": [
+              19.15,
+              20.85,
+              24.05
+            ],
+            "error_share_pct": 7.89
+          },
+          "right_colonnade": {
+            "mae": 53.3051,
+            "rmse": 59.2386,
+            "target_mean_rgb": [
+              22.65,
+              28.34,
+              36.12
+            ],
+            "render_mean_rgb": [
+              86.82,
+              79.36,
+              72.08
+            ],
+            "error_share_pct": 19.5
+          }
+        }
+      },
+      "vs_phase26_baseline": {
+        "overall": {
+          "mae": 3.4168,
+          "rmse": 5.9258,
+          "psnr": 32.68,
+          "ssim": 0.9894,
+          "max_diff": 192.0,
+          "mean_lum": 42.78,
+          "mean_rgb": [
+            43.38,
+            42.45,
+            42.91
+          ],
+          "warm_pixels_pct": 20.68
+        },
+        "regions": {
+          "floor": {
+            "mae": 5.1808,
+            "rmse": 8.9018,
+            "target_mean_rgb": [
+              30.86,
+              26.84,
+              23.9
+            ],
+            "render_mean_rgb": [
+              36.44,
+              31.82,
+              28.88
+            ],
+            "error_share_pct": 53.07
+          },
+          "core": {
+            "mae": 1.6593,
+            "rmse": 2.2059,
+            "target_mean_rgb": [
+              33.16,
+              37.03,
+              40.68
+            ],
+            "render_mean_rgb": [
+              34.49,
+              38.61,
+              42.75
+            ],
+            "error_share_pct": 5.83
+          },
+          "sky": {
+            "mae": 3.0374,
+            "rmse": 3.8319,
+            "target_mean_rgb": [
+              46.64,
+              49.7,
+              54.54
+            ],
+            "render_mean_rgb": [
+              49.64,
+              52.69,
+              57.63
+            ],
+            "error_share_pct": 31.11
+          },
+          "left_colonnade": {
+            "mae": 1.4652,
+            "rmse": 2.8212,
+            "target_mean_rgb": [
+              18.05,
+              19.54,
+              22.11
+            ],
+            "render_mean_rgb": [
+              19.15,
+              20.85,
+              24.05
+            ],
+            "error_share_pct": 6.0
+          },
+          "right_colonnade": {
+            "mae": 3.4227,
+            "rmse": 4.0833,
+            "target_mean_rgb": [
+              82.59,
+              75.96,
+              69.77
+            ],
+            "render_mean_rgb": [
+              86.82,
+              79.36,
+              72.08
+            ],
+            "error_share_pct": 14.02
+          }
+        }
+      },
+      "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase27_detail.png",
+      "diff_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase27_diff_detail.png",
+      "heat_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase27_heat_detail.png",
+      "panel_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase27_panel_detail.png"
+    }
+  }
+}

@@ -17,6 +17,7 @@ transitions. See workflow_service.py for how writes are enforced.
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -64,6 +65,20 @@ class WorkflowRunCreateResponse(BaseModel):
     current_stage: str | None
 
 
+class WorkflowRunArtifacts(BaseModel):
+    """Direct references to produced workflow artifacts."""
+
+    video_path: str | None = None
+    thumbnail_path: str | None = None
+    audio_path: str | None = None
+    script_content: str | None = None
+    storyboard: dict[str, Any] | None = None
+    images: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class WorkflowRunResponse(BaseModel):
     """Full representation returned by GET, and by PATCH after update.
 
@@ -89,29 +104,38 @@ class WorkflowRunResponse(BaseModel):
     failure_reason: str | None
     created_at: datetime
     updated_at: datetime
+    artifacts: WorkflowRunArtifacts | None = None
+    last_completed_stage: str | None = None
+    execution_started_at: datetime | None = None
+    last_heartbeat_at: datetime | None = None
+    execution_attempt: int = 0
+    worker_id: str | None = None
+    waiting_checkpoint_id: uuid.UUID | None = None
+    is_stale: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
 
+class WorkflowRunRecoverResponse(BaseModel):
+    workflow_run_id: uuid.UUID
+    status: WorkflowStatus
+    current_stage: str | None
+    recovered_from_stage: str | None
+    execution_attempt: int
+    message: str
+
+
+class WorkflowRunResumeResponse(BaseModel):
+    workflow_run_id: uuid.UUID
+    status: WorkflowStatus
+    current_stage: str | None
+    resumed_from_stage: str | None
+    execution_attempt: int
+    message: str
+
+
 class WorkflowRunUpdateRequest(BaseModel):
-    """PATCH payload.
-
-    extra='forbid' is what actually enforces 'no arbitrary updates' —
-    any field not in this exact list (e.g. project_id, topic, mode)
-    is rejected with a 422 before the request ever reaches the service
-    layer. All fields are optional; only whatever is explicitly present
-    in the request body gets applied (see WorkflowRunUpdate.model_dump
-    with exclude_unset=True in the service).
-
-    current_stage is now typed as PipelineStage, not a bare string
-    (fixes audit Issue 2): a request naming a stage that doesn't exist
-    is rejected here, at the schema layer, with a 422 — before it ever
-    reaches the service. Whether the *transition* from the run's
-    current stage to this one is actually legal is a business rule
-    that depends on the run's existing state, so that check still
-    belongs to pipeline_state.py's STAGE_TRANSITIONS, applied in
-    workflow_service.update_workflow_run() (see that file).
-    """
+    """PATCH payload."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -120,6 +144,11 @@ class WorkflowRunUpdateRequest(BaseModel):
     completed_at: datetime | None = None
     failure_reason: str | None = None
     total_cost_usd: Decimal | None = Field(default=None, ge=0)
+    last_completed_stage: str | None = None
+    last_heartbeat_at: datetime | None = None
+    worker_id: str | None = None
+    waiting_checkpoint_id: uuid.UUID | None = None
+    execution_attempt: int | None = None
 
     @field_validator("status", "current_stage", mode="before")
     @classmethod

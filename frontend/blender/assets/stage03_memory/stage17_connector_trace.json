@@ -1,0 +1,145 @@
+{
+  "stage": 17,
+  "component": "ConnectorFabric & ConnectorInstallationService",
+  "generatedAt": "2026-10-02T14:16:00.000Z",
+  "connectors": [
+    {
+      "connectorId": "connector_github",
+      "type": "GITHUB",
+      "displayName": "GitHub VCS Connector",
+      "version": "1.0.0",
+      "installationTrace": [
+        {
+          "step": 1,
+          "fromStatus": "UNREGISTERED",
+          "toStatus": "DISCOVERED",
+          "transitionedBy": "SYSTEM",
+          "reason": "Discovery definition matched GITHUB template",
+          "timestamp": "2026-10-02T14:16:00.100Z"
+        },
+        {
+          "step": 2,
+          "fromStatus": "DISCOVERED",
+          "toStatus": "CONFIGURING",
+          "transitionedBy": "OPERATOR_ALICE",
+          "reason": "Applied client configuration (clientId: aryaos-github-app)",
+          "timestamp": "2026-10-02T14:16:00.200Z"
+        },
+        {
+          "step": 3,
+          "fromStatus": "CONFIGURING",
+          "toStatus": "AWAITING_HUMAN_AUTHORIZATION",
+          "transitionedBy": "OPERATOR_ALICE",
+          "reason": "Human operator authorization requested for scopes: repo, read:org",
+          "timestamp": "2026-10-02T14:16:00.300Z"
+        },
+        {
+          "step": 4,
+          "fromStatus": "AWAITING_HUMAN_AUTHORIZATION",
+          "toStatus": "AUTHENTICATING",
+          "transitionedBy": "OPERATOR_ALICE",
+          "signoff": {
+            "approvedBy": "OPERATOR_ALICE",
+            "role": "SYSTEM_OPERATOR",
+            "timestamp": "2026-10-02T14:16:00.400Z"
+          },
+          "reason": "Explicit operator signoff verified; initiated OAuth2 code exchange",
+          "timestamp": "2026-10-02T14:16:00.410Z"
+        },
+        {
+          "step": 5,
+          "fromStatus": "AUTHENTICATING",
+          "toStatus": "CONNECTED",
+          "transitionedBy": "OAUTH_BOUNDARY",
+          "credentialRefId": "cred_ref_gh_default",
+          "reason": "OAuth code exchange succeeded; issued non-sensitive CredentialRef",
+          "timestamp": "2026-10-02T14:16:00.500Z"
+        },
+        {
+          "step": 6,
+          "fromStatus": "CONNECTED",
+          "toStatus": "HEALTH_CHECK",
+          "transitionedBy": "SYSTEM",
+          "reason": "Initiated connectivity and scope validation health ping",
+          "timestamp": "2026-10-02T14:16:00.550Z"
+        },
+        {
+          "step": 7,
+          "fromStatus": "HEALTH_CHECK",
+          "toStatus": "ACTIVE",
+          "transitionedBy": "OPERATOR_ALICE",
+          "health": "HEALTHY",
+          "reason": "Health check confirmed transport connectivity; connector activated",
+          "timestamp": "2026-10-02T14:16:00.600Z"
+        }
+      ],
+      "activeCapabilities": [
+        "github.issue_read",
+        "github.issue_write"
+      ],
+      "credentialRef": {
+        "credentialId": "cred_ref_gh_default",
+        "connectorId": "connector_github",
+        "credentialType": "OAUTH2",
+        "status": "VALID",
+        "containsRawSecret": false
+      }
+    },
+    {
+      "connectorId": "connector_google_drive",
+      "type": "GOOGLE_DRIVE",
+      "displayName": "Google Drive Storage Connector",
+      "version": "1.0.0",
+      "installationTrace": [
+        {
+          "step": 1,
+          "fromStatus": "UNREGISTERED",
+          "toStatus": "DISCOVERED",
+          "transitionedBy": "SYSTEM",
+          "reason": "Discovered GOOGLE_DRIVE template with read-only scopes",
+          "timestamp": "2026-10-02T14:16:01.100Z"
+        },
+        {
+          "step": 2,
+          "fromStatus": "DISCOVERED",
+          "toStatus": "CONFIGURING",
+          "transitionedBy": "OPERATOR_BOB",
+          "reason": "Configured directory paths (/drive/root, /drive/workspace)",
+          "timestamp": "2026-10-02T14:16:01.200Z"
+        },
+        {
+          "step": 3,
+          "fromStatus": "CONFIGURING",
+          "toStatus": "AWAITING_HUMAN_AUTHORIZATION",
+          "transitionedBy": "OPERATOR_BOB",
+          "reason": "Requested signoff for drive.readonly scope",
+          "timestamp": "2026-10-02T14:16:01.300Z"
+        },
+        {
+          "step": 4,
+          "fromStatus": "AWAITING_HUMAN_AUTHORIZATION",
+          "toStatus": "ACTIVE",
+          "transitionedBy": "OPERATOR_BOB",
+          "signoff": {
+            "approvedBy": "OPERATOR_BOB",
+            "role": "SECURITY_LEAD",
+            "timestamp": "2026-10-02T14:16:01.400Z"
+          },
+          "reason": "Full governed onboarding flow completed",
+          "timestamp": "2026-10-02T14:16:01.500Z"
+        }
+      ],
+      "activeCapabilities": [
+        "google_drive.list_files",
+        "google_drive.read_file"
+      ],
+      "credentialRef": {
+        "credentialId": "cred_ref_gdrive_default",
+        "connectorId": "connector_google_drive",
+        "credentialType": "OAUTH2",
+        "status": "VALID",
+        "containsRawSecret": false
+      }
+    }
+  ]
+}

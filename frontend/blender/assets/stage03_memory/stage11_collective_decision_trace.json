@@ -1,0 +1,69 @@
+{
+  "stage": "STAGE_11_COLLECTIVE_INTELLIGENCE",
+  "generatedAt": "2026-10-02T03:14:00.000Z",
+  "decisionsCount": 2,
+  "decisions": [
+    {
+      "decisionId": "cdec-1790910504201-k8j7h",
+      "goalId": "goal-stage11-eval",
+      "taskId": "task-architecture-evaluation",
+      "strategy": "EVIDENCE_WEIGHTED_CONSENSUS",
+      "participatingAgents": ["junior-analyst", "lead-specialist"],
+      "consensusAchieved": true,
+      "disagreementDetected": true,
+      "selectedOutput": "Maintain immutable Blender master scene; dispatch all spatial query processing via Execution Gateway.",
+      "opinions": [
+        {
+          "opinionId": "op-201-a",
+          "agentId": "junior-analyst",
+          "taskId": "task-architecture-evaluation",
+          "output": "Consider exporting dynamic glTF patches directly into scene root.",
+          "confidence": "LOW",
+          "evidence": []
+        },
+        {
+          "opinionId": "op-201-b",
+          "agentId": "lead-specialist",
+          "taskId": "task-architecture-evaluation",
+          "output": "Maintain immutable Blender master scene; dispatch all spatial query processing via Execution Gateway.",
+          "confidence": "HIGH",
+          "evidence": ["ev-sha256-lock-01", "ev-gateway-boundary-01"]
+        }
+      ],
+      "supportingEvidenceIds": ["ev-sha256-lock-01", "ev-gateway-boundary-01"],
+      "decidedAt": "2026-10-02T03:12:30.000Z",
+      "status": "RESOLVED"
+    },
+    {
+      "decisionId": "cdec-1790910504202-m4n5b",
+      "goalId": "goal-stage11-eval",
+      "taskId": "task-cost-boundary-expansion",
+      "strategy": "HUMAN_REVIEW",
+      "participatingAgents": ["agent-coder", "safety-officer"],
+      "consensusAchieved": false,
+      "disagreementDetected": true,
+      "selectedOutput": "Requires Human Operator Authorization",
+      "opinions": [
+        {
+          "opinionId": "op-202-a",
+          "agentId": "agent-coder",
+          "taskId": "task-cost-boundary-expansion",
+          "output": "Increase provider lease limit from $0.50 to $5.00 for deep code refactoring.",
+          "confidence": "MEDIUM",
+          "evidence": ["task-complexity-metrics"]
+        },
+        {
+          "opinionId": "op-202-b",
+          "agentId": "safety-officer",
+          "taskId": "task-cost-boundary-expansion",
+          "output": "Dissent: Budget expansion exceeds autonomous tier authority. Human approval mandatory.",
+          "confidence": "HIGH",
+          "evidence": ["policy-gov-cost-ceiling"]
+        }
+      ],
+      "supportingEvidenceIds": ["policy-gov-cost-ceiling"],
+      "decidedAt": "2026-10-02T03:12:45.000Z",
+      "status": "HUMAN_REVIEW_REQUIRED"
+    }
+  ]
+}

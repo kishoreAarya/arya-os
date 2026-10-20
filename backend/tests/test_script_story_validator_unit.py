@@ -124,7 +124,7 @@ def test_llm_judge_mocked_network_call():
     mock_resp.status_code = 200
     mock_resp.json.return_value = fake_json_payload
 
-    with patch("app.core.config.get_settings") as mock_settings, \
+    with patch("app.validators.script_story_validator.get_settings") as mock_settings, \
          patch("httpx.Client.post", return_value=mock_resp):
         mock_settings.return_value.openrouter_api_key = "sk-fake-key"
         result = validator.validate({"content": "Why is the ocean blue? In fact, water absorbs red light. Subscribe!"})
@@ -137,7 +137,7 @@ def test_llm_judge_mocked_network_call():
 def test_llm_judge_fallback_on_network_error():
     validator = StoryValidator(use_llm=True)
 
-    with patch("app.core.config.get_settings") as mock_settings, \
+    with patch("app.validators.script_story_validator.get_settings") as mock_settings, \
          patch("httpx.Client.post", side_effect=RuntimeError("Connection refused")):
         mock_settings.return_value.openrouter_api_key = "sk-fake-key"
         # Should gracefully fall back to deterministic heuristic without crashing

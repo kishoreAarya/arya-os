@@ -1,0 +1,126 @@
+[
+  {
+    "seq": 1,
+    "eventId": "evt-001-goal-create",
+    "timestamp": "2026-10-01T23:55:00.120Z",
+    "eventType": "GOAL_CREATED",
+    "goalId": "goal-stage09-rec-demo-01",
+    "details": {
+      "userIntent": "Audit and align 24 vitrines with astrolabe vector",
+      "priority": "HIGH"
+    }
+  },
+  {
+    "seq": 2,
+    "eventId": "evt-002-plan-gen",
+    "timestamp": "2026-10-01T23:55:01.040Z",
+    "eventType": "PLAN_GENERATED",
+    "goalId": "goal-stage09-rec-demo-01",
+    "details": {
+      "totalActions": 4,
+      "graphEdges": [
+        ["act-1", "act-2"],
+        ["act-1", "act-3"],
+        ["act-2", "act-4"],
+        ["act-3", "act-4"]
+      ]
+    }
+  },
+  {
+    "seq": 3,
+    "eventId": "evt-003-action-sched",
+    "timestamp": "2026-10-01T23:55:01.100Z",
+    "eventType": "ACTION_SCHEDULED",
+    "goalId": "goal-stage09-rec-demo-01",
+    "actionId": "act-1",
+    "details": { "priority": "NORMAL", "type": "ANALYZE_CONTEXT" }
+  },
+  {
+    "seq": 4,
+    "eventId": "evt-004-action-disp",
+    "timestamp": "2026-10-01T23:55:01.150Z",
+    "eventType": "ACTION_DISPATCHED",
+    "goalId": "goal-stage09-rec-demo-01",
+    "actionId": "act-1",
+    "details": { "provider": "ANTHROPIC", "idempotencyKey": "idemp-act-1-01" }
+  },
+  {
+    "seq": 5,
+    "eventId": "evt-005-action-done",
+    "timestamp": "2026-10-01T23:55:02.400Z",
+    "eventType": "ACTION_COMPLETED",
+    "goalId": "goal-stage09-rec-demo-01",
+    "actionId": "act-1",
+    "details": { "vitrinesScanned": 24, "status": "VERIFIED" }
+  },
+  {
+    "seq": 6,
+    "eventId": "evt-006-action-disp",
+    "timestamp": "2026-10-01T23:55:02.480Z",
+    "eventType": "ACTION_DISPATCHED",
+    "goalId": "goal-stage09-rec-demo-01",
+    "actionId": "act-2",
+    "details": { "provider": "GEMINI", "idempotencyKey": "idemp-astrolabe-query-77" }
+  },
+  {
+    "seq": 7,
+    "eventId": "evt-007-action-done",
+    "timestamp": "2026-10-01T23:55:03.110Z",
+    "eventType": "ACTION_COMPLETED",
+    "goalId": "goal-stage09-rec-demo-01",
+    "actionId": "act-2",
+    "details": { "vectorResolved": true }
+  },
+  {
+    "seq": 8,
+    "eventId": "evt-008-action-disp",
+    "timestamp": "2026-10-01T23:55:03.200Z",
+    "eventType": "ACTION_DISPATCHED",
+    "goalId": "goal-stage09-rec-demo-01",
+    "actionId": "act-3",
+    "details": { "provider": "OPENAI", "idempotencyKey": "idemp-vitrine-chrono-88" }
+  },
+  {
+    "seq": 9,
+    "eventId": "evt-009-rec-init",
+    "timestamp": "2026-10-01T23:58:15.100Z",
+    "eventType": "RECOVERY_INITIATED",
+    "goalId": "goal-stage09-rec-demo-01",
+    "details": { "source": "BOOT_RECONCILIATION", "reason": "UNEXPECTED_SESSION_TERMINATION" }
+  },
+  {
+    "seq": 10,
+    "eventId": "evt-010-idemp-hit",
+    "timestamp": "2026-10-01T23:58:15.150Z",
+    "eventType": "IDEMPOTENCY_HIT",
+    "goalId": "goal-stage09-rec-demo-01",
+    "actionId": "act-3",
+    "details": {
+      "idempotencyKey": "idemp-vitrine-chrono-88",
+      "recoveredFromGatewayCache": true
+    }
+  },
+  {
+    "seq": 11,
+    "eventId": "evt-011-appr-req",
+    "timestamp": "2026-10-01T23:58:15.200Z",
+    "eventType": "APPROVAL_REQUESTED",
+    "goalId": "goal-stage09-rec-demo-01",
+    "actionId": "act-4",
+    "details": {
+      "classification": "CONSEQUENTIAL_APPROVAL_GATE",
+      "reason": "Crash recovery reset in-flight consequential mutation to AWAITING_APPROVAL."
+    }
+  },
+  {
+    "seq": 12,
+    "eventId": "evt-012-rec-done",
+    "timestamp": "2026-10-01T23:58:15.250Z",
+    "eventType": "RECOVERY_COMPLETED",
+    "goalId": "goal-stage09-rec-demo-01",
+    "details": {
+      "recoveredStatus": "WAITING_APPROVAL",
+      "executableFrontier": ["act-4"]
+    }
+  }
+]

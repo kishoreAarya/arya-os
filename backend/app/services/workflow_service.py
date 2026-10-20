@@ -138,6 +138,32 @@ async def update_workflow_run(
     # here (lazily) instead of at module level.
     requested_stage: PipelineStage | None = updates.pop("current_stage", None)
 
+    # Reject invalid status transitions and stage advancement on terminal workflows
+    if run.status in (WorkflowStatus.COMPLETED, WorkflowStatus.FAILED):
+        new_status = updates.get("status")
+        if new_status and new_status != run.status:
+            from app.services.pipeline_state import InvalidStageTransitionError
+            raise InvalidStageTransitionError(
+                f"Cannot transition terminal workflow {run_id} from {run.status.value} to {new_status.value if hasattr(new_status, 'value') else new_status}"
+            )
+        if requested_stage is not None:
+            from app.services.pipeline_state import InvalidStageTransitionError
+            raise InvalidStageTransitionError(
+                f"Cannot advance stage of terminal workflow {run_id} ({run.status.value})"
+            )
+
+    # Reject attempts to bypass approval when workflow is awaiting approval
+    if run.status == WorkflowStatus.AWAITING_APPROVAL and run.waiting_checkpoint_id is not None:
+        new_status = updates.get("status")
+        if (new_status and new_status in (WorkflowStatus.RUNNING, WorkflowStatus.COMPLETED)) or requested_stage is not None:
+            from app.models.approval import ApprovalCheckpoint
+            cp = await db.get(ApprovalCheckpoint, run.waiting_checkpoint_id)
+            if cp and cp.action is None:
+                from app.services.pipeline_state import InvalidStageTransitionError
+                raise InvalidStageTransitionError(
+                    f"Cannot bypass approval: WorkflowRun {run_id} is awaiting approval on checkpoint {run.waiting_checkpoint_id}"
+                )
+
     if "completed_at" in updates:
         updates["completed_at"] = _to_naive_utc(updates["completed_at"])
     for field_name, value in updates.items():
@@ -170,15 +196,114 @@ async def update_workflow_run(
 
 
 async def list_workflow_runs(
-    db: AsyncSession, project_id: uuid.UUID | None = None
+    db: AsyncSession,
+    project_id: uuid.UUID | None = None,
+    project_ids: set[uuid.UUID] | list[uuid.UUID] | None = None,
+    limit: int | None = None,
 ) -> list[WorkflowRun]:
     """Preserved for backward compatibility with anything already
-    calling this; not exercised by the three new endpoints, which only
-    need create/get/update."""
+    calling this; supports project_id single filter or project_ids set filter,
+    and enforces SQL-level limit to prevent unbounded memory consumption."""
     from sqlalchemy import select  # local import: only path still using raw select
 
     stmt = select(WorkflowRun)
     if project_id:
         stmt = stmt.where(WorkflowRun.project_id == project_id)
+    elif project_ids is not None:
+        if len(project_ids) == 0:
+            return []
+        stmt = stmt.where(WorkflowRun.project_id.in_(list(project_ids)))
+    stmt = stmt.order_by(WorkflowRun.created_at.desc())
+    if limit is not None and limit > 0:
+        stmt = stmt.limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def get_workflow_run_artifacts(
+    db: AsyncSession,
+    run_id: uuid.UUID,
+):
+    """Retrieve direct artifact references for a WorkflowRun.
+    Queries real content and media tables without fabricating paths or URLs.
+    """
+    from sqlalchemy import select
+    from app.models.content import Script, Storyboard
+    from app.models.media import Asset, Image, Thumbnail, Video
+    from app.schemas.workflow_run import WorkflowRunArtifacts
+
+    video_path: str | None = None
+    thumbnail_path: str | None = None
+    audio_path: str | None = None
+    script_content: str | None = None
+    storyboard_data: dict | None = None
+    image_paths: list[str] = []
+    metadata_data: dict | None = None
+
+    try:
+        # Video & Metadata
+        stmt_v = select(Video).where(Video.workflow_run_id == run_id).order_by(Video.created_at.desc()).limit(1)
+        v_res = await db.execute(stmt_v)
+        v = v_res.scalars().first()
+        if v:
+            video_path = v.storage_path
+            if v.title or v.description or v.tags:
+                metadata_data = {
+                    "title": v.title,
+                    "description": v.description,
+                    "tags": v.tags,
+                    "duration_seconds": v.duration_seconds,
+                    "aspect_ratio": v.aspect_ratio,
+                }
+
+        # Thumbnail
+        stmt_t = select(Thumbnail).where(Thumbnail.workflow_run_id == run_id).order_by(Thumbnail.created_at.desc()).limit(1)
+        t_res = await db.execute(stmt_t)
+        t = t_res.scalars().first()
+        if t:
+            thumbnail_path = t.storage_path
+
+        # Audio Asset (voice or music)
+        stmt_a = (
+            select(Asset)
+            .where(Asset.workflow_run_id == run_id, Asset.asset_type.in_(["voice", "music"]))
+            .order_by(Asset.created_at.desc())
+            .limit(1)
+        )
+        a_res = await db.execute(stmt_a)
+        a = a_res.scalars().first()
+        if a:
+            audio_path = a.storage_path
+
+        # Script
+        stmt_s = select(Script).where(Script.workflow_run_id == run_id).order_by(Script.created_at.desc()).limit(1)
+        s_res = await db.execute(stmt_s)
+        s = s_res.scalars().first()
+        if s:
+            script_content = s.content
+
+            # Storyboard
+            stmt_sb = select(Storyboard).where(Storyboard.script_id == s.id).order_by(Storyboard.created_at.desc()).limit(1)
+            sb_res = await db.execute(stmt_sb)
+            sb = sb_res.scalars().first()
+            if sb:
+                storyboard_data = {
+                    "id": str(sb.id),
+                    "shots": sb.shots,
+                }
+                # Images linked to this storyboard
+                stmt_img = select(Image).where(Image.storyboard_id == sb.id).order_by(Image.shot_number.asc()).limit(50)
+                img_res = await db.execute(stmt_img)
+                image_paths = [img.storage_path for img in img_res.scalars().all() if img.storage_path]
+    except Exception:
+        pass
+
+    return WorkflowRunArtifacts(
+        video_path=video_path,
+        thumbnail_path=thumbnail_path,
+        audio_path=audio_path,
+        script_content=script_content,
+        storyboard=storyboard_data,
+        images=image_paths,
+        metadata=metadata_data,
+    )

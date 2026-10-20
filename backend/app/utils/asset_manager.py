@@ -6,9 +6,10 @@ call this helper so they can consume remote assets without modification.
 """
 import ipaddress
 import os
+import socket
 import tempfile
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -18,23 +19,80 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 
+def _is_disallowed_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Check whether an IP address belongs to loopback, private, or non-global ranges."""
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        if _is_disallowed_ip(ip.ipv4_mapped):
+            return True
+    return (
+        not ip.is_global
+        or ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    )
+
+
 def is_safe_asset_url(url: str) -> bool:
     """Validate that the remote asset URL is safe from SSRF attacks."""
-    parsed = urlparse(url)
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+
     if parsed.scheme not in ("http", "https"):
         return False
+
     hostname = parsed.hostname
     if not hostname:
         return False
-    lower_host = hostname.lower()
-    if lower_host in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
+
+    lower_host = hostname.rstrip(".").lower()
+    if lower_host in ("localhost", "0.0.0.0", "127.0.0.1", "::1"):
         return False
+
+    # 1. Non-canonical or canonical IPv4 literal (e.g. 127.1, 0x7f000001, 2130706433, 10.0.0.1)
+    try:
+        raw_ipv4 = socket.inet_aton(lower_host)
+        ip = ipaddress.ip_address(raw_ipv4)
+        if _is_disallowed_ip(ip):
+            return False
+        return True
+    except (OSError, ValueError):
+        pass
+
+    # 2. IPv6 literal (e.g. [::1], [fe80::1])
     try:
         ip = ipaddress.ip_address(lower_host)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+        if _is_disallowed_ip(ip):
             return False
+        return True
     except ValueError:
         pass
+
+    # 3. Hostname resolution via getaddrinfo (fail closed on resolution error)
+    try:
+        addr_infos = socket.getaddrinfo(lower_host, None)
+    except (socket.gaierror, socket.herror, OSError):
+        return False
+
+    if not addr_infos:
+        return False
+
+    for info in addr_infos:
+        sockaddr = info[4]
+        if not sockaddr:
+            return False
+        ip_str = sockaddr[0]
+        try:
+            resolved_ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return False
+        if _is_disallowed_ip(resolved_ip):
+            return False
+
     return True
 
 
@@ -57,19 +115,24 @@ async def ensure_local_asset(
     if storage_path is None:
         return None
 
-    # Already local — nothing to do.
+    # Local asset — resolve through StorageProvider to enforce storage root confinement
     if not storage_path.startswith(("http://", "https://")):
-        if os.path.exists(storage_path):
-            return storage_path
-        # Check if it resolves via StorageProvider (e.g. LocalStorageProvider base_path)
-        try:
-            from app.storage import get_storage_provider
-            storage = get_storage_provider()
-            resolved = storage.get_url(storage_path)
-            if resolved and os.path.exists(resolved):
-                return resolved
-        except Exception:
-            pass
+        from app.storage import get_storage_provider
+        from app.storage.local import LocalStorageProvider
+
+        storage = get_storage_provider()
+        if isinstance(storage, LocalStorageProvider):
+            try:
+                resolved = storage.resolve_path(storage_path)
+            except ValueError as exc:
+                logger.warning("asset_confinement_violation", path=storage_path, error=str(exc))
+                raise ValueError(f"Asset access denied: {exc}") from exc
+
+            if not resolved.is_file():
+                logger.warning("asset_local_path_missing", path=storage_path)
+                raise RuntimeError(f"Local asset not found: {storage_path}")
+            return str(resolved)
+
         logger.warning("asset_local_path_missing", path=storage_path)
         raise RuntimeError(f"Local asset not found: {storage_path}")
 
@@ -101,9 +164,32 @@ async def ensure_local_asset(
     try:
         async with httpx.AsyncClient(
             timeout=effective_timeout,
-            follow_redirects=True,
+            follow_redirects=False,
         ) as client:
-            async with client.stream("GET", storage_path) as response:
+            current_url = storage_path
+            response = None
+            for _ in range(6):
+                if not is_safe_asset_url(current_url):
+                    log = logger.bind(url=current_url)
+                    log.warning("asset_url_rejected_ssrf")
+                    raise ValueError(f"Insecure or invalid remote asset URL: {current_url}")
+
+                req = client.build_request("GET", current_url)
+                response = await client.send(req, stream=True)
+                if response.is_redirect:
+                    location = response.headers.get("Location")
+                    await response.aclose()
+                    if not location:
+                        raise RuntimeError(f"Redirect missing Location header: {current_url}")
+                    current_url = urljoin(current_url, location)
+                else:
+                    break
+            else:
+                if response is not None:
+                    await response.aclose()
+                raise RuntimeError(f"Too many redirects downloading asset: {storage_path}")
+
+            try:
                 response.raise_for_status()
 
                 fd, local_path = tempfile.mkstemp(
@@ -122,7 +208,9 @@ async def ensure_local_asset(
                         f.write(chunk)
 
                 download_ok = True
-
+            finally:
+                if response is not None:
+                    await response.aclose()
     except httpx.TimeoutException as exc:
         log.error("asset_download_timeout", error=str(exc))
         raise RuntimeError(f"Asset download timed out: {storage_path}") from exc
@@ -138,8 +226,8 @@ async def ensure_local_asset(
     except httpx.HTTPError as exc:
         log.error("asset_download_network_error", error=str(exc))
         raise RuntimeError(f"Asset download network error: {storage_path}") from exc
-    except RuntimeError:
-        # Re-raise our own zero-byte error without wrapping.
+    except (RuntimeError, ValueError):
+        # Re-raise our own validation and zero-byte errors without wrapping.
         raise
     except Exception as exc:
         log.error("asset_download_unexpected_error", error=str(exc))
@@ -167,3 +255,35 @@ async def ensure_local_asset(
         size_bytes=total_bytes,
     )
     return local_path
+
+
+def ensure_local_asset_sync(
+    storage_path: str | None,
+    *,
+    timeout_seconds: float | None = None,
+    max_bytes: int = 50 * 1024 * 1024,
+) -> str | None:
+    """Synchronous wrapper around ensure_local_asset for sync callers.
+
+    Delegates completely to ensure_local_asset, preserving the centralized
+    SSRF validation, DNS checking, redirect filtering, and chunked streaming limits.
+    """
+    import asyncio
+
+    coro = ensure_local_asset(
+        storage_path,
+        timeout_seconds=timeout_seconds,
+        max_bytes=max_bytes,
+    )
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, coro).result()
+    else:
+        return asyncio.run(coro)

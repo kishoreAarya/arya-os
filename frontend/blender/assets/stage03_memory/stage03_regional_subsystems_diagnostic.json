@@ -1,0 +1,3967 @@
+{
+  "metadata": {
+    "phase": "2.2",
+    "date": "2026-10-01",
+    "blender_engine": "BLENDER_EEVEE (EEVEE-Next 5.2.2 LTS)",
+    "blender_view_transform": "Filmic",
+    "blender_look": "Medium High Contrast",
+    "blender_exposure": -0.3,
+    "fast_gi_diffuse_bounces": 4,
+    "ray_tracing_method": "SCREEN",
+    "architecture_draw_calls": 52
+  },
+  "experiments": {
+    "exp00_baseline": {
+      "subsystem": "Baseline",
+      "name": "Baseline: Current 52-Draw Architecture",
+      "variable_changed": "None (Reference Baseline)",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 6,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.52,
+            "fps": 1910.8
+          },
+          "overall": {
+            "mae": 10.1515,
+            "rmse": 23.9464,
+            "psnr": 20.55,
+            "ssim": 0.5649,
+            "max_diff": 251.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 4.9903,
+              "rmse": 11.3717,
+              "clean_mean_rgb": [
+                13.88,
+                16.41,
+                20.39
+              ],
+              "render_mean_rgb": [
+                10.45,
+                13.95,
+                19.39
+              ],
+              "error_share_pct": 17.21
+            },
+            "core": {
+              "mae": 16.3504,
+              "rmse": 34.788,
+              "clean_mean_rgb": [
+                23.24,
+                25.62,
+                28.58
+              ],
+              "render_mean_rgb": [
+                13.57,
+                13.97,
+                16.19
+              ],
+              "error_share_pct": 19.33
+            },
+            "floor": {
+              "mae": 15.8065,
+              "rmse": 30.8075,
+              "clean_mean_rgb": [
+                10.74,
+                11.58,
+                13.12
+              ],
+              "render_mean_rgb": [
+                15.18,
+                18.21,
+                23.33
+              ],
+              "error_share_pct": 54.5
+            },
+            "left_colonnade": {
+              "mae": 6.9757,
+              "rmse": 19.6843,
+              "clean_mean_rgb": [
+                19.81,
+                24.5,
+                31.17
+              ],
+              "render_mean_rgb": [
+                15.7,
+                21.02,
+                28.71
+              ],
+              "error_share_pct": 9.62
+            },
+            "right_colonnade": {
+              "mae": 2.8997,
+              "rmse": 7.476,
+              "clean_mean_rgb": [
+                8.96,
+                10.33,
+                12.79
+              ],
+              "render_mean_rgb": [
+                7.9,
+                10.38,
+                14.31
+              ],
+              "error_share_pct": 4.0
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp00_baseline_hero.png"
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 6,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.61,
+            "fps": 1630.4
+          },
+          "overall": {
+            "mae": 12.9021,
+            "rmse": 29.1856,
+            "psnr": 18.83,
+            "ssim": 0.4281,
+            "max_diff": 243.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 6.9192,
+              "rmse": 19.9729,
+              "clean_mean_rgb": [
+                12.62,
+                14.82,
+                18.22
+              ],
+              "render_mean_rgb": [
+                8.17,
+                10.93,
+                15.17
+              ],
+              "error_share_pct": 18.77
+            },
+            "core": {
+              "mae": 8.5108,
+              "rmse": 18.9107,
+              "clean_mean_rgb": [
+                11.77,
+                13.05,
+                15.34
+              ],
+              "render_mean_rgb": [
+                5.75,
+                7.5,
+                11.0
+              ],
+              "error_share_pct": 7.92
+            },
+            "floor": {
+              "mae": 15.4012,
+              "rmse": 30.1937,
+              "clean_mean_rgb": [
+                13.99,
+                15.46,
+                17.92
+              ],
+              "render_mean_rgb": [
+                11.2,
+                11.89,
+                15.16
+              ],
+              "error_share_pct": 41.78
+            },
+            "left_colonnade": {
+              "mae": 17.6103,
+              "rmse": 39.703,
+              "clean_mean_rgb": [
+                15.72,
+                18.06,
+                21.55
+              ],
+              "render_mean_rgb": [
+                10.22,
+                10.41,
+                13.63
+              ],
+              "error_share_pct": 19.11
+            },
+            "right_colonnade": {
+              "mae": 21.1084,
+              "rmse": 42.4665,
+              "clean_mean_rgb": [
+                17.24,
+                19.65,
+                23.2
+              ],
+              "render_mean_rgb": [
+                13.64,
+                16.89,
+                23.22
+              ],
+              "error_share_pct": 22.9
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp00_baseline_monumental.png"
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 6,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.53,
+            "fps": 1886.8
+          },
+          "overall": {
+            "mae": 19.3315,
+            "rmse": 38.3881,
+            "psnr": 16.45,
+            "ssim": 0.1709,
+            "max_diff": 239.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 12.2253,
+              "rmse": 28.3426,
+              "clean_mean_rgb": [
+                17.55,
+                19.41,
+                22.74
+              ],
+              "render_mean_rgb": [
+                16.26,
+                19.04,
+                23.88
+              ],
+              "error_share_pct": 22.13
+            },
+            "core": {
+              "mae": 16.7044,
+              "rmse": 37.9706,
+              "clean_mean_rgb": [
+                7.21,
+                6.97,
+                7.07
+              ],
+              "render_mean_rgb": [
+                17.16,
+                16.7,
+                18.22
+              ],
+              "error_share_pct": 10.37
+            },
+            "floor": {
+              "mae": 28.9432,
+              "rmse": 50.1381,
+              "clean_mean_rgb": [
+                19.67,
+                20.2,
+                22.26
+              ],
+              "render_mean_rgb": [
+                19.94,
+                21.47,
+                24.91
+              ],
+              "error_share_pct": 52.4
+            },
+            "left_colonnade": {
+              "mae": 22.3639,
+              "rmse": 36.9894,
+              "clean_mean_rgb": [
+                9.62,
+                7.94,
+                6.62
+              ],
+              "render_mean_rgb": [
+                21.3,
+                22.18,
+                26.67
+              ],
+              "error_share_pct": 16.2
+            },
+            "right_colonnade": {
+              "mae": 8.8047,
+              "rmse": 20.7832,
+              "clean_mean_rgb": [
+                22.65,
+                28.34,
+                36.12
+              ],
+              "render_mean_rgb": [
+                25.78,
+                30.79,
+                38.57
+              ],
+              "error_share_pct": 6.38
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp00_baseline_detail.png"
+        }
+      }
+    },
+    "exp01_tone_agx_081": {
+      "subsystem": "Tone Mapping",
+      "name": "Tone Mapping: AgX with Blender Calibrated Exposure (0.812)",
+      "variable_changed": "exposure: 0.95 -> 0.812 (matching Blender 2^-0.30)",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 8,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.57,
+            "fps": 1754.4
+          },
+          "overall": {
+            "mae": 9.7554,
+            "rmse": 23.4399,
+            "psnr": 20.73,
+            "ssim": 0.5712,
+            "max_diff": 249.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 4.8785,
+              "rmse": 11.358,
+              "clean_mean_rgb": [
+                13.88,
+                16.41,
+                20.39
+              ],
+              "render_mean_rgb": [
+                10.37,
+                13.77,
+                18.95
+              ],
+              "error_share_pct": 17.5
+            },
+            "core": {
+              "mae": 16.3434,
+              "rmse": 34.8498,
+              "clean_mean_rgb": [
+                23.24,
+                25.62,
+                28.58
+              ],
+              "render_mean_rgb": [
+                13.25,
+                13.45,
+                15.35
+              ],
+              "error_share_pct": 20.1
+            },
+            "floor": {
+              "mae": 14.8953,
+              "rmse": 29.6935,
+              "clean_mean_rgb": [
+                10.74,
+                11.58,
+                13.12
+              ],
+              "render_mean_rgb": [
+                14.1,
+                17.01,
+                21.87
+              ],
+              "error_share_pct": 53.44
+            },
+            "left_colonnade": {
+              "mae": 6.8398,
+              "rmse": 19.6229,
+              "clean_mean_rgb": [
+                19.81,
+                24.5,
+                31.17
+              ],
+              "render_mean_rgb": [
+                15.61,
+                20.85,
+                28.37
+              ],
+              "error_share_pct": 9.82
+            },
+            "right_colonnade": {
+              "mae": 2.6975,
+              "rmse": 7.3543,
+              "clean_mean_rgb": [
+                8.96,
+                10.33,
+                12.79
+              ],
+              "render_mean_rgb": [
+                7.79,
+                10.17,
+                13.95
+              ],
+              "error_share_pct": 3.87
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp01_tone_agx_081_hero.png"
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 8,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.6,
+            "fps": 1666.7
+          },
+          "overall": {
+            "mae": 12.5947,
+            "rmse": 29.0663,
+            "psnr": 18.86,
+            "ssim": 0.4217,
+            "max_diff": 240.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 6.8116,
+              "rmse": 20.053,
+              "clean_mean_rgb": [
+                12.62,
+                14.82,
+                18.22
+              ],
+              "render_mean_rgb": [
+                8.07,
+                10.76,
+                14.8
+              ],
+              "error_share_pct": 18.93
+            },
+            "core": {
+              "mae": 8.4237,
+              "rmse": 19.1857,
+              "clean_mean_rgb": [
+                11.77,
+                13.05,
+                15.34
+              ],
+              "render_mean_rgb": [
+                5.6,
+                7.13,
+                10.21
+              ],
+              "error_share_pct": 8.03
+            },
+            "floor": {
+              "mae": 15.0148,
+              "rmse": 29.9533,
+              "clean_mean_rgb": [
+                13.99,
+                15.46,
+                17.92
+              ],
+              "render_mean_rgb": [
+                10.56,
+                11.19,
+                14.12
+              ],
+              "error_share_pct": 41.73
+            },
+            "left_colonnade": {
+              "mae": 17.1705,
+              "rmse": 39.7415,
+              "clean_mean_rgb": [
+                15.72,
+                18.06,
+                21.55
+              ],
+              "render_mean_rgb": [
+                9.45,
+                9.8,
+                12.93
+              ],
+              "error_share_pct": 19.09
+            },
+            "right_colonnade": {
+              "mae": 20.486,
+              "rmse": 42.1511,
+              "clean_mean_rgb": [
+                17.24,
+                19.65,
+                23.2
+              ],
+              "render_mean_rgb": [
+                12.98,
+                16.05,
+                21.97
+              ],
+              "error_share_pct": 22.77
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp01_tone_agx_081_monumental.png"
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 8,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.47,
+            "fps": 2112.7
+          },
+          "overall": {
+            "mae": 18.6319,
+            "rmse": 37.963,
+            "psnr": 16.54,
+            "ssim": 0.1652,
+            "max_diff": 235.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 11.8579,
+              "rmse": 27.8134,
+              "clean_mean_rgb": [
+                17.55,
+                19.41,
+                22.74
+              ],
+              "render_mean_rgb": [
+                15.67,
+                18.4,
+                23.13
+              ],
+              "error_share_pct": 22.28
+            },
+            "core": {
+              "mae": 15.8765,
+              "rmse": 36.6406,
+              "clean_mean_rgb": [
+                7.21,
+                6.97,
+                7.07
+              ],
+              "render_mean_rgb": [
+                16.11,
+                15.57,
+                16.9
+              ],
+              "error_share_pct": 10.23
+            },
+            "floor": {
+              "mae": 28.1341,
+              "rmse": 50.2056,
+              "clean_mean_rgb": [
+                19.67,
+                20.2,
+                22.26
+              ],
+              "render_mean_rgb": [
+                18.14,
+                19.67,
+                23.03
+              ],
+              "error_share_pct": 52.85
+            },
+            "left_colonnade": {
+              "mae": 20.9145,
+              "rmse": 35.6118,
+              "clean_mean_rgb": [
+                9.62,
+                7.94,
+                6.62
+              ],
+              "render_mean_rgb": [
+                19.41,
+                20.51,
+                24.85
+              ],
+              "error_share_pct": 15.72
+            },
+            "right_colonnade": {
+              "mae": 8.4344,
+              "rmse": 19.9534,
+              "clean_mean_rgb": [
+                22.65,
+                28.34,
+                36.12
+              ],
+              "render_mean_rgb": [
+                25.24,
+                30.26,
+                38.05
+              ],
+              "error_share_pct": 6.34
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp01_tone_agx_081_detail.png"
+        }
+      }
+    },
+    "exp02_tone_aces_095": {
+      "subsystem": "Tone Mapping",
+      "name": "Tone Mapping: ACESFilmic (Exposure 0.95)",
+      "variable_changed": "toneMapping: AgX -> ACESFilmic",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 10,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.47,
+            "fps": 2127.7
+          },
+          "overall": {
+            "mae": 9.0841,
+            "rmse": 23.3616,
+            "psnr": 20.76,
+            "ssim": 0.5799,
+            "max_diff": 254.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 4.6838,
+              "rmse": 11.2252,
+              "clean_mean_rgb": [
+                13.88,
+                16.41,
+                20.39
+              ],
+              "render_mean_rgb": [
+                10.32,
+                13.41,
+                18.04
+              ],
+              "error_share_pct": 18.05
+            },
+            "core": {
+              "mae": 16.4455,
+              "rmse": 35.5802,
+              "clean_mean_rgb": [
+                23.24,
+                25.62,
+                28.58
+              ],
+              "render_mean_rgb": [
+                13.75,
+                13.79,
+                13.38
+              ],
+              "error_share_pct": 21.72
+            },
+            "floor": {
+              "mae": 13.3087,
+              "rmse": 29.2827,
+              "clean_mean_rgb": [
+                10.74,
+                11.58,
+                13.12
+              ],
+              "render_mean_rgb": [
+                12.37,
+                14.7,
+                18.55
+              ],
+              "error_share_pct": 51.28
+            },
+            "left_colonnade": {
+              "mae": 6.6021,
+              "rmse": 19.6033,
+              "clean_mean_rgb": [
+                19.81,
+                24.5,
+                31.17
+              ],
+              "render_mean_rgb": [
+                15.45,
+                20.43,
+                27.65
+              ],
+              "error_share_pct": 10.17
+            },
+            "right_colonnade": {
+              "mae": 2.3787,
+              "rmse": 7.2335,
+              "clean_mean_rgb": [
+                8.96,
+                10.33,
+                12.79
+              ],
+              "render_mean_rgb": [
+                7.57,
+                9.82,
+                13.42
+              ],
+              "error_share_pct": 3.67
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp02_tone_aces_095_hero.png"
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 10,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.47,
+            "fps": 2112.7
+          },
+          "overall": {
+            "mae": 12.0144,
+            "rmse": 29.1949,
+            "psnr": 18.82,
+            "ssim": 0.4247,
+            "max_diff": 254.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 6.6052,
+              "rmse": 20.1578,
+              "clean_mean_rgb": [
+                12.62,
+                14.82,
+                18.22
+              ],
+              "render_mean_rgb": [
+                7.89,
+                10.39,
+                14.12
+              ],
+              "error_share_pct": 19.24
+            },
+            "core": {
+              "mae": 8.1664,
+              "rmse": 19.2273,
+              "clean_mean_rgb": [
+                11.77,
+                13.05,
+                15.34
+              ],
+              "render_mean_rgb": [
+                5.74,
+                6.62,
+                8.45
+              ],
+              "error_share_pct": 8.16
+            },
+            "floor": {
+              "mae": 14.3065,
+              "rmse": 29.9991,
+              "clean_mean_rgb": [
+                13.99,
+                15.46,
+                17.92
+              ],
+              "render_mean_rgb": [
+                9.67,
+                10.26,
+                12.0
+              ],
+              "error_share_pct": 41.68
+            },
+            "left_colonnade": {
+              "mae": 16.2648,
+              "rmse": 39.917,
+              "clean_mean_rgb": [
+                15.72,
+                18.06,
+                21.55
+              ],
+              "render_mean_rgb": [
+                7.57,
+                8.48,
+                11.55
+              ],
+              "error_share_pct": 18.95
+            },
+            "right_colonnade": {
+              "mae": 19.4163,
+              "rmse": 42.5276,
+              "clean_mean_rgb": [
+                17.24,
+                19.65,
+                23.2
+              ],
+              "render_mean_rgb": [
+                11.98,
+                14.67,
+                19.53
+              ],
+              "error_share_pct": 22.63
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp02_tone_aces_095_monumental.png"
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 10,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.56,
+            "fps": 1775.1
+          },
+          "overall": {
+            "mae": 17.5854,
+            "rmse": 38.6567,
+            "psnr": 16.39,
+            "ssim": 0.1419,
+            "max_diff": 254.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 11.6124,
+              "rmse": 28.805,
+              "clean_mean_rgb": [
+                17.55,
+                19.41,
+                22.74
+              ],
+              "render_mean_rgb": [
+                14.87,
+                17.69,
+                21.67
+              ],
+              "error_share_pct": 23.11
+            },
+            "core": {
+              "mae": 15.1273,
+              "rmse": 38.1609,
+              "clean_mean_rgb": [
+                7.21,
+                6.97,
+                7.07
+              ],
+              "render_mean_rgb": [
+                14.88,
+                14.79,
+                14.15
+              ],
+              "error_share_pct": 10.32
+            },
+            "floor": {
+              "mae": 26.5988,
+              "rmse": 50.8624,
+              "clean_mean_rgb": [
+                19.67,
+                20.2,
+                22.26
+              ],
+              "render_mean_rgb": [
+                14.52,
+                15.45,
+                18.74
+              ],
+              "error_share_pct": 52.94
+            },
+            "left_colonnade": {
+              "mae": 18.6677,
+              "rmse": 35.9642,
+              "clean_mean_rgb": [
+                9.62,
+                7.94,
+                6.62
+              ],
+              "render_mean_rgb": [
+                16.3,
+                17.51,
+                21.18
+              ],
+              "error_share_pct": 14.86
+            },
+            "right_colonnade": {
+              "mae": 7.965,
+              "rmse": 20.3036,
+              "clean_mean_rgb": [
+                22.65,
+                28.34,
+                36.12
+              ],
+              "render_mean_rgb": [
+                24.39,
+                29.6,
+                36.95
+              ],
+              "error_share_pct": 6.34
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp02_tone_aces_095_detail.png"
+        }
+      }
+    },
+    "exp03_tone_aces_081": {
+      "subsystem": "Tone Mapping",
+      "name": "Tone Mapping: ACESFilmic with Blender Calibrated Exposure (0.812)",
+      "variable_changed": "toneMapping: AgX -> ACESFilmic, exposure: 0.95 -> 0.812",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 12,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.54,
+            "fps": 1863.4
+          },
+          "overall": {
+            "mae": 8.8535,
+            "rmse": 23.1005,
+            "psnr": 20.86,
+            "ssim": 0.5804,
+            "max_diff": 254.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 4.6536,
+              "rmse": 11.35,
+              "clean_mean_rgb": [
+                13.88,
+                16.41,
+                20.39
+              ],
+              "render_mean_rgb": [
+                10.27,
+                13.3,
+                17.81
+              ],
+              "error_share_pct": 18.4
+            },
+            "core": {
+              "mae": 16.5474,
+              "rmse": 35.7059,
+              "clean_mean_rgb": [
+                23.24,
+                25.62,
+                28.58
+              ],
+              "render_mean_rgb": [
+                13.57,
+                13.37,
+                12.67
+              ],
+              "error_share_pct": 22.43
+            },
+            "floor": {
+              "mae": 12.6979,
+              "rmse": 28.6057,
+              "clean_mean_rgb": [
+                10.74,
+                11.58,
+                13.12
+              ],
+              "render_mean_rgb": [
+                11.65,
+                13.8,
+                17.21
+              ],
+              "error_share_pct": 50.2
+            },
+            "left_colonnade": {
+              "mae": 6.5326,
+              "rmse": 19.608,
+              "clean_mean_rgb": [
+                19.81,
+                24.5,
+                31.17
+              ],
+              "render_mean_rgb": [
+                15.39,
+                20.33,
+                27.46
+              ],
+              "error_share_pct": 10.33
+            },
+            "right_colonnade": {
+              "mae": 2.3043,
+              "rmse": 7.223,
+              "clean_mean_rgb": [
+                8.96,
+                10.33,
+                12.79
+              ],
+              "render_mean_rgb": [
+                7.53,
+                9.74,
+                13.26
+              ],
+              "error_share_pct": 3.64
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp03_tone_aces_081_hero.png"
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 12,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.46,
+            "fps": 2158.3
+          },
+          "overall": {
+            "mae": 11.8556,
+            "rmse": 29.1716,
+            "psnr": 18.83,
+            "ssim": 0.416,
+            "max_diff": 254.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 6.567,
+              "rmse": 20.2698,
+              "clean_mean_rgb": [
+                12.62,
+                14.82,
+                18.22
+              ],
+              "render_mean_rgb": [
+                7.84,
+                10.29,
+                13.9
+              ],
+              "error_share_pct": 19.39
+            },
+            "core": {
+              "mae": 8.2203,
+              "rmse": 19.6984,
+              "clean_mean_rgb": [
+                11.77,
+                13.05,
+                15.34
+              ],
+              "render_mean_rgb": [
+                5.61,
+                6.36,
+                7.99
+              ],
+              "error_share_pct": 8.32
+            },
+            "floor": {
+              "mae": 14.1085,
+              "rmse": 29.8588,
+              "clean_mean_rgb": [
+                13.99,
+                15.46,
+                17.92
+              ],
+              "render_mean_rgb": [
+                9.27,
+                9.74,
+                11.28
+              ],
+              "error_share_pct": 41.65
+            },
+            "left_colonnade": {
+              "mae": 16.015,
+              "rmse": 40.0211,
+              "clean_mean_rgb": [
+                15.72,
+                18.06,
+                21.55
+              ],
+              "render_mean_rgb": [
+                7.1,
+                7.97,
+                11.05
+              ],
+              "error_share_pct": 18.91
+            },
+            "right_colonnade": {
+              "mae": 18.9973,
+              "rmse": 42.3412,
+              "clean_mean_rgb": [
+                17.24,
+                19.65,
+                23.2
+              ],
+              "render_mean_rgb": [
+                11.53,
+                14.02,
+                18.46
+              ],
+              "error_share_pct": 22.43
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp03_tone_aces_081_monumental.png"
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 12,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.45,
+            "fps": 2205.9
+          },
+          "overall": {
+            "mae": 17.1067,
+            "rmse": 38.4015,
+            "psnr": 16.44,
+            "ssim": 0.1388,
+            "max_diff": 254.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 11.396,
+              "rmse": 28.4014,
+              "clean_mean_rgb": [
+                17.55,
+                19.41,
+                22.74
+              ],
+              "render_mean_rgb": [
+                14.49,
+                17.21,
+                20.96
+              ],
+              "error_share_pct": 23.32
+            },
+            "core": {
+              "mae": 14.5283,
+              "rmse": 37.0883,
+              "clean_mean_rgb": [
+                7.21,
+                6.97,
+                7.07
+              ],
+              "render_mean_rgb": [
+                14.24,
+                13.92,
+                12.82
+              ],
+              "error_share_pct": 10.19
+            },
+            "floor": {
+              "mae": 26.1059,
+              "rmse": 51.0508,
+              "clean_mean_rgb": [
+                19.67,
+                20.2,
+                22.26
+              ],
+              "render_mean_rgb": [
+                13.16,
+                14.15,
+                17.33
+              ],
+              "error_share_pct": 53.41
+            },
+            "left_colonnade": {
+              "mae": 17.5116,
+              "rmse": 34.9207,
+              "clean_mean_rgb": [
+                9.62,
+                7.94,
+                6.62
+              ],
+              "render_mean_rgb": [
+                14.9,
+                16.08,
+                19.2
+              ],
+              "error_share_pct": 14.33
+            },
+            "right_colonnade": {
+              "mae": 7.6878,
+              "rmse": 19.7162,
+              "clean_mean_rgb": [
+                22.65,
+                28.34,
+                36.12
+              ],
+              "render_mean_rgb": [
+                23.95,
+                29.15,
+                36.44
+              ],
+              "error_share_pct": 6.29
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp03_tone_aces_081_detail.png"
+        }
+      }
+    },
+    "exp04_floor_roughness_low": {
+      "subsystem": "Floor Reflections",
+      "name": "Floor: Lower Roughness (0.05)",
+      "variable_changed": "floorRoughness: 0.16 -> 0.05",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 14,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.54,
+            "fps": 1840.5
+          },
+          "overall": {
+            "mae": 10.1526,
+            "rmse": 23.9515,
+            "psnr": 20.54,
+            "ssim": 0.5646,
+            "max_diff": 251.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 4.9903,
+              "rmse": 11.3717,
+              "clean_mean_rgb": [
+                13.88,
+                16.41,
+                20.39
+              ],
+              "render_mean_rgb": [
+                10.45,
+                13.95,
+                19.39
+              ],
+              "error_share_pct": 17.2
+            },
+            "core": {
+              "mae": 16.3593,
+              "rmse": 34.8174,
+              "clean_mean_rgb": [
+                23.24,
+                25.62,
+                28.58
+              ],
+              "render_mean_rgb": [
+                13.56,
+                13.96,
+                16.18
+              ],
+              "error_share_pct": 19.34
+            },
+            "floor": {
+              "mae": 15.8065,
+              "rmse": 30.8075,
+              "clean_mean_rgb": [
+                10.74,
+                11.58,
+                13.12
+              ],
+              "render_mean_rgb": [
+                15.18,
+                18.21,
+                23.33
+              ],
+              "error_share_pct": 54.49
+            },
+            "left_colonnade": {
+              "mae": 6.9757,
+              "rmse": 19.6843,
+              "clean_mean_rgb": [
+                19.81,
+                24.5,
+                31.17
+              ],
+              "render_mean_rgb": [
+                15.7,
+                21.02,
+                28.71
+              ],
+              "error_share_pct": 9.62
+            },
+            "right_colonnade": {
+              "mae": 2.8997,
+              "rmse": 7.476,
+              "clean_mean_rgb": [
+                8.96,
+                10.33,
+                12.79
+              ],
+              "render_mean_rgb": [
+                7.9,
+                10.38,
+                14.31
+              ],
+              "error_share_pct": 4.0
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp04_floor_roughness_low_hero.png"
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 14,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.78,
+            "fps": 1282.1
+          },
+          "overall": {
+            "mae": 12.9028,
+            "rmse": 29.1876,
+            "psnr": 18.83,
+            "ssim": 0.428,
+            "max_diff": 243.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 6.9192,
+              "rmse": 19.9729,
+              "clean_mean_rgb": [
+                12.62,
+                14.82,
+                18.22
+              ],
+              "render_mean_rgb": [
+                8.17,
+                10.93,
+                15.17
+              ],
+              "error_share_pct": 18.77
+            },
+            "core": {
+              "mae": 8.5108,
+              "rmse": 18.9107,
+              "clean_mean_rgb": [
+                11.77,
+                13.05,
+                15.34
+              ],
+              "render_mean_rgb": [
+                5.75,
+                7.5,
+                11.0
+              ],
+              "error_share_pct": 7.92
+            },
+            "floor": {
+              "mae": 15.4032,
+              "rmse": 30.1994,
+              "clean_mean_rgb": [
+                13.99,
+                15.46,
+                17.92
+              ],
+              "render_mean_rgb": [
+                11.19,
+                11.89,
+                15.16
+              ],
+              "error_share_pct": 41.78
+            },
+            "left_colonnade": {
+              "mae": 17.6103,
+              "rmse": 39.703,
+              "clean_mean_rgb": [
+                15.72,
+                18.06,
+                21.55
+              ],
+              "render_mean_rgb": [
+                10.22,
+                10.41,
+                13.63
+              ],
+              "error_share_pct": 19.11
+            },
+            "right_colonnade": {
+              "mae": 21.1084,
+              "rmse": 42.4665,
+              "clean_mean_rgb": [
+                17.24,
+                19.65,
+                23.2
+              ],
+              "render_mean_rgb": [
+                13.64,
+                16.89,
+                23.22
+              ],
+              "error_share_pct": 22.9
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp04_floor_roughness_low_monumental.png"
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 14,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.5,
+            "fps": 1986.8
+          },
+          "overall": {
+            "mae": 19.3315,
+            "rmse": 38.3884,
+            "psnr": 16.45,
+            "ssim": 0.1709,
+            "max_diff": 239.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 12.2254,
+              "rmse": 28.3436,
+              "clean_mean_rgb": [
+                17.55,
+                19.41,
+                22.74
+              ],
+              "render_mean_rgb": [
+                16.26,
+                19.04,
+                23.88
+              ],
+              "error_share_pct": 22.13
+            },
+            "core": {
+              "mae": 16.7044,
+              "rmse": 37.9706,
+              "clean_mean_rgb": [
+                7.21,
+                6.97,
+                7.07
+              ],
+              "render_mean_rgb": [
+                17.16,
+                16.7,
+                18.22
+              ],
+              "error_share_pct": 10.37
+            },
+            "floor": {
+              "mae": 28.9432,
+              "rmse": 50.1381,
+              "clean_mean_rgb": [
+                19.67,
+                20.2,
+                22.26
+              ],
+              "render_mean_rgb": [
+                19.94,
+                21.47,
+                24.91
+              ],
+              "error_share_pct": 52.4
+            },
+            "left_colonnade": {
+              "mae": 22.3636,
+              "rmse": 36.9899,
+              "clean_mean_rgb": [
+                9.62,
+                7.94,
+                6.62
+              ],
+              "render_mean_rgb": [
+                21.3,
+                22.18,
+                26.67
+              ],
+              "error_share_pct": 16.2
+            },
+            "right_colonnade": {
+              "mae": 8.8047,
+              "rmse": 20.7832,
+              "clean_mean_rgb": [
+                22.65,
+                28.34,
+                36.12
+              ],
+              "render_mean_rgb": [
+                25.78,
+                30.79,
+                38.57
+              ],
+              "error_share_pct": 6.38
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp04_floor_roughness_low_detail.png"
+        }
+      }
+    },
+    "exp05_floor_roughness_high": {
+      "subsystem": "Floor Reflections",
+      "name": "Floor: Higher Roughness (0.35)",
+      "variable_changed": "floorRoughness: 0.16 -> 0.35",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 16,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.5,
+            "fps": 2000
+          },
+          "overall": {
+            "mae": 10.1528,
+            "rmse": 23.9527,
+            "psnr": 20.54,
+            "ssim": 0.5646,
+            "max_diff": 251.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 4.9903,
+              "rmse": 11.3717,
+              "clean_mean_rgb": [
+                13.88,
+                16.41,
+                20.39
+              ],
+              "render_mean_rgb": [
+                10.45,
+                13.95,
+                19.39
+              ],
+              "error_share_pct": 17.2
+            },
+            "core": {
+              "mae": 16.3614,
+              "rmse": 34.8239,
+              "clean_mean_rgb": [
+                23.24,
+                25.62,
+                28.58
+              ],
+              "render_mean_rgb": [
+                13.56,
+                13.96,
+                16.18
+              ],
+              "error_share_pct": 19.34
+            },
+            "floor": {
+              "mae": 15.8065,
+              "rmse": 30.8075,
+              "clean_mean_rgb": [
+                10.74,
+                11.58,
+                13.12
+              ],
+              "render_mean_rgb": [
+                15.18,
+                18.21,
+                23.33
+              ],
+              "error_share_pct": 54.49
+            },
+            "left_colonnade": {
+              "mae": 6.9757,
+              "rmse": 19.6843,
+              "clean_mean_rgb": [
+                19.81,
+                24.5,
+                31.17
+              ],
+              "render_mean_rgb": [
+                15.7,
+                21.02,
+                28.71
+              ],
+              "error_share_pct": 9.62
+            },
+            "right_colonnade": {
+              "mae": 2.8997,
+              "rmse": 7.476,
+              "clean_mean_rgb": [
+                8.96,
+                10.33,
+                12.79
+              ],
+              "render_mean_rgb": [
+                7.9,
+                10.38,
+                14.31
+              ],
+              "error_share_pct": 4.0
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp05_floor_roughness_high_hero.png"
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 16,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.47,
+            "fps": 2127.7
+          },
+          "overall": {
+            "mae": 12.9031,
+            "rmse": 29.1887,
+            "psnr": 18.83,
+            "ssim": 0.4279,
+            "max_diff": 243.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 6.9192,
+              "rmse": 19.9729,
+              "clean_mean_rgb": [
+                12.62,
+                14.82,
+                18.22
+              ],
+              "render_mean_rgb": [
+                8.17,
+                10.93,
+                15.17
+              ],
+              "error_share_pct": 18.77
+            },
+            "core": {
+              "mae": 8.5108,
+              "rmse": 18.9107,
+              "clean_mean_rgb": [
+                11.77,
+                13.05,
+                15.34
+              ],
+              "render_mean_rgb": [
+                5.75,
+                7.5,
+                11.0
+              ],
+              "error_share_pct": 7.92
+            },
+            "floor": {
+              "mae": 15.404,
+              "rmse": 30.2023,
+              "clean_mean_rgb": [
+                13.99,
+                15.46,
+                17.92
+              ],
+              "render_mean_rgb": [
+                11.19,
+                11.89,
+                15.16
+              ],
+              "error_share_pct": 41.78
+            },
+            "left_colonnade": {
+              "mae": 17.6103,
+              "rmse": 39.703,
+              "clean_mean_rgb": [
+                15.72,
+                18.06,
+                21.55
+              ],
+              "render_mean_rgb": [
+                10.22,
+                10.41,
+                13.63
+              ],
+              "error_share_pct": 19.11
+            },
+            "right_colonnade": {
+              "mae": 21.1084,
+              "rmse": 42.4665,
+              "clean_mean_rgb": [
+                17.24,
+                19.65,
+                23.2
+              ],
+              "render_mean_rgb": [
+                13.64,
+                16.89,
+                23.22
+              ],
+              "error_share_pct": 22.9
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp05_floor_roughness_high_monumental.png"
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 16,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.47,
+            "fps": 2142.9
+          },
+          "overall": {
+            "mae": 19.3315,
+            "rmse": 38.3884,
+            "psnr": 16.45,
+            "ssim": 0.1709,
+            "max_diff": 239.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 12.2253,
+              "rmse": 28.3438,
+              "clean_mean_rgb": [
+                17.55,
+                19.41,
+                22.74
+              ],
+              "render_mean_rgb": [
+                16.26,
+                19.04,
+                23.88
+              ],
+              "error_share_pct": 22.13
+            },
+            "core": {
+              "mae": 16.7044,
+              "rmse": 37.9706,
+              "clean_mean_rgb": [
+                7.21,
+                6.97,
+                7.07
+              ],
+              "render_mean_rgb": [
+                17.16,
+                16.7,
+                18.22
+              ],
+              "error_share_pct": 10.37
+            },
+            "floor": {
+              "mae": 28.9432,
+              "rmse": 50.1381,
+              "clean_mean_rgb": [
+                19.67,
+                20.2,
+                22.26
+              ],
+              "render_mean_rgb": [
+                19.94,
+                21.47,
+                24.91
+              ],
+              "error_share_pct": 52.4
+            },
+            "left_colonnade": {
+              "mae": 22.3633,
+              "rmse": 36.9894,
+              "clean_mean_rgb": [
+                9.62,
+                7.94,
+                6.62
+              ],
+              "render_mean_rgb": [
+                21.3,
+                22.17,
+                26.67
+              ],
+              "error_share_pct": 16.2
+            },
+            "right_colonnade": {
+              "mae": 8.8047,
+              "rmse": 20.7832,
+              "clean_mean_rgb": [
+                22.65,
+                28.34,
+                36.12
+              ],
+              "render_mean_rgb": [
+                25.78,
+                30.79,
+                38.57
+              ],
+              "error_share_pct": 6.38
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp05_floor_roughness_high_detail.png"
+        }
+      }
+    },
+    "exp06_floor_clearcoat_off": {
+      "subsystem": "Floor Reflections",
+      "name": "Floor: Disable Clearcoat (0.0)",
+      "variable_changed": "floorClearcoat: 0.95 -> 0.0",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 18,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.53,
+            "fps": 1875
+          },
+          "overall": {
+            "mae": 10.153,
+            "rmse": 23.9538,
+            "psnr": 20.54,
+            "ssim": 0.5646,
+            "max_diff": 251.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 4.9903,
+              "rmse": 11.3717,
+              "clean_mean_rgb": [
+                13.88,
+                16.41,
+                20.39
+              ],
+              "render_mean_rgb": [
+                10.45,
+                13.95,
+                19.39
+              ],
+              "error_share_pct": 17.2
+            },
+            "core": {
+              "mae": 16.363,
+              "rmse": 34.8302,
+              "clean_mean_rgb": [
+                23.24,
+                25.62,
+                28.58
+              ],
+              "render_mean_rgb": [
+                13.56,
+                13.96,
+                16.18
+              ],
+              "error_share_pct": 19.34
+            },
+            "floor": {
+              "mae": 15.8065,
+              "rmse": 30.8075,
+              "clean_mean_rgb": [
+                10.74,
+                11.58,
+                13.12
+              ],
+              "render_mean_rgb": [
+                15.18,
+                18.21,
+                23.33
+              ],
+              "error_share_pct": 54.49
+            },
+            "left_colonnade": {
+              "mae": 6.9757,
+              "rmse": 19.6843,
+              "clean_mean_rgb": [
+                19.81,
+                24.5,
+                31.17
+              ],
+              "render_mean_rgb": [
+                15.7,
+                21.02,
+                28.71
+              ],
+              "error_share_pct": 9.62
+            },
+            "right_colonnade": {
+              "mae": 2.8997,
+              "rmse": 7.476,
+              "clean_mean_rgb": [
+                8.96,
+                10.33,
+                12.79
+              ],
+              "render_mean_rgb": [
+                7.9,
+                10.38,
+                14.31
+              ],
+              "error_share_pct": 4.0
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp06_floor_clearcoat_off_hero.png"
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 18,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.45,
+            "fps": 2222.2
+          },
+          "overall": {
+            "mae": 12.9034,
+            "rmse": 29.1896,
+            "psnr": 18.83,
+            "ssim": 0.4278,
+            "max_diff": 243.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 6.9192,
+              "rmse": 19.9729,
+              "clean_mean_rgb": [
+                12.62,
+                14.82,
+                18.22
+              ],
+              "render_mean_rgb": [
+                8.17,
+                10.93,
+                15.17
+              ],
+              "error_share_pct": 18.77
+            },
+            "core": {
+              "mae": 8.5108,
+              "rmse": 18.9107,
+              "clean_mean_rgb": [
+                11.77,
+                13.05,
+                15.34
+              ],
+              "render_mean_rgb": [
+                5.75,
+                7.5,
+                11.0
+              ],
+              "error_share_pct": 7.91
+            },
+            "floor": {
+              "mae": 15.4049,
+              "rmse": 30.2049,
+              "clean_mean_rgb": [
+                13.99,
+                15.46,
+                17.92
+              ],
+              "render_mean_rgb": [
+                11.19,
+                11.89,
+                15.16
+              ],
+              "error_share_pct": 41.79
+            },
+            "left_colonnade": {
+              "mae": 17.6103,
+              "rmse": 39.703,
+              "clean_mean_rgb": [
+                15.72,
+                18.06,
+                21.55
+              ],
+              "render_mean_rgb": [
+                10.22,
+                10.41,
+                13.63
+              ],
+              "error_share_pct": 19.11
+            },
+            "right_colonnade": {
+              "mae": 21.1084,
+              "rmse": 42.4665,
+              "clean_mean_rgb": [
+                17.24,
+                19.65,
+                23.2
+              ],
+              "render_mean_rgb": [
+                13.64,
+                16.89,
+                23.22
+              ],
+              "error_share_pct": 22.9
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp06_floor_clearcoat_off_monumental.png"
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 18,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.62,
+            "fps": 1612.9
+          },
+          "overall": {
+            "mae": 19.3315,
+            "rmse": 38.3883,
+            "psnr": 16.45,
+            "ssim": 0.1709,
+            "max_diff": 239.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 12.2252,
+              "rmse": 28.3435,
+              "clean_mean_rgb": [
+                17.55,
+                19.41,
+                22.74
+              ],
+              "render_mean_rgb": [
+                16.26,
+                19.04,
+                23.88
+              ],
+              "error_share_pct": 22.13
+            },
+            "core": {
+              "mae": 16.7044,
+              "rmse": 37.9706,
+              "clean_mean_rgb": [
+                7.21,
+                6.97,
+                7.07
+              ],
+              "render_mean_rgb": [
+                17.16,
+                16.7,
+                18.22
+              ],
+              "error_share_pct": 10.37
+            },
+            "floor": {
+              "mae": 28.9432,
+              "rmse": 50.1381,
+              "clean_mean_rgb": [
+                19.67,
+                20.2,
+                22.26
+              ],
+              "render_mean_rgb": [
+                19.94,
+                21.47,
+                24.91
+              ],
+              "error_share_pct": 52.4
+            },
+            "left_colonnade": {
+              "mae": 22.3628,
+              "rmse": 36.9876,
+              "clean_mean_rgb": [
+                9.62,
+                7.94,
+                6.62
+              ],
+              "render_mean_rgb": [
+                21.3,
+                22.17,
+                26.67
+              ],
+              "error_share_pct": 16.2
+            },
+            "right_colonnade": {
+              "mae": 8.8047,
+              "rmse": 20.7832,
+              "clean_mean_rgb": [
+                22.65,
+                28.34,
+                36.12
+              ],
+              "render_mean_rgb": [
+                25.78,
+                30.79,
+                38.57
+              ],
+              "error_share_pct": 6.38
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp06_floor_clearcoat_off_detail.png"
+        }
+      }
+    },
+    "exp07_floor_darker_base": {
+      "subsystem": "Floor Reflections",
+      "name": "Floor: Deeper Obsidian Base (0x010203)",
+      "variable_changed": "floorColor: 0x040608 -> 0x010203",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 20,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.6,
+            "fps": 1657.5
+          },
+          "overall": {
+            "mae": 10.1534,
+            "rmse": 23.9554,
+            "psnr": 20.54,
+            "ssim": 0.5645,
+            "max_diff": 251.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 4.9903,
+              "rmse": 11.3717,
+              "clean_mean_rgb": [
+                13.88,
+                16.41,
+                20.39
+              ],
+              "render_mean_rgb": [
+                10.45,
+                13.95,
+                19.39
+              ],
+              "error_share_pct": 17.2
+            },
+            "core": {
+              "mae": 16.3661,
+              "rmse": 34.8396,
+              "clean_mean_rgb": [
+                23.24,
+                25.62,
+                28.58
+              ],
+              "render_mean_rgb": [
+                13.56,
+                13.96,
+                16.18
+              ],
+              "error_share_pct": 19.34
+            },
+            "floor": {
+              "mae": 15.8065,
+              "rmse": 30.8075,
+              "clean_mean_rgb": [
+                10.74,
+                11.58,
+                13.12
+              ],
+              "render_mean_rgb": [
+                15.18,
+                18.21,
+                23.33
+              ],
+              "error_share_pct": 54.49
+            },
+            "left_colonnade": {
+              "mae": 6.9757,
+              "rmse": 19.6843,
+              "clean_mean_rgb": [
+                19.81,
+                24.5,
+                31.17
+              ],
+              "render_mean_rgb": [
+                15.7,
+                21.02,
+                28.71
+              ],
+              "error_share_pct": 9.62
+            },
+            "right_colonnade": {
+              "mae": 2.8997,
+              "rmse": 7.476,
+              "clean_mean_rgb": [
+                8.96,
+                10.33,
+                12.79
+              ],
+              "render_mean_rgb": [
+                7.9,
+                10.38,
+                14.31
+              ],
+              "error_share_pct": 4.0
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp07_floor_darker_base_hero.png"
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 20,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.51,
+            "fps": 1973.7
+          },
+          "overall": {
+            "mae": 12.9034,
+            "rmse": 29.1898,
+            "psnr": 18.83,
+            "ssim": 0.4278,
+            "max_diff": 243.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 6.9192,
+              "rmse": 19.9729,
+              "clean_mean_rgb": [
+                12.62,
+                14.82,
+                18.22
+              ],
+              "render_mean_rgb": [
+                8.17,
+                10.93,
+                15.17
+              ],
+              "error_share_pct": 18.77
+            },
+            "core": {
+              "mae": 8.5108,
+              "rmse": 18.9107,
+              "clean_mean_rgb": [
+                11.77,
+                13.05,
+                15.34
+              ],
+              "render_mean_rgb": [
+                5.75,
+                7.5,
+                11.0
+              ],
+              "error_share_pct": 7.91
+            },
+            "floor": {
+              "mae": 15.405,
+              "rmse": 30.2054,
+              "clean_mean_rgb": [
+                13.99,
+                15.46,
+                17.92
+              ],
+              "render_mean_rgb": [
+                11.19,
+                11.89,
+                15.16
+              ],
+              "error_share_pct": 41.79
+            },
+            "left_colonnade": {
+              "mae": 17.6103,
+              "rmse": 39.703,
+              "clean_mean_rgb": [
+                15.72,
+                18.06,
+                21.55
+              ],
+              "render_mean_rgb": [
+                10.22,
+                10.41,
+                13.63
+              ],
+              "error_share_pct": 19.11
+            },
+            "right_colonnade": {
+              "mae": 21.1084,
+              "rmse": 42.4665,
+              "clean_mean_rgb": [
+                17.24,
+                19.65,
+                23.2
+              ],
+              "render_mean_rgb": [
+                13.64,
+                16.89,
+                23.22
+              ],
+              "error_share_pct": 22.9
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp07_floor_darker_base_monumental.png"
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 20,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.54,
+            "fps": 1840.5
+          },
+          "overall": {
+            "mae": 19.3314,
+            "rmse": 38.3882,
+            "psnr": 16.45,
+            "ssim": 0.1709,
+            "max_diff": 239.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 12.225,
+              "rmse": 28.343,
+              "clean_mean_rgb": [
+                17.55,
+                19.41,
+                22.74
+              ],
+              "render_mean_rgb": [
+                16.26,
+                19.04,
+                23.88
+              ],
+              "error_share_pct": 22.13
+            },
+            "core": {
+              "mae": 16.7044,
+              "rmse": 37.9706,
+              "clean_mean_rgb": [
+                7.21,
+                6.97,
+                7.07
+              ],
+              "render_mean_rgb": [
+                17.16,
+                16.7,
+                18.22
+              ],
+              "error_share_pct": 10.37
+            },
+            "floor": {
+              "mae": 28.9432,
+              "rmse": 50.1381,
+              "clean_mean_rgb": [
+                19.67,
+                20.2,
+                22.26
+              ],
+              "render_mean_rgb": [
+                19.94,
+                21.47,
+                24.91
+              ],
+              "error_share_pct": 52.4
+            },
+            "left_colonnade": {
+              "mae": 22.3627,
+              "rmse": 36.9876,
+              "clean_mean_rgb": [
+                9.62,
+                7.94,
+                6.62
+              ],
+              "render_mean_rgb": [
+                21.3,
+                22.17,
+                26.67
+              ],
+              "error_share_pct": 16.2
+            },
+            "right_colonnade": {
+              "mae": 8.8047,
+              "rmse": 20.7832,
+              "clean_mean_rgb": [
+                22.65,
+                28.34,
+                36.12
+              ],
+              "render_mean_rgb": [
+                25.78,
+                30.79,
+                38.57
+              ],
+              "error_share_pct": 6.38
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp07_floor_darker_base_detail.png"
+        }
+      }
+    },
+    "exp08_gi_baked_ground_bounce": {
+      "subsystem": "Indirect Illumination",
+      "name": "Indirect GI: Baked Lower-Hemisphere Warm Ground Bounce",
+      "variable_changed": "bakedGroundBounce: False -> True (precomputed 4-bounce Fast GI)",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 22,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.57,
+            "fps": 1754.4
+          },
+          "overall": {
+            "mae": 10.1579,
+            "rmse": 23.9557,
+            "psnr": 20.54,
+            "ssim": 0.5645,
+            "max_diff": 251.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 4.9919,
+              "rmse": 11.3719,
+              "clean_mean_rgb": [
+                13.88,
+                16.41,
+                20.39
+              ],
+              "render_mean_rgb": [
+                10.46,
+                13.95,
+                19.38
+              ],
+              "error_share_pct": 17.2
+            },
+            "core": {
+              "mae": 16.371,
+              "rmse": 34.8479,
+              "clean_mean_rgb": [
+                23.24,
+                25.62,
+                28.58
+              ],
+              "render_mean_rgb": [
+                13.58,
+                13.97,
+                16.17
+              ],
+              "error_share_pct": 19.34
+            },
+            "floor": {
+              "mae": 15.816,
+              "rmse": 30.8082,
+              "clean_mean_rgb": [
+                10.74,
+                11.58,
+                13.12
+              ],
+              "render_mean_rgb": [
+                15.24,
+                18.23,
+                23.31
+              ],
+              "error_share_pct": 54.5
+            },
+            "left_colonnade": {
+              "mae": 6.9735,
+              "rmse": 19.6714,
+              "clean_mean_rgb": [
+                19.81,
+                24.5,
+                31.17
+              ],
+              "render_mean_rgb": [
+                15.71,
+                21.02,
+                28.71
+              ],
+              "error_share_pct": 9.61
+            },
+            "right_colonnade": {
+              "mae": 2.903,
+              "rmse": 7.4754,
+              "clean_mean_rgb": [
+                8.96,
+                10.33,
+                12.79
+              ],
+              "render_mean_rgb": [
+                7.94,
+                10.38,
+                14.28
+              ],
+              "error_share_pct": 4.0
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp08_gi_baked_ground_bounce_hero.png"
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 22,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.54,
+            "fps": 1851.9
+          },
+          "overall": {
+            "mae": 12.9158,
+            "rmse": 29.1813,
+            "psnr": 18.83,
+            "ssim": 0.4286,
+            "max_diff": 243.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 6.9186,
+              "rmse": 19.9642,
+              "clean_mean_rgb": [
+                12.62,
+                14.82,
+                18.22
+              ],
+              "render_mean_rgb": [
+                8.18,
+                10.93,
+                15.17
+              ],
+              "error_share_pct": 18.75
+            },
+            "core": {
+              "mae": 8.5135,
+              "rmse": 18.9058,
+              "clean_mean_rgb": [
+                11.77,
+                13.05,
+                15.34
+              ],
+              "render_mean_rgb": [
+                5.77,
+                7.5,
+                10.99
+              ],
+              "error_share_pct": 7.91
+            },
+            "floor": {
+              "mae": 15.4294,
+              "rmse": 30.2178,
+              "clean_mean_rgb": [
+                13.99,
+                15.46,
+                17.92
+              ],
+              "render_mean_rgb": [
+                11.3,
+                11.91,
+                15.14
+              ],
+              "error_share_pct": 41.81
+            },
+            "left_colonnade": {
+              "mae": 17.6314,
+              "rmse": 39.6333,
+              "clean_mean_rgb": [
+                15.72,
+                18.06,
+                21.55
+              ],
+              "render_mean_rgb": [
+                10.42,
+                10.49,
+                13.61
+              ],
+              "error_share_pct": 19.11
+            },
+            "right_colonnade": {
+              "mae": 21.1117,
+              "rmse": 42.4704,
+              "clean_mean_rgb": [
+                17.24,
+                19.65,
+                23.2
+              ],
+              "render_mean_rgb": [
+                13.66,
+                16.9,
+                23.2
+              ],
+              "error_share_pct": 22.88
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp08_gi_baked_ground_bounce_monumental.png"
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 22,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.52,
+            "fps": 1910.8
+          },
+          "overall": {
+            "mae": 19.3662,
+            "rmse": 38.4315,
+            "psnr": 16.44,
+            "ssim": 0.1702,
+            "max_diff": 239.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 12.272,
+              "rmse": 28.3786,
+              "clean_mean_rgb": [
+                17.55,
+                19.41,
+                22.74
+              ],
+              "render_mean_rgb": [
+                16.45,
+                19.06,
+                23.83
+              ],
+              "error_share_pct": 22.18
+            },
+            "core": {
+              "mae": 16.7249,
+              "rmse": 37.9806,
+              "clean_mean_rgb": [
+                7.21,
+                6.97,
+                7.07
+              ],
+              "render_mean_rgb": [
+                17.26,
+                16.73,
+                18.18
+              ],
+              "error_share_pct": 10.36
+            },
+            "floor": {
+              "mae": 28.9824,
+              "rmse": 50.2063,
+              "clean_mean_rgb": [
+                19.67,
+                20.2,
+                22.26
+              ],
+              "render_mean_rgb": [
+                20.14,
+                21.47,
+                24.84
+              ],
+              "error_share_pct": 52.38
+            },
+            "left_colonnade": {
+              "mae": 22.3758,
+              "rmse": 36.9947,
+              "clean_mean_rgb": [
+                9.62,
+                7.94,
+                6.62
+              ],
+              "render_mean_rgb": [
+                21.38,
+                22.19,
+                26.64
+              ],
+              "error_share_pct": 16.18
+            },
+            "right_colonnade": {
+              "mae": 8.8237,
+              "rmse": 20.8058,
+              "clean_mean_rgb": [
+                22.65,
+                28.34,
+                36.12
+              ],
+              "render_mean_rgb": [
+                25.84,
+                30.8,
+                38.56
+              ],
+              "error_share_pct": 6.38
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp08_gi_baked_ground_bounce_detail.png"
+        }
+      }
+    },
+    "exp09_indirect_ambient_high": {
+      "subsystem": "Indirect Illumination",
+      "name": "Indirect GI: Doubled Ambient Fill (0.28)",
+      "variable_changed": "ambientIntensity: 0.14 -> 0.28",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 24,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.52,
+            "fps": 1935.5
+          },
+          "overall": {
+            "mae": 10.1557,
+            "rmse": 23.96,
+            "psnr": 20.54,
+            "ssim": 0.5643,
+            "max_diff": 251.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 4.9903,
+              "rmse": 11.3714,
+              "clean_mean_rgb": [
+                13.88,
+                16.41,
+                20.39
+              ],
+              "render_mean_rgb": [
+                10.45,
+                13.95,
+                19.39
+              ],
+              "error_share_pct": 17.2
+            },
+            "core": {
+              "mae": 16.3744,
+              "rmse": 34.8575,
+              "clean_mean_rgb": [
+                23.24,
+                25.62,
+                28.58
+              ],
+              "render_mean_rgb": [
+                13.56,
+                13.96,
+                16.18
+              ],
+              "error_share_pct": 19.35
+            },
+            "floor": {
+              "mae": 15.8101,
+              "rmse": 30.8109,
+              "clean_mean_rgb": [
+                10.74,
+                11.58,
+                13.12
+              ],
+              "render_mean_rgb": [
+                15.18,
+                18.22,
+                23.33
+              ],
+              "error_share_pct": 54.49
+            },
+            "left_colonnade": {
+              "mae": 6.9759,
+              "rmse": 19.6835,
+              "clean_mean_rgb": [
+                19.81,
+                24.5,
+                31.17
+              ],
+              "render_mean_rgb": [
+                15.7,
+                21.02,
+                28.71
+              ],
+              "error_share_pct": 9.62
+            },
+            "right_colonnade": {
+              "mae": 2.8999,
+              "rmse": 7.476,
+              "clean_mean_rgb": [
+                8.96,
+                10.33,
+                12.79
+              ],
+              "render_mean_rgb": [
+                7.9,
+                10.38,
+                14.31
+              ],
+              "error_share_pct": 4.0
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp09_indirect_ambient_high_hero.png"
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 24,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.63,
+            "fps": 1578.9
+          },
+          "overall": {
+            "mae": 12.9062,
+            "rmse": 29.1877,
+            "psnr": 18.83,
+            "ssim": 0.428,
+            "max_diff": 243.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 6.9193,
+              "rmse": 19.9709,
+              "clean_mean_rgb": [
+                12.62,
+                14.82,
+                18.22
+              ],
+              "render_mean_rgb": [
+                8.17,
+                10.93,
+                15.17
+              ],
+              "error_share_pct": 18.76
+            },
+            "core": {
+              "mae": 8.5117,
+              "rmse": 18.9106,
+              "clean_mean_rgb": [
+                11.77,
+                13.05,
+                15.34
+              ],
+              "render_mean_rgb": [
+                5.75,
+                7.5,
+                11.0
+              ],
+              "error_share_pct": 7.91
+            },
+            "floor": {
+              "mae": 15.4098,
+              "rmse": 30.2103,
+              "clean_mean_rgb": [
+                13.99,
+                15.46,
+                17.92
+              ],
+              "render_mean_rgb": [
+                11.19,
+                11.9,
+                15.16
+              ],
+              "error_share_pct": 41.79
+            },
+            "left_colonnade": {
+              "mae": 17.6148,
+              "rmse": 39.6809,
+              "clean_mean_rgb": [
+                15.72,
+                18.06,
+                21.55
+              ],
+              "render_mean_rgb": [
+                10.23,
+                10.45,
+                13.64
+              ],
+              "error_share_pct": 19.11
+            },
+            "right_colonnade": {
+              "mae": 21.1108,
+              "rmse": 42.4681,
+              "clean_mean_rgb": [
+                17.24,
+                19.65,
+                23.2
+              ],
+              "render_mean_rgb": [
+                13.64,
+                16.9,
+                23.22
+              ],
+              "error_share_pct": 22.9
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp09_indirect_ambient_high_monumental.png"
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 24,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.63,
+            "fps": 1578.9
+          },
+          "overall": {
+            "mae": 19.336,
+            "rmse": 38.3914,
+            "psnr": 16.45,
+            "ssim": 0.1708,
+            "max_diff": 239.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 12.2281,
+              "rmse": 28.346,
+              "clean_mean_rgb": [
+                17.55,
+                19.41,
+                22.74
+              ],
+              "render_mean_rgb": [
+                16.26,
+                19.04,
+                23.89
+              ],
+              "error_share_pct": 22.13
+            },
+            "core": {
+              "mae": 16.7122,
+              "rmse": 37.9773,
+              "clean_mean_rgb": [
+                7.21,
+                6.97,
+                7.07
+              ],
+              "render_mean_rgb": [
+                17.17,
+                16.72,
+                18.24
+              ],
+              "error_share_pct": 10.37
+            },
+            "floor": {
+              "mae": 28.945,
+              "rmse": 50.1393,
+              "clean_mean_rgb": [
+                19.67,
+                20.2,
+                22.26
+              ],
+              "render_mean_rgb": [
+                19.94,
+                21.47,
+                24.91
+              ],
+              "error_share_pct": 52.39
+            },
+            "left_colonnade": {
+              "mae": 22.3752,
+              "rmse": 36.9941,
+              "clean_mean_rgb": [
+                9.62,
+                7.94,
+                6.62
+              ],
+              "render_mean_rgb": [
+                21.31,
+                22.18,
+                26.69
+              ],
+              "error_share_pct": 16.2
+            },
+            "right_colonnade": {
+              "mae": 8.8086,
+              "rmse": 20.7882,
+              "clean_mean_rgb": [
+                22.65,
+                28.34,
+                36.12
+              ],
+              "render_mean_rgb": [
+                25.79,
+                30.79,
+                38.57
+              ],
+              "error_share_pct": 6.38
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp09_indirect_ambient_high_detail.png"
+        }
+      }
+    },
+    "exp10_indirect_ambient_zero": {
+      "subsystem": "Indirect Illumination",
+      "name": "Indirect GI: Zero Ambient Fill (Direct Lighting Only)",
+      "variable_changed": "ambientIntensity: 0.14 -> 0.0",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 26,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.1,
+            "fps": 909.1
+          },
+          "overall": {
+            "mae": 10.1529,
+            "rmse": 23.9593,
+            "psnr": 20.54,
+            "ssim": 0.5642,
+            "max_diff": 251.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 4.9903,
+              "rmse": 11.3721,
+              "clean_mean_rgb": [
+                13.88,
+                16.41,
+                20.39
+              ],
+              "render_mean_rgb": [
+                10.45,
+                13.95,
+                19.39
+              ],
+              "error_share_pct": 17.2
+            },
+            "core": {
+              "mae": 16.3783,
+              "rmse": 34.8704,
+              "clean_mean_rgb": [
+                23.24,
+                25.62,
+                28.58
+              ],
+              "render_mean_rgb": [
+                13.56,
+                13.96,
+                16.18
+              ],
+              "error_share_pct": 19.36
+            },
+            "floor": {
+              "mae": 15.8009,
+              "rmse": 30.8036,
+              "clean_mean_rgb": [
+                10.74,
+                11.58,
+                13.12
+              ],
+              "render_mean_rgb": [
+                15.18,
+                18.21,
+                23.32
+              ],
+              "error_share_pct": 54.47
+            },
+            "left_colonnade": {
+              "mae": 6.9759,
+              "rmse": 19.6857,
+              "clean_mean_rgb": [
+                19.81,
+                24.5,
+                31.17
+              ],
+              "render_mean_rgb": [
+                15.7,
+                21.02,
+                28.71
+              ],
+              "error_share_pct": 9.62
+            },
+            "right_colonnade": {
+              "mae": 2.8996,
+              "rmse": 7.4759,
+              "clean_mean_rgb": [
+                8.96,
+                10.33,
+                12.79
+              ],
+              "render_mean_rgb": [
+                7.9,
+                10.38,
+                14.31
+              ],
+              "error_share_pct": 4.0
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp10_indirect_ambient_zero_hero.png"
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 26,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.54,
+            "fps": 1840.5
+          },
+          "overall": {
+            "mae": 12.9001,
+            "rmse": 29.1947,
+            "psnr": 18.82,
+            "ssim": 0.4276,
+            "max_diff": 243.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 6.9187,
+              "rmse": 19.9731,
+              "clean_mean_rgb": [
+                12.62,
+                14.82,
+                18.22
+              ],
+              "render_mean_rgb": [
+                8.17,
+                10.93,
+                15.17
+              ],
+              "error_share_pct": 18.77
+            },
+            "core": {
+              "mae": 8.5103,
+              "rmse": 18.9121,
+              "clean_mean_rgb": [
+                11.77,
+                13.05,
+                15.34
+              ],
+              "render_mean_rgb": [
+                5.75,
+                7.5,
+                11.0
+              ],
+              "error_share_pct": 7.92
+            },
+            "floor": {
+              "mae": 15.3986,
+              "rmse": 30.2067,
+              "clean_mean_rgb": [
+                13.99,
+                15.46,
+                17.92
+              ],
+              "render_mean_rgb": [
+                11.19,
+                11.88,
+                15.15
+              ],
+              "error_share_pct": 41.78
+            },
+            "left_colonnade": {
+              "mae": 17.5997,
+              "rmse": 39.7074,
+              "clean_mean_rgb": [
+                15.72,
+                18.06,
+                21.55
+              ],
+              "render_mean_rgb": [
+                10.2,
+                10.39,
+                13.62
+              ],
+              "error_share_pct": 19.1
+            },
+            "right_colonnade": {
+              "mae": 21.1117,
+              "rmse": 42.4836,
+              "clean_mean_rgb": [
+                17.24,
+                19.65,
+                23.2
+              ],
+              "render_mean_rgb": [
+                13.64,
+                16.89,
+                23.17
+              ],
+              "error_share_pct": 22.91
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp10_indirect_ambient_zero_monumental.png"
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 26,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.69,
+            "fps": 1456.3
+          },
+          "overall": {
+            "mae": 19.3265,
+            "rmse": 38.3848,
+            "psnr": 16.45,
+            "ssim": 0.171,
+            "max_diff": 239.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 12.2222,
+              "rmse": 28.3424,
+              "clean_mean_rgb": [
+                17.55,
+                19.41,
+                22.74
+              ],
+              "render_mean_rgb": [
+                16.26,
+                19.03,
+                23.88
+              ],
+              "error_share_pct": 22.13
+            },
+            "core": {
+              "mae": 16.6958,
+              "rmse": 37.9651,
+              "clean_mean_rgb": [
+                7.21,
+                6.97,
+                7.07
+              ],
+              "render_mean_rgb": [
+                17.16,
+                16.69,
+                18.21
+              ],
+              "error_share_pct": 10.37
+            },
+            "floor": {
+              "mae": 28.9419,
+              "rmse": 50.1375,
+              "clean_mean_rgb": [
+                19.67,
+                20.2,
+                22.26
+              ],
+              "render_mean_rgb": [
+                19.94,
+                21.46,
+                24.91
+              ],
+              "error_share_pct": 52.41
+            },
+            "left_colonnade": {
+              "mae": 22.3485,
+              "rmse": 36.9801,
+              "clean_mean_rgb": [
+                9.62,
+                7.94,
+                6.62
+              ],
+              "render_mean_rgb": [
+                21.29,
+                22.16,
+                26.64
+              ],
+              "error_share_pct": 16.19
+            },
+            "right_colonnade": {
+              "mae": 8.7987,
+              "rmse": 20.7638,
+              "clean_mean_rgb": [
+                22.65,
+                28.34,
+                36.12
+              ],
+              "render_mean_rgb": [
+                25.77,
+                30.77,
+                38.56
+              ],
+              "error_share_pct": 6.37
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp10_indirect_ambient_zero_detail.png"
+        }
+      }
+    },
+    "exp11_shadows_disabled": {
+      "subsystem": "Shadowing",
+      "name": "Shadowing: Disable Shadow Maps",
+      "variable_changed": "shadows: True -> False",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 28,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.02,
+            "fps": 983.6
+          },
+          "overall": {
+            "mae": 10.1553,
+            "rmse": 23.9625,
+            "psnr": 20.54,
+            "ssim": 0.5641,
+            "max_diff": 251.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 4.9903,
+              "rmse": 11.3717,
+              "clean_mean_rgb": [
+                13.88,
+                16.41,
+                20.39
+              ],
+              "render_mean_rgb": [
+                10.45,
+                13.95,
+                19.39
+              ],
+              "error_share_pct": 17.2
+            },
+            "core": {
+              "mae": 16.3823,
+              "rmse": 34.8804,
+              "clean_mean_rgb": [
+                23.24,
+                25.62,
+                28.58
+              ],
+              "render_mean_rgb": [
+                13.56,
+                13.96,
+                16.18
+              ],
+              "error_share_pct": 19.36
+            },
+            "floor": {
+              "mae": 15.8065,
+              "rmse": 30.8075,
+              "clean_mean_rgb": [
+                10.74,
+                11.58,
+                13.12
+              ],
+              "render_mean_rgb": [
+                15.18,
+                18.21,
+                23.33
+              ],
+              "error_share_pct": 54.48
+            },
+            "left_colonnade": {
+              "mae": 6.9757,
+              "rmse": 19.6843,
+              "clean_mean_rgb": [
+                19.81,
+                24.5,
+                31.17
+              ],
+              "render_mean_rgb": [
+                15.7,
+                21.02,
+                28.71
+              ],
+              "error_share_pct": 9.62
+            },
+            "right_colonnade": {
+              "mae": 2.8997,
+              "rmse": 7.476,
+              "clean_mean_rgb": [
+                8.96,
+                10.33,
+                12.79
+              ],
+              "render_mean_rgb": [
+                7.9,
+                10.38,
+                14.31
+              ],
+              "error_share_pct": 4.0
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp11_shadows_disabled_hero.png"
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 28,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.68,
+            "fps": 1477.8
+          },
+          "overall": {
+            "mae": 12.9042,
+            "rmse": 29.1924,
+            "psnr": 18.83,
+            "ssim": 0.4276,
+            "max_diff": 243.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 6.9192,
+              "rmse": 19.9729,
+              "clean_mean_rgb": [
+                12.62,
+                14.82,
+                18.22
+              ],
+              "render_mean_rgb": [
+                8.17,
+                10.93,
+                15.17
+              ],
+              "error_share_pct": 18.77
+            },
+            "core": {
+              "mae": 8.5108,
+              "rmse": 18.9107,
+              "clean_mean_rgb": [
+                11.77,
+                13.05,
+                15.34
+              ],
+              "render_mean_rgb": [
+                5.75,
+                7.5,
+                11.0
+              ],
+              "error_share_pct": 7.91
+            },
+            "floor": {
+              "mae": 15.4072,
+              "rmse": 30.2127,
+              "clean_mean_rgb": [
+                13.99,
+                15.46,
+                17.92
+              ],
+              "render_mean_rgb": [
+                11.19,
+                11.89,
+                15.16
+              ],
+              "error_share_pct": 41.79
+            },
+            "left_colonnade": {
+              "mae": 17.6103,
+              "rmse": 39.703,
+              "clean_mean_rgb": [
+                15.72,
+                18.06,
+                21.55
+              ],
+              "render_mean_rgb": [
+                10.22,
+                10.41,
+                13.63
+              ],
+              "error_share_pct": 19.11
+            },
+            "right_colonnade": {
+              "mae": 21.1084,
+              "rmse": 42.4665,
+              "clean_mean_rgb": [
+                17.24,
+                19.65,
+                23.2
+              ],
+              "render_mean_rgb": [
+                13.64,
+                16.89,
+                23.22
+              ],
+              "error_share_pct": 22.9
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp11_shadows_disabled_monumental.png"
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 28,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.69,
+            "fps": 1442.3
+          },
+          "overall": {
+            "mae": 19.3314,
+            "rmse": 38.3884,
+            "psnr": 16.45,
+            "ssim": 0.1709,
+            "max_diff": 239.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 12.2249,
+              "rmse": 28.3437,
+              "clean_mean_rgb": [
+                17.55,
+                19.41,
+                22.74
+              ],
+              "render_mean_rgb": [
+                16.26,
+                19.04,
+                23.88
+              ],
+              "error_share_pct": 22.13
+            },
+            "core": {
+              "mae": 16.7044,
+              "rmse": 37.9706,
+              "clean_mean_rgb": [
+                7.21,
+                6.97,
+                7.07
+              ],
+              "render_mean_rgb": [
+                17.16,
+                16.7,
+                18.22
+              ],
+              "error_share_pct": 10.37
+            },
+            "floor": {
+              "mae": 28.9432,
+              "rmse": 50.1381,
+              "clean_mean_rgb": [
+                19.67,
+                20.2,
+                22.26
+              ],
+              "render_mean_rgb": [
+                19.94,
+                21.47,
+                24.91
+              ],
+              "error_share_pct": 52.4
+            },
+            "left_colonnade": {
+              "mae": 22.3621,
+              "rmse": 36.9868,
+              "clean_mean_rgb": [
+                9.62,
+                7.94,
+                6.62
+              ],
+              "render_mean_rgb": [
+                21.3,
+                22.17,
+                26.67
+              ],
+              "error_share_pct": 16.19
+            },
+            "right_colonnade": {
+              "mae": 8.8047,
+              "rmse": 20.7832,
+              "clean_mean_rgb": [
+                22.65,
+                28.34,
+                36.12
+              ],
+              "render_mean_rgb": [
+                25.78,
+                30.79,
+                38.57
+              ],
+              "error_share_pct": 6.38
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp11_shadows_disabled_detail.png"
+        }
+      }
+    },
+    "exp12_env_horizon_boost": {
+      "subsystem": "Environment Lighting",
+      "name": "Environment: Elevated Horizon Luminance (#3a4f68)",
+      "variable_changed": "horizonColor: #26364a -> #3a4f68",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 30,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.23,
+            "fps": 813
+          },
+          "overall": {
+            "mae": 11.3007,
+            "rmse": 25.507,
+            "psnr": 20.0,
+            "ssim": 0.53,
+            "max_diff": 251.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 5.0722,
+              "rmse": 11.3911,
+              "clean_mean_rgb": [
+                13.88,
+                16.41,
+                20.39
+              ],
+              "render_mean_rgb": [
+                10.51,
+                14.1,
+                19.67
+              ],
+              "error_share_pct": 15.71
+            },
+            "core": {
+              "mae": 16.5743,
+              "rmse": 34.8838,
+              "clean_mean_rgb": [
+                23.24,
+                25.62,
+                28.58
+              ],
+              "render_mean_rgb": [
+                13.86,
+                14.57,
+                17.12
+              ],
+              "error_share_pct": 17.6
+            },
+            "floor": {
+              "mae": 18.6142,
+              "rmse": 34.0886,
+              "clean_mean_rgb": [
+                10.74,
+                11.58,
+                13.12
+              ],
+              "render_mean_rgb": [
+                17.81,
+                21.64,
+                27.7
+              ],
+              "error_share_pct": 57.65
+            },
+            "left_colonnade": {
+              "mae": 7.332,
+              "rmse": 19.831,
+              "clean_mean_rgb": [
+                19.81,
+                24.5,
+                31.17
+              ],
+              "render_mean_rgb": [
+                15.88,
+                21.51,
+                29.53
+              ],
+              "error_share_pct": 9.08
+            },
+            "right_colonnade": {
+              "mae": 3.4541,
+              "rmse": 7.9671,
+              "clean_mean_rgb": [
+                8.96,
+                10.33,
+                12.79
+              ],
+              "render_mean_rgb": [
+                8.08,
+                10.91,
+                15.42
+              ],
+              "error_share_pct": 4.28
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp12_env_horizon_boost_hero.png"
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 30,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.56,
+            "fps": 1785.7
+          },
+          "overall": {
+            "mae": 13.2141,
+            "rmse": 29.3066,
+            "psnr": 18.79,
+            "ssim": 0.4286,
+            "max_diff": 243.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 6.9493,
+              "rmse": 19.9327,
+              "clean_mean_rgb": [
+                12.62,
+                14.82,
+                18.22
+              ],
+              "render_mean_rgb": [
+                8.19,
+                11.0,
+                15.26
+              ],
+              "error_share_pct": 18.41
+            },
+            "core": {
+              "mae": 8.5425,
+              "rmse": 18.8691,
+              "clean_mean_rgb": [
+                11.77,
+                13.05,
+                15.34
+              ],
+              "render_mean_rgb": [
+                5.8,
+                7.6,
+                11.2
+              ],
+              "error_share_pct": 7.76
+            },
+            "floor": {
+              "mae": 16.0802,
+              "rmse": 30.5739,
+              "clean_mean_rgb": [
+                13.99,
+                15.46,
+                17.92
+              ],
+              "render_mean_rgb": [
+                11.93,
+                13.15,
+                17.34
+              ],
+              "error_share_pct": 42.59
+            },
+            "left_colonnade": {
+              "mae": 17.8668,
+              "rmse": 39.5902,
+              "clean_mean_rgb": [
+                15.72,
+                18.06,
+                21.55
+              ],
+              "render_mean_rgb": [
+                10.52,
+                10.85,
+                14.26
+              ],
+              "error_share_pct": 18.93
+            },
+            "right_colonnade": {
+              "mae": 21.3473,
+              "rmse": 42.5051,
+              "clean_mean_rgb": [
+                17.24,
+                19.65,
+                23.2
+              ],
+              "render_mean_rgb": [
+                13.88,
+                17.31,
+                23.7
+              ],
+              "error_share_pct": 22.62
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp12_env_horizon_boost_monumental.png"
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "performance": {
+            "drawCalls": 52,
+            "triangles": 86830,
+            "points": 0,
+            "lines": 0,
+            "geometries": 62,
+            "textures": 30,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.96,
+            "fps": 1038.1
+          },
+          "overall": {
+            "mae": 20.5764,
+            "rmse": 38.6856,
+            "psnr": 16.38,
+            "ssim": 0.1998,
+            "max_diff": 239.0
+          },
+          "regions": {
+            "sky": {
+              "mae": 12.5868,
+              "rmse": 28.5237,
+              "clean_mean_rgb": [
+                17.55,
+                19.41,
+                22.74
+              ],
+              "render_mean_rgb": [
+                16.7,
+                19.66,
+                24.79
+              ],
+              "error_share_pct": 21.41
+            },
+            "core": {
+              "mae": 17.8269,
+              "rmse": 38.7176,
+              "clean_mean_rgb": [
+                7.21,
+                6.97,
+                7.07
+              ],
+              "render_mean_rgb": [
+                18.29,
+                18.26,
+                20.63
+              ],
+              "error_share_pct": 10.4
+            },
+            "floor": {
+              "mae": 30.8539,
+              "rmse": 50.0183,
+              "clean_mean_rgb": [
+                19.67,
+                20.2,
+                22.26
+              ],
+              "render_mean_rgb": [
+                23.54,
+                26.09,
+                30.56
+              ],
+              "error_share_pct": 52.48
+            },
+            "left_colonnade": {
+              "mae": 24.384,
+              "rmse": 38.1372,
+              "clean_mean_rgb": [
+                9.62,
+                7.94,
+                6.62
+              ],
+              "render_mean_rgb": [
+                23.04,
+                24.58,
+                29.98
+              ],
+              "error_share_pct": 16.59
+            },
+            "right_colonnade": {
+              "mae": 9.528,
+              "rmse": 21.9643,
+              "clean_mean_rgb": [
+                22.65,
+                28.34,
+                36.12
+              ],
+              "render_mean_rgb": [
+                26.53,
+                31.76,
+                39.94
+              ],
+              "error_share_pct": 6.48
+            }
+          },
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/regional_diag_exp12_env_horizon_boost_detail.png"
+        }
+      }
+    }
+  }
+}

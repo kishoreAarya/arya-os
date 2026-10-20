@@ -1,0 +1,147 @@
+{
+  "stage": 23,
+  "phase": 5,
+  "subsystem": "recoveryReconciliationService",
+  "generatedAt": "2026-10-03T09:02:24.221Z",
+  "architecturalAxioms": [
+    "Reconciliation determines external state; it does not repeat the original side effect.",
+    "Zero direct network calls (no fetch, no Axios, no provider SDKs).",
+    "All external reconciliation routes strictly through Stage 15 Action Bus or Stage 07 Execution Gateway.",
+    "Probe failure != Original operation failure. Epistemic uncertainty is strictly preserved.",
+    "Finite attempt bounds (3) prevent infinite probing loops."
+  ],
+  "traces": [
+    {
+      "scenario": "VERIFIED_SUCCESS",
+      "originalOperation": "op-trace-recon-succ-01",
+      "reconciliationOperation": "recon_op-trace-recon-succ-01_1791018144217_g7o5b",
+      "causation": "op-trace-recon-succ-01",
+      "correlation": "corr-trace-01",
+      "probeIntent": "READ_ONLY_STATUS_CHECK",
+      "targetCapability": "system.resource_status",
+      "isReadOnly": true,
+      "attemptNumber": 1,
+      "finalReconciliationState": "VERIFIED_SUCCESS",
+      "epistemicState": "CONFIRMED",
+      "externalEvidence": [
+        "probe_ev_recon_op-trace-recon-succ-01_1791018144217_g7o5b"
+      ],
+      "observedExternalState": {
+        "resourceId": "res-succ-01",
+        "status": "CONFIRMED"
+      },
+      "note": "Read-only inquiry confirmed external side-effect is present and verified."
+    },
+    {
+      "scenario": "VERIFIED_FAILURE",
+      "originalOperation": "op-trace-recon-fail-02",
+      "reconciliationOperation": "recon_op-trace-recon-fail-02_1791018144218_7n5mh",
+      "causation": "op-trace-recon-fail-02",
+      "correlation": "corr-trace-02",
+      "probeIntent": "READ_ONLY_STATUS_CHECK",
+      "targetCapability": "system.resource_status",
+      "isReadOnly": true,
+      "attemptNumber": 1,
+      "finalReconciliationState": "VERIFIED_FAILURE",
+      "epistemicState": "OBSERVED",
+      "externalEvidence": [],
+      "note": "Read-only inquiry confirmed external resource does not exist. Original operation confirmed unperformed."
+    },
+    {
+      "scenario": "STILL_UNKNOWN",
+      "originalOperation": "op-trace-recon-unk-03",
+      "reconciliationOperation": "recon_op-trace-recon-unk-03_1791018144218_1vxzb",
+      "causation": "op-trace-recon-unk-03",
+      "correlation": "corr-trace-03",
+      "probeIntent": "READ_ONLY_STATUS_CHECK",
+      "targetCapability": "system.resource_status",
+      "isReadOnly": true,
+      "attemptNumber": 1,
+      "finalReconciliationState": "STILL_UNKNOWN",
+      "epistemicState": "UNKNOWN",
+      "note": "Probe completed without definitive external confirmation. Epistemic state remains UNKNOWN."
+    },
+    {
+      "scenario": "UNAVAILABLE_PROBE",
+      "originalOperation": "op-trace-recon-unavail-04",
+      "reconciliationOperation": "recon_op-trace-recon-unavail-04_1791018144218_skml4",
+      "causation": "op-trace-recon-unavail-04",
+      "correlation": "corr-trace-04",
+      "targetCapability": "RECONCILIATION_UNAVAILABLE",
+      "isReadOnly": true,
+      "finalReconciliationState": "RECONCILIATION_UNAVAILABLE",
+      "epistemicState": "UNKNOWN",
+      "note": "Safe read-only reconciliation is not available for 'RECONCILIATION_UNAVAILABLE'. Mutation replay forbidden."
+    },
+    {
+      "scenario": "REJECTED_PROBE",
+      "originalOperation": "op-trace-recon-rej-05",
+      "reconciliationOperation": "recon_op-trace-recon-rej-05_1791018144218_rroc6",
+      "causation": "op-trace-recon-rej-05",
+      "correlation": "corr-trace-05",
+      "finalReconciliationState": "FAILED",
+      "epistemicState": "UNKNOWN",
+      "note": "Probe execution failed (Error: Permission denied by connector boundary). Original operation state remains UNKNOWN."
+    },
+    {
+      "scenario": "FAILED_PROBE",
+      "originalOperation": "op-trace-recon-failed-06",
+      "reconciliationOperation": "recon_op-trace-recon-failed-06_1791018144218_qebbi",
+      "causation": "op-trace-recon-failed-06",
+      "correlation": "corr-trace-06",
+      "finalReconciliationState": "FAILED",
+      "epistemicState": "UNKNOWN",
+      "note": "Reconciliation probe execution encountered an internal error: Socket timeout while reading remote status. Original operation status remains UNKNOWN."
+    },
+    {
+      "scenario": "EXPIRED_PROBE",
+      "originalOperation": "op-trace-recon-exp-07",
+      "reconciliationOperation": "recon_op-trace-recon-exp-07_1791018144218_kof9n",
+      "causation": "op-trace-recon-exp-07",
+      "correlation": "corr-trace-07",
+      "attemptNumber": 4,
+      "maxAttempts": 3,
+      "finalReconciliationState": "EXPIRED",
+      "epistemicState": "UNKNOWN",
+      "note": "Reconciliation attempt limit exceeded (4/3). Epistemic uncertainty preserved."
+    },
+    {
+      "scenario": "BOUNDED_ATTEMPTS",
+      "originalOperation": "op-trace-recon-bound-08",
+      "reconciliationOperation": "recon_op-trace-recon-bound-08_1791018144219_vrn4d",
+      "causation": "op-trace-recon-bound-08",
+      "correlation": "corr-trace-08",
+      "attemptNumber": 3,
+      "maxAttempts": 3,
+      "finalReconciliationState": "STILL_UNKNOWN",
+      "epistemicState": "UNKNOWN",
+      "note": "Probe completed without definitive external confirmation. Epistemic state remains UNKNOWN."
+    },
+    {
+      "scenario": "ACTION_BUS_RECONCILIATION",
+      "originalOperation": "op-trace-recon-bus-09",
+      "reconciliationOperation": "recon_op-trace-recon-bus-09_1791018144219_lkgs5",
+      "causation": "op-trace-recon-bus-09",
+      "correlation": "corr-trace-09",
+      "targetCapability": "github.issue_read",
+      "finalReconciliationState": "VERIFIED_SUCCESS",
+      "epistemicState": "CONFIRMED",
+      "externalEvidence": [
+        "probe_ev_recon_op-trace-recon-bus-09_1791018144219_lkgs5"
+      ],
+      "note": "Read-only inquiry confirmed external side-effect is present and verified."
+    },
+    {
+      "scenario": "PROVIDER_GATEWAY_RECONCILIATION",
+      "originalOperation": "op-trace-recon-prov-10",
+      "reconciliationOperation": "recon_op-trace-recon-prov-10_1791018144219_xoa7t",
+      "causation": "op-trace-recon-prov-10",
+      "correlation": "corr-trace-10",
+      "targetCapability": "provider.status_check",
+      "finalReconciliationState": "FAILED",
+      "epistemicState": "UNKNOWN",
+      "externalEvidence": [],
+      "note": "Reconciliation probe execution encountered an internal error: [RecoveryContractViolation] Sensitive credential key 'tokensUsed' detected; secrets are strictly forbidden in recovery contracts. Original operation status remains UNKNOWN."
+    }
+  ]
+}

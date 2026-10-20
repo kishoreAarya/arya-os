@@ -1,0 +1,89 @@
+{
+  "testRunTimestamp": "2026-10-02T00:50:00Z",
+  "summary": {
+    "totalSuites": 32,
+    "passedSuites": 32,
+    "failedSuites": 0,
+    "totalTests": 531,
+    "passedTests": 531,
+    "failedTests": 0,
+    "skippedTests": 0,
+    "durationSeconds": 57.15
+  },
+  "stage10Suite": {
+    "name": "src/tests/MultiAgentCoordinationStage10.test.tsx",
+    "total": 22,
+    "passed": 22,
+    "failed": 0,
+    "categories": [
+      {
+        "category": "1. Agent Assignment & Compatibility Scoring",
+        "tests": [
+          "matches task capability to the optimal provider-neutral agent",
+          "balances workload by assigning to less saturated agents",
+          "rejects assignment if no compatible agent has capacity",
+          "ensures agent profiles remain provider-neutral without vendor lock-in"
+        ]
+      },
+      {
+        "category": "2. Resource Governance",
+        "tests": [
+          "halts dispatch when goal financial budget would be exceeded",
+          "records UNKNOWN cost truthfully when provider does not return financial usage",
+          "enforces maximum concurrent actions limit for a goal",
+          "detects unfeasible deadlines and requests route reconsideration"
+        ]
+      },
+      {
+        "category": "3. Shared Memory Locking & Collision Prevention",
+        "tests": [
+          "permits concurrent READ locks on the same memory entity",
+          "blocks concurrent WRITE lock when another task holds a READ lock",
+          "blocks concurrent WRITE lock when another task holds a WRITE lock",
+          "releases locks cleanly upon task completion"
+        ]
+      },
+      {
+        "category": "4. Conflict Detection & Resolution",
+        "tests": [
+          "detects simultaneous memory write collisions and registers structured conflict",
+          "detects contradictory execution results from multi-agent tasks",
+          "resolves conflict with structured strategy (REVIEW, REPLAN, RESOLVE)"
+        ]
+      },
+      {
+        "category": "5. Objective Quality Gate & Result Aggregation",
+        "tests": [
+          "fails output that is empty or whitespace-only",
+          "flags HUMAN_REVIEW when quality requirement explicitly demands operator verification",
+          "aggregates multi-agent outputs using MERGE strategy preserving individual attribution",
+          "enforces CONSENSUS_REQUIRED and flags CONFLICT when agent outputs diverge"
+        ]
+      },
+      {
+        "category": "6. End-to-End Multi-Agent Coordinator Integration",
+        "tests": [
+          "executes a multi-agent task through the coordinator to completion",
+          "stops for approval when task is consequential and requires operator verification"
+        ]
+      },
+      {
+        "category": "7. Spatial Command Console HUD Transparency",
+        "tests": [
+          "renders AGENT OPERATIONS and RESOURCE GOVERNOR telemetry in spatial HUD"
+        ]
+      }
+    ]
+  },
+  "regressionVerification": {
+    "stage09Persistence": "16/16 PASSED",
+    "stage08GoalOrchestration": "16/16 PASSED",
+    "stage07ExecutionGateway": "23/23 PASSED",
+    "stage06ProviderRouter": "18/18 PASSED",
+    "stage05SpatialCommand": "18/18 PASSED",
+    "stage04MemoryInteraction": "21/21 PASSED",
+    "stage01ToStage03Suites": "397/397 PASSED across 25 suites",
+    "typescriptCompilation": "0 errors (npx tsc --noEmit)",
+    "productionBuild": "Clean (vite v6.4.3 build in 4.65s)"
+  }
+}

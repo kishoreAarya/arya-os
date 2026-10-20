@@ -18,8 +18,9 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.logging import get_logger
 from app.core.secrets import get_secrets_manager
-from app.core.security import verify_api_key
+from app.core.security import get_current_principal, verify_api_key
 from app.database.session import get_db
 from app.models.core import WorkflowRun
 from app.models.provider import Provider
@@ -27,7 +28,15 @@ from app.providers.capabilities import PROVIDER_CAPABILITIES
 from app.storage import get_storage_provider
 from app.validators import VALIDATOR_REGISTRY
 
+logger = get_logger("arya.health")
+
 router = APIRouter(tags=["health"])
+
+
+@router.get("/live")
+async def live():
+    """Pure process liveness probe. Returns 200 OK immediately if the web process is alive."""
+    return {"status": "alive"}
 
 
 @router.get("/health")
@@ -37,23 +46,33 @@ async def health(request: Request, db: AsyncSession = Depends(get_db)):
         await db.execute(text("SELECT 1"))
         checks["postgres"] = "ok"
     except Exception as exc:  # noqa: BLE001
-        checks["postgres"] = f"error: {exc}"
+        logger.error("health_check_postgres_failed", error=str(exc))
+        checks["postgres"] = "error"
 
-    try:
-        pong = await request.app.state.redis.ping()
-        checks["redis"] = "ok" if pong else "error: no pong"
-    except Exception as exc:  # noqa: BLE001
-        checks["redis"] = f"error: {exc}"
+    redis_client = getattr(request.app.state, "redis", None)
+    if redis_client is not None:
+        try:
+            pong = await redis_client.ping()
+            checks["redis"] = "ok" if pong else "error"
+        except Exception as exc:  # noqa: BLE001
+            logger.error("health_check_redis_failed", error=str(exc))
+            checks["redis"] = "error"
+    else:
+        checks["redis"] = "ok"
+
 
     overall = "healthy" if all(v == "ok" for v in checks.values()) else "degraded"
     return {"status": overall, "checks": checks}
 
 
 @router.get("/ready")
-async def ready(request: Request, db: AsyncSession = Depends(get_db)):
+async def ready(
+    request: Request,
+    response: Response = None,
+    db: AsyncSession = Depends(get_db),
+):
     liveness = await health(request, db)
     storage_ok = True
-    storage_error = None
     try:
         storage = get_storage_provider()
         test_key = "_health/ready_check.txt"
@@ -61,18 +80,22 @@ async def ready(request: Request, db: AsyncSession = Depends(get_db)):
         await storage.download(test_key)
         await storage.delete(test_key)
     except Exception as exc:  # noqa: BLE001
+        logger.error("ready_check_storage_failed", error=str(exc))
         storage_ok = False
-        storage_error = str(exc)
 
     ready_state = liveness["status"] == "healthy" and storage_ok
+    if not ready_state and response is not None:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
     return {
         "ready": ready_state,
         "liveness": liveness,
-        "storage": "ok" if storage_ok else f"error: {storage_error}",
+        "storage": "ok" if storage_ok else "error",
     }
 
 
-@router.get("/providers", dependencies=[Depends(verify_api_key)])
+
+@router.get("/providers", dependencies=[Depends(get_current_principal)])
 async def providers_status(db: AsyncSession = Depends(get_db)):
     secrets = get_secrets_manager()
     db_providers = {p.name: p for p in (await db.execute(select(Provider))).scalars().all()}
@@ -99,16 +122,17 @@ async def providers_status(db: AsyncSession = Depends(get_db)):
     return {"providers": result}
 
 
-@router.get("/database", dependencies=[Depends(verify_api_key)])
+@router.get("/database", dependencies=[Depends(get_current_principal)])
 async def database_status(db: AsyncSession = Depends(get_db)):
     try:
         run_count = (await db.execute(select(func.count()).select_from(WorkflowRun))).scalar_one()
         return {"status": "ok", "workflow_run_count": run_count}
     except Exception as exc:  # noqa: BLE001
-        return {"status": f"error: {exc}"}
+        logger.error("database_status_check_failed", error=str(exc))
+        return {"status": "error"}
 
 
-@router.get("/storage", dependencies=[Depends(verify_api_key)])
+@router.get("/storage", dependencies=[Depends(get_current_principal)])
 async def storage_status():
     settings = get_settings()
     try:
@@ -119,9 +143,10 @@ async def storage_status():
         await storage.delete(test_key)
         return {"backend": settings.storage_backend, "status": "ok" if exists else "degraded"}
     except Exception as exc:  # noqa: BLE001
-        return {"backend": settings.storage_backend, "status": f"error: {exc}"}
+        logger.error("storage_status_check_failed", error=str(exc))
+        return {"backend": settings.storage_backend, "status": "error"}
 
 
-@router.get("/validators", dependencies=[Depends(verify_api_key)])
+@router.get("/validators", dependencies=[Depends(get_current_principal)])
 async def validators_status():
     return {"validators": list(VALIDATOR_REGISTRY.keys())}

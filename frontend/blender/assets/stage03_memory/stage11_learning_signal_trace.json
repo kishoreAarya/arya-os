@@ -1,0 +1,78 @@
+{
+  "stage": "STAGE_11_LEARNING_SIGNALS",
+  "generatedAt": "2026-10-02T03:14:30.000Z",
+  "signalsCount": 2,
+  "recommendationsCount": 2,
+  "learningSignals": [
+    {
+      "signalId": "ls-high-qual-specialist-analyst-MEMORY_SYNTHESIS-1790910504301",
+      "signalType": "AGENT_HIGH_QUALITY_FOR_TASK",
+      "sourceExperienceIds": [
+        "exp-1790910504101-9a8b7c",
+        "exp-1790910504104-2c3d4e",
+        "exp-1790910504105-5f6g7h"
+      ],
+      "dimension": "QUALITY",
+      "observation": "Agent 'specialist-analyst' exhibits consistently high quality (0.94) on task 'MEMORY_SYNTHESIS'.",
+      "confidence": "HIGH",
+      "sampleSize": 8,
+      "createdAt": "2026-10-02T03:13:00.000Z",
+      "expiresAt": "2026-10-09T03:13:00.000Z",
+      "impact": "HIGH",
+      "status": "ACTIONABLE"
+    },
+    {
+      "signalId": "ls-high-fail-unstable-provider-1790910504302",
+      "signalType": "PROVIDER_HIGH_FAILURE_RATE",
+      "sourceExperienceIds": [
+        "exp-1790910504103-g5h6j",
+        "exp-1790910504106-7j8k9l",
+        "exp-1790910504107-1m2n3p"
+      ],
+      "dimension": "RELIABILITY",
+      "observation": "Provider 'unstable-provider' exhibits elevated failure rate (75%) across 4 executions.",
+      "confidence": "MEDIUM",
+      "sampleSize": 4,
+      "createdAt": "2026-10-02T03:13:05.000Z",
+      "expiresAt": "2026-10-09T03:13:05.000Z",
+      "impact": "HIGH",
+      "status": "ACTIONABLE"
+    }
+  ],
+  "policyRecommendations": [
+    {
+      "recommendationId": "rec-pref-specialist-analyst-MEMORY_SYNTHESIS-1790910504310",
+      "reason": "Signal ls-high-qual-specialist-analyst-MEMORY_SYNTHESIS-1790910504301: Agent 'specialist-analyst' exhibits consistently high quality on task 'MEMORY_SYNTHESIS'. Recommend setting as preferred specialist.",
+      "evidenceSignalIds": ["ls-high-qual-specialist-analyst-MEMORY_SYNTHESIS-1790910504301"],
+      "affectedPolicy": "agent_task_dispatch",
+      "proposedAdjustment": {
+        "action": "SET_PREFERRED_AGENT",
+        "agentId": "specialist-analyst",
+        "taskType": "MEMORY_SYNTHESIS"
+      },
+      "expectedImpact": "Improves first-pass output quality and reduces replanning frequency.",
+      "risk": "LOW",
+      "confidence": "HIGH",
+      "status": "PROPOSED",
+      "requiresHumanApproval": true,
+      "proposedAt": "2026-10-02T03:13:10.000Z"
+    },
+    {
+      "recommendationId": "rec-demote-unstable-provider-1790910504311",
+      "reason": "Signal ls-high-fail-unstable-provider-1790910504302: Provider 'unstable-provider' exhibits high failure rate. Recommend demoting from primary route.",
+      "evidenceSignalIds": ["ls-high-fail-unstable-provider-1790910504302"],
+      "affectedPolicy": "intelligence_provider_routing",
+      "proposedAdjustment": {
+        "action": "DEMOTE_PROVIDER",
+        "providerId": "unstable-provider",
+        "suggestedFallbackProvider": "mock"
+      },
+      "expectedImpact": "Reduces goal failure rate and prevents cascading task timeouts.",
+      "risk": "MEDIUM",
+      "confidence": "MEDIUM",
+      "status": "PROPOSED",
+      "requiresHumanApproval": true,
+      "proposedAt": "2026-10-02T03:13:15.000Z"
+    }
+  ]
+}

@@ -1,0 +1,401 @@
+{
+  "stage": 23,
+  "phase": 8,
+  "subsystem": "recoveryControlPlane",
+  "generatedAt": "2026-10-03T11:50:50.128Z",
+  "architecturalAxioms": [
+    "Single recovery control decision surface coordinating Phases 1 through 7.",
+    "Zero direct execution, zero direct network calls (no fetch, Axios, raw sockets).",
+    "Fail-closed on uncertainty: Ambiguity in governance, state, or policy strictly triggers REQUIRE_APPROVAL or ESCALATE.",
+    "Strict precedence hierarchy: Safety > Unknown State > Partial Execution > Cascade Containment > Governance > Reconciliation > Compensation > Stale State > Resource/Dependency > Transient Retry.",
+    "Deterministic decision identity and stable idempotency caching.",
+    "Authenticated operator gating enforced: actorType === USER required for destructive/critical containment."
+  ],
+  "traces": [
+    {
+      "scenario": "successful operation/no recovery",
+      "requestId": "req-trace-success-01",
+      "operationId": "op-trace-success-01",
+      "decisionId": "rcdec_op-trace-success-01_1791028250124_7sdo1",
+      "classification": "SYSTEM_INTERRUPTION",
+      "recoveryOutcome": "NO_RECOVERY_REQUIRED",
+      "recommendedAction": "WAIT",
+      "riskLevel": "LOW",
+      "epistemicStatus": "CONFIRMED",
+      "reasonCodes": [
+        "OPERATION_CONFIRMED_SUCCESSFUL",
+        "NO_RECOVERY_REQUIRED"
+      ],
+      "evidenceIds": [
+        "ev_success_op-trace-success-01"
+      ],
+      "causationId": "op-trace-success-01",
+      "correlationId": "corr-trace-01",
+      "compensationAvailable": false,
+      "governanceRequirement": {
+        "required": false,
+        "humanOperatorRequired": false,
+        "reason": "Operation confirmed successful; no recovery intervention required."
+      },
+      "lifecycleState": "DECIDED"
+    },
+    {
+      "scenario": "transient retry",
+      "requestId": "req-trace-retry-02",
+      "operationId": "op-trace-retry-02",
+      "decisionId": "rcdec_op-trace-retry-02_1791028250125_kfnnv",
+      "classification": "TRANSIENT",
+      "recoveryOutcome": "RETRY",
+      "recommendedAction": "RETRY",
+      "riskLevel": "MEDIUM",
+      "epistemicStatus": "OBSERVED",
+      "reasonCodes": [
+        "SAFE_TRANSIENT_RETRY_PERMITTED"
+      ],
+      "evidenceIds": [
+        "ev_plan_op-trace-retry-02",
+        "ev_safety_1791028250126"
+      ],
+      "causationId": "op-trace-retry-02",
+      "correlationId": "corr-trace-02",
+      "compensationAvailable": false,
+      "cascadeClassification": "NO_CASCADE",
+      "governanceRequirement": {
+        "required": false,
+        "humanOperatorRequired": false,
+        "reason": "Routine automated recovery under baseline policy."
+      },
+      "lifecycleState": "DECIDED"
+    },
+    {
+      "scenario": "unsafe retry",
+      "requestId": "req-trace-unsafe-retry-03",
+      "operationId": "op-trace-unsafe-retry-03",
+      "decisionId": "rcdec_op-trace-unsafe-retry-03_1791028250126_k93kb",
+      "classification": "UNKNOWN_EXTERNAL_STATE",
+      "recoveryOutcome": "RECONCILE",
+      "recommendedAction": "RECONCILE",
+      "riskLevel": "MEDIUM",
+      "epistemicStatus": "UNKNOWN",
+      "reasonCodes": [
+        "UNKNOWN_EXTERNAL_STATE_DETECTED",
+        "RECONCILIATION_MANDATED_BEFORE_RETRY"
+      ],
+      "evidenceIds": [
+        "ev_plan_op-trace-unsafe-retry-03",
+        "ev_safety_1791028250126"
+      ],
+      "causationId": "op-trace-unsafe-retry-03",
+      "correlationId": "corr-trace-03",
+      "reconciliationRequirement": {
+        "required": true,
+        "reason": "STATUS_POLL",
+        "timeoutMs": 10000
+      },
+      "compensationAvailable": false,
+      "cascadeClassification": "NO_CASCADE",
+      "governanceRequirement": {
+        "required": true,
+        "humanOperatorRequired": true,
+        "reason": "High-risk or destructive recovery action requires Stage 21 human operator approval."
+      },
+      "lifecycleState": "DECIDED"
+    },
+    {
+      "scenario": "unknown external state",
+      "requestId": "req-trace-unknown-state-04",
+      "operationId": "op-trace-unknown-state-04",
+      "decisionId": "rcdec_op-trace-unknown-state-04_1791028250126_29bq1",
+      "classification": "SYSTEM_INTERRUPTION",
+      "recoveryOutcome": "RECONCILE",
+      "recommendedAction": "RECONCILE",
+      "riskLevel": "MEDIUM",
+      "epistemicStatus": "UNKNOWN",
+      "reasonCodes": [
+        "UNKNOWN_EXTERNAL_STATE_DETECTED",
+        "RECONCILIATION_MANDATED_BEFORE_RETRY"
+      ],
+      "evidenceIds": [
+        "ev_default_op-trace-unknown-state-04",
+        "ev_plan_op-trace-unknown-state-04",
+        "ev_safety_1791028250126"
+      ],
+      "causationId": "op-trace-unknown-state-04",
+      "correlationId": "corr-trace-04",
+      "reconciliationRequirement": {
+        "required": true,
+        "reason": "STATUS_POLL",
+        "timeoutMs": 10000
+      },
+      "compensationAvailable": false,
+      "cascadeClassification": "NO_CASCADE",
+      "governanceRequirement": {
+        "required": false,
+        "humanOperatorRequired": false,
+        "reason": "Routine automated recovery under baseline policy."
+      },
+      "lifecycleState": "DECIDED"
+    },
+    {
+      "scenario": "partial execution",
+      "requestId": "req-trace-partial-05",
+      "operationId": "op-trace-partial-05",
+      "decisionId": "rcdec_op-trace-partial-05_1791028250126_cgl2b",
+      "classification": "PARTIAL_EXECUTION",
+      "recoveryOutcome": "RESUME",
+      "recommendedAction": "RESUME",
+      "riskLevel": "MEDIUM",
+      "epistemicStatus": "OBSERVED",
+      "reasonCodes": [
+        "PARTIAL_EXECUTION_STEPS_PRESERVED"
+      ],
+      "evidenceIds": [
+        "ev_plan_op-trace-partial-05",
+        "ev_safety_1791028250126"
+      ],
+      "causationId": "op-trace-partial-05",
+      "correlationId": "corr-trace-05",
+      "reconciliationRequirement": {
+        "required": true,
+        "reason": "STATUS_POLL",
+        "timeoutMs": 10000
+      },
+      "compensationAvailable": false,
+      "cascadeClassification": "NO_CASCADE",
+      "governanceRequirement": {
+        "required": false,
+        "humanOperatorRequired": false,
+        "reason": "Routine automated recovery under baseline policy."
+      },
+      "lifecycleState": "DECIDED"
+    },
+    {
+      "scenario": "compensation",
+      "requestId": "req-trace-comp-06",
+      "operationId": "op-trace-comp-06",
+      "decisionId": "rcdec_op-trace-comp-06_1791028250126_c7ido",
+      "classification": "PARTIAL_EXECUTION",
+      "recoveryOutcome": "COMPENSATE",
+      "recommendedAction": "COMPENSATE",
+      "riskLevel": "MEDIUM",
+      "epistemicStatus": "OBSERVED",
+      "reasonCodes": [
+        "PARTIAL_EXECUTION_STEPS_PRESERVED"
+      ],
+      "evidenceIds": [
+        "ev_comp_comp_op-trace-comp-06_1791028250126_ymkdb",
+        "ev_plan_op-trace-comp-06",
+        "ev_safety_1791028250127"
+      ],
+      "causationId": "op-trace-comp-06",
+      "correlationId": "corr-trace-06",
+      "reconciliationRequirement": {
+        "required": true,
+        "reason": "STATUS_POLL",
+        "timeoutMs": 10000
+      },
+      "compensationAvailable": true,
+      "cascadeClassification": "NO_CASCADE",
+      "governanceRequirement": {
+        "required": false,
+        "humanOperatorRequired": false,
+        "reason": "Routine automated recovery under baseline policy."
+      },
+      "lifecycleState": "DECIDED"
+    },
+    {
+      "scenario": "reconciliation",
+      "requestId": "req-trace-recon-07",
+      "operationId": "op-trace-recon-07",
+      "decisionId": "rcdec_op-trace-recon-07_1791028250127_1czg8",
+      "classification": "UNKNOWN_EXTERNAL_STATE",
+      "recoveryOutcome": "RECONCILE",
+      "recommendedAction": "RECONCILE",
+      "riskLevel": "MEDIUM",
+      "epistemicStatus": "UNKNOWN",
+      "reasonCodes": [
+        "UNKNOWN_EXTERNAL_STATE_DETECTED",
+        "RECONCILIATION_MANDATED_BEFORE_RETRY"
+      ],
+      "evidenceIds": [
+        "ev_plan_op-trace-recon-07",
+        "ev_safety_1791028250127"
+      ],
+      "causationId": "op-trace-recon-07",
+      "correlationId": "corr-trace-07",
+      "reconciliationRequirement": {
+        "required": true,
+        "reason": "STATUS_POLL",
+        "timeoutMs": 10000
+      },
+      "compensationAvailable": false,
+      "cascadeClassification": "NO_CASCADE",
+      "governanceRequirement": {
+        "required": false,
+        "humanOperatorRequired": false,
+        "reason": "Routine automated recovery under baseline policy."
+      },
+      "lifecycleState": "DECIDED"
+    },
+    {
+      "scenario": "cascade containment",
+      "requestId": "req-trace-cascade-08",
+      "operationId": "op-trace-cascade-08",
+      "decisionId": "rcdec_op-trace-cascade-08_1791028250127_exwf3",
+      "classification": "SYSTEM_INTERRUPTION",
+      "recoveryOutcome": "PAUSE",
+      "recommendedAction": "PAUSE",
+      "riskLevel": "HIGH",
+      "epistemicStatus": "OBSERVED",
+      "reasonCodes": [
+        "CASCADE_REACTION_CASCADE",
+        "CONTROL_PAUSE",
+        "CASCADE_OVERRIDE_PAUSE"
+      ],
+      "evidenceIds": [
+        "ev_default_op-trace-cascade-08",
+        "ev_cascade_casc_op-trace-cascade-08_1791028250127_jaxo3",
+        "ev_plan_op-trace-cascade-08",
+        "ev_safety_1791028250127"
+      ],
+      "causationId": "op-trace-cascade-08",
+      "correlationId": "corr-trace-08",
+      "compensationAvailable": false,
+      "cascadeClassification": "REACTION_CASCADE",
+      "containmentControl": "PAUSE",
+      "governanceRequirement": {
+        "required": true,
+        "humanOperatorRequired": true,
+        "reason": "Cascade containment action 'PAUSE' mandates execution pause."
+      },
+      "lifecycleState": "DECIDED"
+    },
+    {
+      "scenario": "governance requirement",
+      "requestId": "req-trace-gov-09",
+      "operationId": "op-trace-gov-09",
+      "decisionId": "rcdec_op-trace-gov-09_1791028250127_csv87",
+      "classification": "SYSTEM_INTERRUPTION",
+      "recoveryOutcome": "REQUIRE_APPROVAL",
+      "recommendedAction": "REQUIRE_APPROVAL",
+      "riskLevel": "CRITICAL",
+      "epistemicStatus": "UNKNOWN",
+      "reasonCodes": [
+        "UNKNOWN_EXTERNAL_STATE_DETECTED"
+      ],
+      "evidenceIds": [
+        "ev_default_op-trace-gov-09",
+        "ev_plan_op-trace-gov-09",
+        "ev_safety_1791028250127"
+      ],
+      "causationId": "op-trace-gov-09",
+      "correlationId": "corr-trace-09",
+      "reconciliationRequirement": {
+        "required": true,
+        "reason": "STATUS_POLL",
+        "timeoutMs": 10000
+      },
+      "compensationAvailable": false,
+      "cascadeClassification": "NO_CASCADE",
+      "governanceRequirement": {
+        "required": true,
+        "humanOperatorRequired": true,
+        "reason": "High-risk or destructive recovery action requires Stage 21 human operator approval."
+      },
+      "lifecycleState": "DECIDED"
+    },
+    {
+      "scenario": "stale governance",
+      "requestId": "req-trace-stale-10",
+      "operationId": "op-trace-stale-10",
+      "decisionId": "rcdec_op-trace-stale-10_1791028250128_381aa",
+      "classification": "SYSTEM_INTERRUPTION",
+      "recoveryOutcome": "REQUIRE_APPROVAL",
+      "recommendedAction": "REQUIRE_APPROVAL",
+      "riskLevel": "HIGH",
+      "epistemicStatus": "OBSERVED",
+      "reasonCodes": [
+        "CASCADE_UNKNOWN_CASCADE",
+        "CONTROL_REQUIRE_APPROVAL",
+        "CASCADE_OVERRIDE_REQUIRE_APPROVAL"
+      ],
+      "evidenceIds": [
+        "ev_default_op-trace-stale-10",
+        "ev_cascade_casc_op-trace-stale-10_1791028250128_lscep",
+        "ev_plan_op-trace-stale-10",
+        "ev_safety_1791028250128"
+      ],
+      "causationId": "op-trace-stale-10",
+      "correlationId": "corr-trace-10",
+      "compensationAvailable": false,
+      "cascadeClassification": "UNKNOWN_CASCADE",
+      "containmentControl": "REQUIRE_APPROVAL",
+      "governanceRequirement": {
+        "required": true,
+        "humanOperatorRequired": true,
+        "reason": "Governance context is stale; operator re-authorization required.",
+        "stale": true
+      },
+      "lifecycleState": "DECIDED"
+    },
+    {
+      "scenario": "escalation",
+      "requestId": "req-trace-esc-11",
+      "operationId": "op-trace-esc-11",
+      "decisionId": "rcdec_op-trace-esc-11_1791028250128_xn4g0",
+      "classification": "SYSTEM_INTERRUPTION",
+      "recoveryOutcome": "ESCALATE",
+      "recommendedAction": "WAIT",
+      "riskLevel": "HIGH",
+      "epistemicStatus": "OBSERVED",
+      "reasonCodes": [
+        "RECOVERY_DEPTH_LIMIT_REACHED"
+      ],
+      "evidenceIds": [
+        "ev_depth_3"
+      ],
+      "causationId": "op-trace-esc-11",
+      "correlationId": "corr-trace-11",
+      "compensationAvailable": false,
+      "governanceRequirement": {
+        "required": true,
+        "humanOperatorRequired": true,
+        "reason": "Recovery recursion depth limit reached; autonomous recovery escalated to human operator."
+      },
+      "lifecycleState": "DECIDED"
+    },
+    {
+      "scenario": "fail-closed behavior",
+      "requestId": "req-trace-failclosed-12",
+      "operationId": "op-trace-failclosed-12",
+      "decisionId": "rcdec_op-trace-failclosed-12_1791028250128_hrhgv",
+      "classification": "SYSTEM_INTERRUPTION",
+      "recoveryOutcome": "REQUIRE_APPROVAL",
+      "recommendedAction": "REQUIRE_APPROVAL",
+      "riskLevel": "HIGH",
+      "epistemicStatus": "OBSERVED",
+      "reasonCodes": [
+        "CASCADE_UNKNOWN_CASCADE",
+        "CONTROL_REQUIRE_APPROVAL",
+        "CASCADE_OVERRIDE_REQUIRE_APPROVAL"
+      ],
+      "evidenceIds": [
+        "ev_default_op-trace-failclosed-12",
+        "ev_cascade_casc_op-trace-failclosed-12_1791028250128_eyk5f",
+        "ev_plan_op-trace-failclosed-12",
+        "ev_safety_1791028250128"
+      ],
+      "causationId": "op-trace-failclosed-12",
+      "correlationId": "corr-trace-12",
+      "compensationAvailable": false,
+      "cascadeClassification": "UNKNOWN_CASCADE",
+      "containmentControl": "REQUIRE_APPROVAL",
+      "governanceRequirement": {
+        "required": true,
+        "humanOperatorRequired": true,
+        "reason": "Governance context is uncertain; fail-closed gate triggered."
+      },
+      "lifecycleState": "DECIDED"
+    }
+  ]
+}

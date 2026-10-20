@@ -54,10 +54,11 @@ def auth_headers():
 
 
 @pytest.fixture
-def temp_storage_env():
+def temp_storage_env(monkeypatch):
     """Create a temporary isolated storage directory for tests."""
     temp_dir = tempfile.mkdtemp(prefix="arya_creator_loop_storage_")
     provider = LocalStorageProvider(base_path=temp_dir)
+    monkeypatch.setattr("app.storage.get_storage_provider", lambda: provider)
     yield temp_dir, provider
     import shutil
     if os.path.exists(temp_dir):

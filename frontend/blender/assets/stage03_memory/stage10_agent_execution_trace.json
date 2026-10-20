@@ -1,0 +1,137 @@
+{
+  "scenario": "MULTI_AGENT_PIPELINE_EXECUTION",
+  "goalId": "goal-stage10-multi-01",
+  "objective": "Deep archival analysis and narrative brief synthesis",
+  "pipeline": [
+    {
+      "step": 1,
+      "taskId": "TASK-act-res-01",
+      "actionId": "act-res-01",
+      "assignedAgent": {
+        "agentId": "agent-researcher",
+        "name": "Archival Researcher",
+        "role": "RESEARCHER"
+      },
+      "capability": "RESEARCH",
+      "governance": {
+        "leaseId": "LEASE-1727828001-9921",
+        "budgetApproved": true,
+        "concurrencySlot": 1
+      },
+      "memoryLocks": [
+        {
+          "memoryId": "MEM-0001",
+          "accessType": "READ",
+          "state": "READ_LOCKED"
+        }
+      ],
+      "execution": {
+        "providerId": "gemini",
+        "modelId": "gemini-1.5-pro",
+        "executionId": "EXEC-1727828002-101",
+        "latencyMs": 840,
+        "actualCostUsd": 0.008,
+        "status": "SUCCEEDED"
+      },
+      "qualityGate": {
+        "level": "QUALITY_STANDARD",
+        "passed": true,
+        "issues": []
+      },
+      "aggregation": {
+        "strategy": "SINGLE_RESULT",
+        "outputLength": 342
+      }
+    },
+    {
+      "step": 2,
+      "taskId": "TASK-act-ana-02",
+      "actionId": "act-ana-02",
+      "assignedAgent": {
+        "agentId": "agent-analyst",
+        "name": "Contextual Analyst",
+        "role": "ANALYST"
+      },
+      "capability": "REASONING",
+      "governance": {
+        "leaseId": "LEASE-1727828003-4412",
+        "budgetApproved": true,
+        "concurrencySlot": 1
+      },
+      "memoryLocks": [
+        {
+          "memoryId": "MEM-0001",
+          "accessType": "READ",
+          "state": "READ_LOCKED"
+        }
+      ],
+      "execution": {
+        "providerId": "anthropic",
+        "modelId": "claude-3-5-sonnet-20241022",
+        "executionId": "EXEC-1727828004-202",
+        "latencyMs": 950,
+        "actualCostUsd": 0.015,
+        "status": "SUCCEEDED"
+      },
+      "qualityGate": {
+        "level": "QUALITY_STANDARD",
+        "passed": true,
+        "issues": []
+      },
+      "aggregation": {
+        "strategy": "SINGLE_RESULT",
+        "outputLength": 418
+      }
+    },
+    {
+      "step": 3,
+      "taskId": "TASK-act-wri-03",
+      "actionId": "act-wri-03",
+      "assignedAgent": {
+        "agentId": "agent-writer",
+        "name": "Narrative Synthesizer",
+        "role": "WRITER"
+      },
+      "capability": "SUMMARIZATION",
+      "governance": {
+        "leaseId": "LEASE-1727828005-7781",
+        "budgetApproved": true,
+        "concurrencySlot": 1
+      },
+      "memoryLocks": [
+        {
+          "memoryId": "MEM-0001",
+          "accessType": "READ",
+          "state": "READ_LOCKED"
+        }
+      ],
+      "execution": {
+        "providerId": "openai",
+        "modelId": "gpt-4o",
+        "executionId": "EXEC-1727828006-303",
+        "latencyMs": 720,
+        "actualCostUsd": 0.012,
+        "status": "SUCCEEDED"
+      },
+      "qualityGate": {
+        "level": "QUALITY_HIGH",
+        "passed": true,
+        "issues": []
+      },
+      "aggregation": {
+        "strategy": "SINGLE_RESULT",
+        "outputLength": 560
+      }
+    }
+  ],
+  "provenanceChain": {
+    "goalId": "goal-stage10-multi-01",
+    "planId": "PLAN-1727828000-v1",
+    "workersInvolved": ["agent-researcher", "agent-analyst", "agent-writer"],
+    "providersInvolved": ["gemini", "anthropic", "openai"],
+    "totalLatencyMs": 2510,
+    "totalCostUsd": 0.035,
+    "costStatus": "KNOWN",
+    "finalStatus": "COMPLETED"
+  }
+}

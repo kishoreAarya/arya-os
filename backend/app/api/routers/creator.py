@@ -37,12 +37,18 @@ from app.agents.video import VideoAgent
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.secrets import get_secrets_manager
+from app.core.security import AuthenticatedPrincipal, get_current_principal
 from app.database.session import AsyncSessionLocal, get_db
 from app.models.core import Project, WorkflowRun
 from app.models.enums import PipelineStage, WorkflowMode, WorkflowStatus
 from app.models.media import Asset
 from app.models.system import SystemLog
 from app.providers.capabilities import Capability, PROVIDER_CAPABILITIES
+from app.services.authorization_service import (
+    get_authorized_project_ids,
+    verify_project_access,
+    verify_workflow_access,
+)
 from app.storage import get_storage_provider
 
 logger = get_logger("arya.creator")
@@ -52,6 +58,62 @@ router = APIRouter(prefix="/creator", tags=["creator"])
 # In-memory fast polling cache for active background jobs
 # Structure: { job_id: { ... } }
 _ACTIVE_JOBS: dict[str, dict[str, Any]] = {}
+
+# Concurrency tracking and admission control for background creator jobs
+_CONCURRENCY_LOCK = asyncio.Lock()
+_RUNNING_JOB_IDS: set[str] = set()
+
+
+async def _acquire_creator_concurrency_slot(job_id: str) -> None:
+    """Atomically check and reserve a concurrency slot for a creator generation job.
+    Raises HTTP 429 Too Many Requests with Retry-After header if active concurrency limit has been reached.
+    """
+    settings = get_settings()
+    max_concurrent = settings.creator_max_concurrent_jobs
+
+    async with _CONCURRENCY_LOCK:
+        if len(_RUNNING_JOB_IDS) >= max_concurrent:
+            logger.warning(
+                "creator_generation_concurrency_exhausted",
+                active_jobs=len(_RUNNING_JOB_IDS),
+                max_concurrent=max_concurrent,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Maximum concurrent creator generation capacity ({max_concurrent}) reached. Please retry later.",
+                headers={"Retry-After": "30"},
+            )
+        _RUNNING_JOB_IDS.add(job_id)
+
+
+def _release_creator_concurrency_slot(job_id: str) -> None:
+    """Release a reserved concurrency slot unconditionally.
+    Synchronous and idempotent to guarantee non-cancellable, immediate release in finally blocks.
+    """
+    _RUNNING_JOB_IDS.discard(job_id)
+
+
+def _prune_active_jobs_cache(retention_limit: int | None = None) -> None:
+    """Evict the oldest completed or failed jobs from _ACTIVE_JOBS if size exceeds retention_limit.
+    Active (pending / in_progress) jobs are NEVER evicted to preserve live monitoring.
+    """
+    if retention_limit is None:
+        retention_limit = get_settings().creator_active_jobs_retention_limit
+
+    if len(_ACTIVE_JOBS) <= retention_limit:
+        return
+
+    excess = len(_ACTIVE_JOBS) - retention_limit
+    keys_to_evict: list[str] = []
+    # Dict keys in Python 3.7+ maintain insertion order (oldest first)
+    for k, job in _ACTIVE_JOBS.items():
+        if job.get("status") in ("completed", "failed"):
+            keys_to_evict.append(k)
+            if len(keys_to_evict) >= excess:
+                break
+
+    for k in keys_to_evict:
+        _ACTIVE_JOBS.pop(k, None)
 
 
 class GenerationType(str, Enum):
@@ -71,6 +133,8 @@ class CreatorGenerateRequest(BaseModel):
     start_frame_url: str | None = None
     end_frame_url: str | None = None
     reference_image_url: str | None = None
+    project_id: uuid.UUID | None = None
+    visual_dry_run: bool = False
 
     model_config = ConfigDict(extra="ignore")
 
@@ -348,7 +412,7 @@ async def get_creator_capabilities():
     return _build_capabilities_manifest()
 
 
-async def _execute_creator_job_background(
+async def _do_execute_creator_job_background(
     job_id: str,
     run_id: uuid.UUID,
     payload: CreatorGenerateRequest,
@@ -389,6 +453,7 @@ async def _execute_creator_job_background(
                     "prompt": payload.prompt,
                     "aspect_ratio": payload.aspect_ratio,
                     "workflow_run_id": run_id,
+                    "visual_dry_run": bool(payload.visual_dry_run),
                 }
                 if payload.model:
                     context["image_model"] = payload.model
@@ -449,6 +514,7 @@ async def _execute_creator_job_background(
                     "video_model": payload.model,
                     "video_provider": payload.provider,
                     "workflow_run_id": run_id,
+                    "visual_dry_run": bool(payload.visual_dry_run),
                 }
 
                 res = await agent.run(context)
@@ -490,6 +556,7 @@ async def _execute_creator_job_background(
                         "prompt": payload.prompt,
                         "aspect_ratio": payload.aspect_ratio,
                         "workflow_run_id": run_id,
+                        "visual_dry_run": bool(payload.visual_dry_run),
                     })
                     if not img_res.success:
                         raise RuntimeError(f"Base keyframe generation failed: {img_res.error}")
@@ -516,6 +583,7 @@ async def _execute_creator_job_background(
                     "video_model": payload.model,
                     "video_provider": payload.provider,
                     "workflow_run_id": run_id,
+                    "visual_dry_run": bool(payload.visual_dry_run),
                 })
                 if not vid_res.success:
                     raise RuntimeError(vid_res.error or "Video generation failed")
@@ -645,10 +713,48 @@ async def _execute_creator_job_background(
             )
 
 
+async def _execute_creator_job_background(
+    job_id: str,
+    run_id: uuid.UUID,
+    payload: CreatorGenerateRequest,
+) -> None:
+    """Outer wrapper for background creator execution.
+    Enforces cancellation handling, guaranteed slot release, and cache pruning in finally block.
+    """
+    try:
+        await _do_execute_creator_job_background(job_id, run_id, payload)
+    except asyncio.CancelledError:
+        now_utc = datetime.now(timezone.utc)
+        logger.warning("creator_job_background_cancelled", job_id=job_id)
+        if job_id in _ACTIVE_JOBS:
+            _ACTIVE_JOBS[job_id].update(
+                {
+                    "status": "failed",
+                    "failure_reason": "Task was cancelled",
+                    "completed_at": now_utc.isoformat(),
+                }
+            )
+        try:
+            async with AsyncSessionLocal() as db_cancel:
+                db_run = await db_cancel.get(WorkflowRun, run_id)
+                if db_run and db_run.status in (WorkflowStatus.PENDING, WorkflowStatus.RUNNING):
+                    db_run.status = WorkflowStatus.FAILED
+                    db_run.failure_reason = "Task was cancelled"
+                    db_run.completed_at = now_utc.replace(tzinfo=None)
+                    await db_cancel.commit()
+        except Exception:
+            pass
+        raise
+    finally:
+        _release_creator_concurrency_slot(job_id)
+        _prune_active_jobs_cache()
+
+
 @router.post("/generate", response_model=CreatorJobResponse, status_code=status.HTTP_202_ACCEPTED)
 async def submit_creator_generation(
     payload: CreatorGenerateRequest,
     db: AsyncSession = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ) -> CreatorJobResponse:
     """Submit a creator generation request asynchronously.
 
@@ -669,68 +775,120 @@ async def submit_creator_generation(
                 detail="Image-to-Video generation requires a start frame or reference image",
             )
 
-    project_id = await _get_or_create_default_project(db)
+    # Server-Side Execution Boundary Quarantine (Phase 3.2.4.4.6.3.2.6):
+    # External provider execution via Creator Mode is permanently quarantined.
+    # Only Stage 21 Governance + Stage 25 AutonomousExecutionRunner with cryptographic capabilities
+    # is authorized to execute external cloud providers.
+    if not payload.visual_dry_run:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Creator Mode external provider generation is quarantined. "
+                "Direct external provider execution via Creator Mode is permanently prohibited. "
+                "All external provider execution must proceed through Stage 21 Governance and "
+                "Stage 25 AutonomousExecutionRunner with cryptographic capabilities. "
+                "Set visual_dry_run=True for deterministic local dry-run generation."
+            ),
+        )
 
-    run = WorkflowRun(
-        project_id=project_id,
-        topic=payload.prompt[:500],
-        mode=WorkflowMode.ASSISTED,
-        status=WorkflowStatus.PENDING,
-        current_stage=PipelineStage.CREATED.value,
-    )
-    db.add(run)
-    await db.commit()
-    await db.refresh(run)
+    run_uuid = uuid.uuid4()
+    job_id = str(run_uuid)
 
-    job_id = str(run.id)
-    now_iso = datetime.now(timezone.utc).isoformat()
+    # 1. Atomic concurrency check and slot reservation (HTTP 429 if full)
+    await _acquire_creator_concurrency_slot(job_id)
 
-    job_state = {
-        "job_id": job_id,
-        "workflow_run_id": str(run.id),
-        "status": "pending",
-        "current_stage": "created",
-        "generation_type": payload.generation_type.value,
-        "prompt": payload.prompt,
-        "model": payload.model,
-        "provider": payload.provider,
-        "aspect_ratio": payload.aspect_ratio,
-        "duration_seconds": payload.duration_seconds,
-        "total_cost_usd": 0.0,
-        "started_at": None,
-        "completed_at": None,
-        "failure_reason": None,
-        "output": {},
-    }
-    _ACTIVE_JOBS[job_id] = job_state
+    try:
+        if payload.project_id is not None:
+            project = await verify_project_access(db, principal, payload.project_id)
+            project_id = project.id
+        elif principal.is_admin:
+            project_id = await _get_or_create_default_project(db)
+        else:
+            allowed = await get_authorized_project_ids(db, principal)
+            if not allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Forbidden: No project memberships assigned to this API key",
+                )
+            project_id = sorted(list(allowed))[0]
 
-    # Launch generation in background task
-    asyncio.create_task(_execute_creator_job_background(job_id, run.id, payload))
+        run = WorkflowRun(
+            id=run_uuid,
+            project_id=project_id,
+            topic=payload.prompt[:500],
+            mode=WorkflowMode.ASSISTED,
+            status=WorkflowStatus.PENDING,
+            current_stage=PipelineStage.CREATED.value,
+        )
+        db.add(run)
+        await db.commit()
+        await db.refresh(run)
 
-    return CreatorJobResponse(**job_state)
+        job_state = {
+            "job_id": job_id,
+            "workflow_run_id": str(run.id),
+            "status": "pending",
+            "current_stage": "created",
+            "generation_type": payload.generation_type.value,
+            "prompt": payload.prompt,
+            "model": payload.model,
+            "provider": payload.provider,
+            "aspect_ratio": payload.aspect_ratio,
+            "duration_seconds": payload.duration_seconds,
+            "total_cost_usd": 0.0,
+            "started_at": None,
+            "completed_at": None,
+            "failure_reason": None,
+            "output": {},
+        }
+        _ACTIVE_JOBS[job_id] = job_state
+        _prune_active_jobs_cache()
+
+        # Launch generation in background task
+        asyncio.create_task(_execute_creator_job_background(job_id, run.id, payload))
+
+        return CreatorJobResponse(**job_state)
+    except Exception:
+        # Guarantee slot is released if database insertion or task spawning fails
+        _release_creator_concurrency_slot(job_id)
+        raise
+
 
 
 @router.get("/jobs/{job_id}", response_model=CreatorJobResponse)
 async def get_creator_job_status(
     job_id: str,
     db: AsyncSession = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ) -> CreatorJobResponse:
     """Fetch live generation job status and output.
     Reads from the live memory cache during generation, falling back to PostgreSQL.
     """
-    # 1. Check live in-memory cache
-    if job_id in _ACTIVE_JOBS:
-        return CreatorJobResponse(**_ACTIVE_JOBS[job_id])
-
-    # 2. Check persistent database
     try:
         run_uuid = uuid.UUID(job_id)
     except ValueError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job '{job_id}' not found")
 
-    run = await db.get(WorkflowRun, run_uuid)
-    if not run:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job '{job_id}' not found")
+    # Verify authorization FIRST to prevent IDOR access via memory or DB
+    run = await verify_workflow_access(db, principal, run_uuid)
+
+    # 1. Check live in-memory cache
+    if job_id in _ACTIVE_JOBS:
+        return CreatorJobResponse(**_ACTIVE_JOBS[job_id])
+
+    # 2. Check persistent database (run already verified and loaded above)
+
+    # Check if an uncompleted job was interrupted by a server restart or crash
+    now_utc_naive = datetime.now(timezone.utc).replace(tzinfo=None)
+    time_ref = run.started_at or run.created_at
+    if run.status in (WorkflowStatus.PENDING, WorkflowStatus.RUNNING) and time_ref:
+        elapsed_sec = (now_utc_naive - time_ref).total_seconds()
+        # If in-flight for more than 15 minutes and not running in local process, mark as failed
+        if elapsed_sec > 900 and job_id not in _RUNNING_JOB_IDS:
+            run.status = WorkflowStatus.FAILED
+            run.failure_reason = "Generation job timed out or was interrupted by a process restart"
+            run.completed_at = now_utc_naive
+            await db.commit()
 
     # Read output from SystemLog if available
     stmt = (
@@ -803,7 +961,7 @@ async def get_creator_job_status(
             if not actual_provider:
                 actual_provider = asset_row.provider_name
 
-    return CreatorJobResponse(
+    response_obj = CreatorJobResponse(
         job_id=str(run.id),
         workflow_run_id=str(run.id),
         status=run.status.value,
@@ -825,11 +983,19 @@ async def get_creator_job_status(
         output=output_data,
     )
 
+    # Populate fast-path cache if job reached terminal state
+    if run.status in (WorkflowStatus.COMPLETED, WorkflowStatus.FAILED):
+        _ACTIVE_JOBS[job_id] = response_obj.model_dump()
+        _prune_active_jobs_cache()
+
+    return response_obj
+
 
 @router.get("/history", response_model=list[CreatorHistoryItem])
 async def get_creator_history(
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=100, description="Max history items to return (1-100)"),
     db: AsyncSession = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ) -> list[CreatorHistoryItem]:
     """Retrieve persistent generation history directly from PostgreSQL.
     Survives browser refresh and server restarts.
@@ -839,21 +1005,44 @@ async def get_creator_history(
         .order_by(WorkflowRun.created_at.desc())
         .limit(limit)
     )
+    if not principal.is_admin:
+        allowed = await get_authorized_project_ids(db, principal)
+        if not allowed:
+            return []
+        stmt = stmt.where(WorkflowRun.project_id.in_(list(allowed)))
+
     runs = (await db.execute(stmt)).scalars().all()
+    if not runs:
+        return []
+
+    run_ids = [run.id for run in runs]
+
+    # Batch query SystemLog for all retrieved runs in a single query (eliminates N+1)
+    logs_stmt = (
+        select(SystemLog)
+        .where(
+            SystemLog.workflow_run_id.in_(run_ids),
+            SystemLog.event_type.in_(["CreatorGenerationResult", "CreatorGenerationFailed"]),
+        )
+        .order_by(SystemLog.occurred_at.desc())
+    )
+    sys_logs = (await db.execute(logs_stmt)).scalars().all()
+    sys_log_by_run: dict[uuid.UUID, SystemLog] = {}
+    for log in sys_logs:
+        if log.workflow_run_id not in sys_log_by_run:
+            sys_log_by_run[log.workflow_run_id] = log
+
+    # Batch query Assets for all retrieved runs in a single query (eliminates N+1)
+    assets_stmt = select(Asset).where(Asset.workflow_run_id.in_(run_ids))
+    assets = (await db.execute(assets_stmt)).scalars().all()
+    asset_by_run: dict[uuid.UUID, Asset] = {}
+    for asset in assets:
+        if asset.workflow_run_id not in asset_by_run:
+            asset_by_run[asset.workflow_run_id] = asset
 
     items: list[CreatorHistoryItem] = []
     for run in runs:
-        # Check for Creator log
-        log_stmt = (
-            select(SystemLog)
-            .where(
-                SystemLog.workflow_run_id == run.id,
-                SystemLog.event_type.in_(["CreatorGenerationResult", "CreatorGenerationFailed"]),
-            )
-            .order_by(SystemLog.occurred_at.desc())
-            .limit(1)
-        )
-        sys_log = (await db.execute(log_stmt)).scalars().first()
+        sys_log = sys_log_by_run.get(run.id)
 
         asset_url = None
         gen_type = "image"
@@ -909,8 +1098,7 @@ async def get_creator_history(
                 pass
 
         if not asset_url or not provider_name:
-            asset_stmt = select(Asset).where(Asset.workflow_run_id == run.id).limit(1)
-            asset_row = (await db.execute(asset_stmt)).scalars().first()
+            asset_row = asset_by_run.get(run.id)
             if asset_row:
                 if not asset_url:
                     asset_url = asset_row.storage_path
@@ -965,7 +1153,10 @@ class AssetUploadRequest(BaseModel):
 
 
 @router.post("/upload")
-async def upload_reference_asset(payload: AssetUploadRequest):
+async def upload_reference_asset(
+    payload: AssetUploadRequest,
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
+):
     """Upload a reference image or start frame for generation.
     Accepts base64-encoded image data, avoiding python-multipart dependency.
     Stores the asset using the configured StorageProvider with strict size and MIME validation.
@@ -1040,6 +1231,7 @@ async def upload_reference_asset(payload: AssetUploadRequest):
 async def download_asset_proxy(
     url: str = Query(..., description="Target media URL to download"),
     filename: str = Query("arya_asset", description="Suggested download filename"),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ):
     """Secure proxy for downloading generated assets with Content-Disposition headers.
     Ensures users can download generated images and videos directly from the UI
@@ -1055,12 +1247,24 @@ async def download_asset_proxy(
 
     # Remote URL retrieval
     if url.startswith(("http://", "https://")):
-        if not is_safe_asset_url(url):
-            raise HTTPException(status_code=400, detail="Insecure or disallowed remote URL")
-
+        current_url = url
         try:
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-                resp = await client.get(url)
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+                for _ in range(6):
+                    if not is_safe_asset_url(current_url):
+                        raise HTTPException(status_code=400, detail="Insecure or disallowed remote URL")
+
+                    resp = await client.get(current_url)
+                    if resp.is_redirect:
+                        location = resp.headers.get("Location")
+                        if not location:
+                            raise HTTPException(status_code=502, detail="Redirect missing Location header")
+                        current_url = urllib.parse.urljoin(current_url, location)
+                    else:
+                        break
+                else:
+                    raise HTTPException(status_code=502, detail="Too many redirects")
+
                 if resp.status_code >= 400:
                     raise HTTPException(status_code=502, detail="Failed to fetch asset from upstream provider")
 

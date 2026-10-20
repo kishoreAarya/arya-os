@@ -1,0 +1,82 @@
+{
+  "stage": "Stage 18",
+  "generatedAt": "2026-10-02T21:05:00.000Z",
+  "reconciliationRecords": [
+    {
+      "reconciliationId": "rec_gh_101",
+      "resourceId": "aryaos/core#101",
+      "resourceType": "ISSUE",
+      "sourceSystem": "GITHUB",
+      "reconciled": true,
+      "status": "CONFIRMED",
+      "epistemicStatus": "CONFIRMED",
+      "actionExecution": {
+        "actionId": "act_recon_norm_github_del_gh_trace_101",
+        "capabilityId": "github.issue_read",
+        "operation": "get_issue",
+        "parameters": {
+          "repository": "aryaos/core",
+          "issueNumber": 101
+        },
+        "success": true,
+        "returnedTitle": "Memory Environment Anchor",
+        "latencyMs": 14
+      },
+      "confidenceAssigned": 0.90
+    },
+    {
+      "reconciliationId": "rec_gd_valid_201",
+      "resourceId": "file_drive_test_101",
+      "resourceType": "FILE",
+      "sourceSystem": "GOOGLE_DRIVE",
+      "reconciled": true,
+      "status": "CONFIRMED",
+      "epistemicStatus": "CONFIRMED",
+      "pathVerification": {
+        "path": "/drive/root/architecture_manifest.json",
+        "inDeclaredScope": true,
+        "traversalDetected": false
+      },
+      "confidenceAssigned": 0.90
+    },
+    {
+      "reconciliationId": "rec_gd_bad_path_301",
+      "resourceId": "file_drive_bad_301",
+      "resourceType": "FILE",
+      "sourceSystem": "GOOGLE_DRIVE",
+      "reconciled": false,
+      "status": "FAILED",
+      "epistemicStatus": "UNKNOWN",
+      "pathVerification": {
+        "path": "/drive/root/../../etc/passwd",
+        "inDeclaredScope": false,
+        "traversalDetected": true
+      },
+      "discrepancies": [
+        "Target path attempts directory traversal"
+      ],
+      "confidenceAssigned": 0.00
+    },
+    {
+      "reconciliationId": "rec_gh_unknown_401",
+      "resourceId": "unknown_org/ghost_repo#99999",
+      "resourceType": "ISSUE",
+      "sourceSystem": "GITHUB",
+      "reconciled": false,
+      "status": "OBSERVED",
+      "epistemicStatus": "OBSERVED",
+      "actionExecution": {
+        "actionId": "act_recon_norm_github_ghost",
+        "capabilityId": "github.issue_read",
+        "operation": "get_issue",
+        "parameters": {
+          "repository": "unknown_org/ghost_repo",
+          "issueNumber": 99999
+        },
+        "success": false,
+        "reason": "Repository not in sandbox whitelist"
+      },
+      "confidenceAssigned": 0.60
+    }
+  ]
+}

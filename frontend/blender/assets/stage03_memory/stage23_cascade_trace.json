@@ -1,0 +1,327 @@
+{
+  "stage": 23,
+  "phase": 7,
+  "subsystem": "recoveryCascadeService",
+  "generatedAt": "2026-10-03T11:20:20.998Z",
+  "architecturalAxioms": [
+    "Cascade detection is evidence-driven and bounded: zero LLM tokens.",
+    "A single isolated failure does not establish a cascade (fail-closed != fail-panicked).",
+    "Containment recommendations are control planes only; zero direct execution or transport bypass.",
+    "Fail-closed principle: Uncertainty in governance, policy, or state strictly triggers REQUIRE_APPROVAL or ESCALATE.",
+    "Autonomous recursion boundaries strictly enforced via MAX_CASCADE_DEPTH (5) and MAX_CONCURRENT_AFFECTED_OPERATIONS (50).",
+    "High-severity containment controls (ISOLATE, ABORT) require authenticated human operator approval (actorType === USER)."
+  ],
+  "thresholds": {
+    "MAX_FAILURES_PER_OPERATION": 3,
+    "MAX_FAILURES_PER_DEPENDENCY": 2,
+    "MAX_FAILURES_PER_CONNECTOR": 3,
+    "MAX_FAILURES_PER_PROVIDER": 3,
+    "MAX_CASCADE_DEPTH": 5,
+    "MAX_CONCURRENT_AFFECTED_OPERATIONS": 50,
+    "MAX_REPEATED_UNKNOWN_STATE": 2,
+    "MAX_COMPENSATION_FAILURES": 2
+  },
+  "traces": [
+    {
+      "scenario": "isolated failure",
+      "rootOperationId": "op_trace_iso_01",
+      "cascadeId": "casc_op_trace_iso_01_1791026420995_gixwa",
+      "causationId": "op_trace_iso_01",
+      "correlationId": "op_trace_iso_01",
+      "rootFailureClassification": "TRANSIENT",
+      "cascadeClassification": "NO_CASCADE",
+      "severity": "LOW",
+      "containmentAction": "ALLOW",
+      "authorityRequirement": [],
+      "lifecycleState": "CLASSIFIED",
+      "containmentDecision": {
+        "containmentId": "cont_casc_op_trace_iso_01_1791026420995_gixwa_1791026420996",
+        "recommendedControl": "ALLOW",
+        "lifecycleState": "CONTAINMENT_PROPOSED",
+        "humanOperatorRequired": false
+      }
+    },
+    {
+      "scenario": "repeated transient failure",
+      "rootOperationId": "op_trace_retry_02",
+      "cascadeId": "casc_op_trace_retry_02_1791026420996_1wmii",
+      "causationId": "op_trace_retry_02",
+      "correlationId": "op_trace_retry_02",
+      "rootFailureClassification": "TRANSIENT",
+      "cascadeClassification": "RETRY_AMPLIFICATION",
+      "severity": "MEDIUM",
+      "containmentAction": "THROTTLE",
+      "authorityRequirement": [
+        "RATE_LIMITER_CONTROL"
+      ],
+      "lifecycleState": "CLASSIFIED",
+      "containmentDecision": {
+        "containmentId": "cont_casc_op_trace_retry_02_1791026420996_1wmii_1791026420996",
+        "recommendedControl": "THROTTLE",
+        "lifecycleState": "CONTAINMENT_PROPOSED",
+        "humanOperatorRequired": false
+      }
+    },
+    {
+      "scenario": "dependency failure",
+      "rootOperationId": "op_trace_dep_03",
+      "cascadeId": "casc_op_trace_dep_03_1791026420996_kn8os",
+      "causationId": "op_trace_dep_03",
+      "correlationId": "op_trace_dep_03",
+      "rootFailureClassification": "DEPENDENCY",
+      "cascadeClassification": "DEPENDENCY_FAILURE",
+      "severity": "HIGH",
+      "containmentAction": "DEFER",
+      "authorityRequirement": [
+        "DEPENDENCY_ARBITRATION"
+      ],
+      "lifecycleState": "CLASSIFIED",
+      "containmentDecision": {
+        "containmentId": "cont_casc_op_trace_dep_03_1791026420996_kn8os_1791026420996",
+        "recommendedControl": "DEFER",
+        "lifecycleState": "CONTAINMENT_PROPOSED",
+        "humanOperatorRequired": true
+      }
+    },
+    {
+      "scenario": "connector failure",
+      "rootOperationId": "op_trace_conn_04",
+      "cascadeId": "casc_op_trace_conn_04_1791026420996_aocfk",
+      "causationId": "op_trace_conn_04",
+      "correlationId": "op_trace_conn_04",
+      "rootFailureClassification": "CONNECTOR_FAULT",
+      "cascadeClassification": "RETRY_AMPLIFICATION",
+      "severity": "MEDIUM",
+      "containmentAction": "THROTTLE",
+      "authorityRequirement": [
+        "RATE_LIMITER_CONTROL"
+      ],
+      "lifecycleState": "CLASSIFIED",
+      "containmentDecision": {
+        "containmentId": "cont_casc_op_trace_conn_04_1791026420996_aocfk_1791026420996",
+        "recommendedControl": "THROTTLE",
+        "lifecycleState": "CONTAINMENT_PROPOSED",
+        "humanOperatorRequired": false
+      }
+    },
+    {
+      "scenario": "provider failure",
+      "rootOperationId": "op_trace_prov_05",
+      "cascadeId": "casc_op_trace_prov_05_1791026420997_hnayy",
+      "causationId": "op_trace_prov_05",
+      "correlationId": "op_trace_prov_05",
+      "rootFailureClassification": "PROVIDER_FAULT",
+      "cascadeClassification": "RETRY_AMPLIFICATION",
+      "severity": "MEDIUM",
+      "containmentAction": "THROTTLE",
+      "authorityRequirement": [
+        "RATE_LIMITER_CONTROL"
+      ],
+      "lifecycleState": "CLASSIFIED",
+      "containmentDecision": {
+        "containmentId": "cont_casc_op_trace_prov_05_1791026420997_hnayy_1791026420997",
+        "recommendedControl": "THROTTLE",
+        "lifecycleState": "CONTAINMENT_PROPOSED",
+        "humanOperatorRequired": false
+      }
+    },
+    {
+      "scenario": "permission denial",
+      "rootOperationId": "op_trace_perm_06",
+      "cascadeId": "casc_op_trace_perm_06_1791026420997_521z4",
+      "causationId": "op_trace_perm_06",
+      "correlationId": "op_trace_perm_06",
+      "rootFailureClassification": "PERMISSION",
+      "cascadeClassification": "PERMISSION_FAILURE",
+      "severity": "HIGH",
+      "containmentAction": "REQUIRE_APPROVAL",
+      "authorityRequirement": [
+        "CONNECTOR_CREDENTIAL_REAUTHORIZATION",
+        "HUMAN_APPROVAL"
+      ],
+      "lifecycleState": "CLASSIFIED",
+      "containmentDecision": {
+        "containmentId": "cont_casc_op_trace_perm_06_1791026420997_521z4_1791026420997",
+        "recommendedControl": "REQUIRE_APPROVAL",
+        "lifecycleState": "CONTAINMENT_PROPOSED",
+        "humanOperatorRequired": true
+      }
+    },
+    {
+      "scenario": "policy denial",
+      "rootOperationId": "op_trace_pol_07",
+      "cascadeId": "casc_op_trace_pol_07_1791026420997_om8l1",
+      "causationId": "op_trace_pol_07",
+      "correlationId": "op_trace_pol_07",
+      "rootFailureClassification": "POLICY",
+      "cascadeClassification": "POLICY_BLOCK",
+      "severity": "HIGH",
+      "containmentAction": "ABORT",
+      "authorityRequirement": [
+        "POLICY_ADMINISTRATION"
+      ],
+      "lifecycleState": "CLASSIFIED",
+      "containmentDecision": {
+        "containmentId": "cont_casc_op_trace_pol_07_1791026420997_om8l1_1791026420997",
+        "recommendedControl": "ABORT",
+        "lifecycleState": "CONTAINMENT_PROPOSED",
+        "humanOperatorRequired": true
+      }
+    },
+    {
+      "scenario": "unknown external state",
+      "rootOperationId": "op_trace_unk_08",
+      "cascadeId": "casc_op_trace_unk_08_1791026420997_r2iax",
+      "causationId": "op_trace_unk_08",
+      "correlationId": "op_trace_unk_08",
+      "rootFailureClassification": "EXTERNAL_DRIFT",
+      "cascadeClassification": "RECONCILIATION_FAILURE",
+      "severity": "HIGH",
+      "containmentAction": "REQUIRE_APPROVAL",
+      "authorityRequirement": [
+        "RECONCILIATION_GATEWAY",
+        "HUMAN_APPROVAL"
+      ],
+      "lifecycleState": "CLASSIFIED",
+      "containmentDecision": {
+        "containmentId": "cont_casc_op_trace_unk_08_1791026420997_r2iax_1791026420997",
+        "recommendedControl": "REQUIRE_APPROVAL",
+        "lifecycleState": "CONTAINMENT_PROPOSED",
+        "humanOperatorRequired": true
+      }
+    },
+    {
+      "scenario": "compensation failure",
+      "rootOperationId": "op_trace_comp_09",
+      "cascadeId": "casc_op_trace_comp_09_1791026420997_n66p4",
+      "causationId": "op_trace_comp_09",
+      "correlationId": "op_trace_comp_09",
+      "rootFailureClassification": "CORRUPTION",
+      "cascadeClassification": "COMPENSATION_FAILURE",
+      "severity": "HIGH",
+      "containmentAction": "ESCALATE",
+      "authorityRequirement": [
+        "COMPENSATION_ADMINISTRATION",
+        "HUMAN_APPROVAL"
+      ],
+      "lifecycleState": "CLASSIFIED",
+      "containmentDecision": {
+        "containmentId": "cont_casc_op_trace_comp_09_1791026420997_n66p4_1791026420997",
+        "recommendedControl": "ESCALATE",
+        "lifecycleState": "CONTAINMENT_PROPOSED",
+        "humanOperatorRequired": true
+      }
+    },
+    {
+      "scenario": "reaction cascade",
+      "rootOperationId": "op_trace_react_10",
+      "cascadeId": "casc_op_trace_react_10_1791026420998_0r6jl",
+      "causationId": "op_trace_react_10",
+      "correlationId": "op_trace_react_10",
+      "rootFailureClassification": "SYSTEM_INTERRUPTION",
+      "cascadeClassification": "REACTION_CASCADE",
+      "severity": "HIGH",
+      "containmentAction": "PAUSE",
+      "authorityRequirement": [
+        "TRIGGER_GOVERNANCE",
+        "HUMAN_APPROVAL"
+      ],
+      "lifecycleState": "CLASSIFIED",
+      "containmentDecision": {
+        "containmentId": "cont_casc_op_trace_react_10_1791026420998_0r6jl_1791026420998",
+        "recommendedControl": "PAUSE",
+        "lifecycleState": "CONTAINMENT_PROPOSED",
+        "humanOperatorRequired": true
+      }
+    },
+    {
+      "scenario": "resource pressure",
+      "rootOperationId": "op_trace_res_11",
+      "cascadeId": "casc_op_trace_res_11_1791026420998_as9g4",
+      "causationId": "op_trace_res_11",
+      "correlationId": "op_trace_res_11",
+      "rootFailureClassification": "RESOURCE_EXHAUSTION",
+      "cascadeClassification": "RESOURCE_EXHAUSTION",
+      "severity": "HIGH",
+      "containmentAction": "THROTTLE",
+      "authorityRequirement": [
+        "RESOURCE_GOVERNOR"
+      ],
+      "lifecycleState": "CLASSIFIED",
+      "containmentDecision": {
+        "containmentId": "cont_casc_op_trace_res_11_1791026420998_as9g4_1791026420998",
+        "recommendedControl": "THROTTLE",
+        "lifecycleState": "CONTAINMENT_PROPOSED",
+        "humanOperatorRequired": true
+      }
+    },
+    {
+      "scenario": "containment",
+      "rootOperationId": "op_trace_contain_12",
+      "cascadeId": "casc_op_trace_contain_12_1791026420998_75zie",
+      "causationId": "op_trace_contain_12",
+      "correlationId": "op_trace_contain_12",
+      "rootFailureClassification": "CONNECTOR_FAULT",
+      "cascadeClassification": "RETRY_AMPLIFICATION",
+      "severity": "MEDIUM",
+      "containmentAction": "THROTTLE",
+      "authorityRequirement": [
+        "RATE_LIMITER_CONTROL"
+      ],
+      "lifecycleState": "CLASSIFIED",
+      "containmentDecision": {
+        "containmentId": "cont_casc_op_trace_contain_12_1791026420998_75zie_1791026420998",
+        "recommendedControl": "THROTTLE",
+        "lifecycleState": "CONTAINED",
+        "humanOperatorRequired": true,
+        "approvedBy": "usr-admin-secops-01",
+        "approvedAt": 1791026420998,
+        "governanceDecisionId": "gov_decision_casc_op_trace_contain_12_1791026420998_75zie"
+      }
+    },
+    {
+      "scenario": "escalation",
+      "rootOperationId": "op_trace_esc_13",
+      "cascadeId": "casc_op_trace_esc_13_1791026420998_s51oj",
+      "causationId": "op_trace_esc_13",
+      "correlationId": "op_trace_esc_13",
+      "rootFailureClassification": "SYSTEM_INTERRUPTION",
+      "cascadeClassification": "RECOVERY_CHAIN",
+      "severity": "HIGH",
+      "containmentAction": "ESCALATE",
+      "authorityRequirement": [
+        "RECOVERY_GOVERNANCE",
+        "HUMAN_APPROVAL"
+      ],
+      "lifecycleState": "CLASSIFIED",
+      "containmentDecision": {
+        "containmentId": "cont_casc_op_trace_esc_13_1791026420998_s51oj_1791026420998",
+        "recommendedControl": "ESCALATE",
+        "lifecycleState": "CONTAINMENT_PROPOSED",
+        "humanOperatorRequired": true
+      }
+    },
+    {
+      "scenario": "fail-closed decision",
+      "rootOperationId": "op_trace_failclosed_14",
+      "cascadeId": "casc_op_trace_failclosed_14_1791026420998_00k37",
+      "causationId": "op_trace_failclosed_14",
+      "correlationId": "op_trace_failclosed_14",
+      "rootFailureClassification": "TRANSIENT",
+      "cascadeClassification": "UNKNOWN_CASCADE",
+      "severity": "HIGH",
+      "containmentAction": "REQUIRE_APPROVAL",
+      "authorityRequirement": [
+        "GOVERNANCE_CONTROL_PLANE",
+        "HUMAN_APPROVAL"
+      ],
+      "lifecycleState": "CLASSIFIED",
+      "containmentDecision": {
+        "containmentId": "cont_casc_op_trace_failclosed_14_1791026420998_00k37_1791026420998",
+        "recommendedControl": "REQUIRE_APPROVAL",
+        "lifecycleState": "CONTAINMENT_PROPOSED",
+        "humanOperatorRequired": true
+      }
+    }
+  ]
+}

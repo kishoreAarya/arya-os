@@ -17,8 +17,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.core.security import AuthenticatedPrincipal, get_current_principal
 from app.database.session import get_db
+from app.models.media import Video
 from app.services.analytics_service import AnalyticsIngestionService, MetricValidationError
+from app.services.authorization_service import get_authorized_project_ids, verify_workflow_access
 
 logger = get_logger("arya.api.analytics")
 
@@ -110,8 +113,22 @@ def _serialize_record(r: Any) -> dict[str, Any]:
 async def ingest_analytics(
     payload: AnalyticsIngestRequest,
     db: AsyncSession = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ):
     """Ingest, validate, and store a normalized metrics snapshot."""
+    # Verify object-level authorization for workflow_run_id or video_id
+    if payload.workflow_run_id is not None:
+        await verify_workflow_access(db, principal, payload.workflow_run_id)
+
+    if payload.video_id:
+        try:
+            vid_uuid = uuid.UUID(str(payload.video_id))
+            video = await db.get(Video, vid_uuid)
+            if video and video.workflow_run_id:
+                await verify_workflow_access(db, principal, video.workflow_run_id)
+        except (ValueError, TypeError):
+            pass
+
     service = AnalyticsIngestionService(db=db)
     try:
         record = await service.ingest_snapshot(
@@ -139,14 +156,33 @@ async def list_snapshots(
     platform: str | None = Query(default=None, description="Filter by social platform"),
     limit: int = Query(default=50, ge=1, le=100, description="Max snapshots to return"),
     db: AsyncSession = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ):
     """Query historical analytics snapshots ordered by snapshot timestamp."""
+    project_ids = None
+    if workflow_run_id is not None:
+        await verify_workflow_access(db, principal, workflow_run_id)
+    elif video_id is not None:
+        try:
+            vid_uuid = uuid.UUID(str(video_id))
+            video = await db.get(Video, vid_uuid)
+            if video and video.workflow_run_id:
+                await verify_workflow_access(db, principal, video.workflow_run_id)
+        except (ValueError, TypeError):
+            pass
+    elif not principal.is_admin:
+        allowed = await get_authorized_project_ids(db, principal)
+        if not allowed:
+            return []
+        project_ids = allowed
+
     service = AnalyticsIngestionService(db=db)
     snapshots = await service.get_snapshots(
         workflow_run_id=workflow_run_id,
         video_id=video_id,
         external_post_id=external_post_id,
         platform=platform,
+        project_ids=project_ids,
         limit=limit,
     )
     return [_serialize_record(s) for s in snapshots]
@@ -159,14 +195,36 @@ async def get_latest_snapshot(
     external_post_id: str | None = Query(default=None, description="Filter by Postiz or platform post ID"),
     platform: str | None = Query(default=None, description="Filter by social platform"),
     db: AsyncSession = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ):
     """Get the most recent single snapshot matching query criteria."""
+    project_ids = None
+    if workflow_run_id is not None:
+        await verify_workflow_access(db, principal, workflow_run_id)
+    elif video_id is not None:
+        try:
+            vid_uuid = uuid.UUID(str(video_id))
+            video = await db.get(Video, vid_uuid)
+            if video and video.workflow_run_id:
+                await verify_workflow_access(db, principal, video.workflow_run_id)
+        except (ValueError, TypeError):
+            pass
+    elif not principal.is_admin:
+        allowed = await get_authorized_project_ids(db, principal)
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No analytics snapshot found for the specified criteria",
+            )
+        project_ids = allowed
+
     service = AnalyticsIngestionService(db=db)
     snapshots = await service.get_snapshots(
         workflow_run_id=workflow_run_id,
         video_id=video_id,
         external_post_id=external_post_id,
         platform=platform,
+        project_ids=project_ids,
         limit=1,
     )
     if not snapshots:
@@ -175,3 +233,19 @@ async def get_latest_snapshot(
             detail="No analytics snapshot found for the specified criteria",
         )
     return _serialize_record(snapshots[0])
+
+
+@router.get("/learning")
+async def get_analytics_learning(
+    category: str | None = Query(default=None),
+    min_confidence: float = Query(default=0.0, ge=0.0, le=1.0),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
+):
+    """Retrieve active learning insights derived from analytics (alias for /learning/feedback)."""
+    from app.api.routers.learning import get_learning_feedback_endpoint
+
+    return await get_learning_feedback_endpoint(
+        category=category, min_confidence=min_confidence, limit=limit, db=db
+    )

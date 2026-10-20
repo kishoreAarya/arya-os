@@ -1,0 +1,87 @@
+{
+  "stage": 17,
+  "component": "OAuthBoundary & CredentialResolver",
+  "generatedAt": "2026-10-02T14:16:30.000Z",
+  "oauthSessions": [
+    {
+      "sessionId": "oauth_sess_gh_9812",
+      "connectorId": "connector_github",
+      "provider": "GITHUB",
+      "csrfStateToken": "state_sec_c0e819b4fa27e10",
+      "createdAt": "2026-10-02T14:16:30.100Z",
+      "expiresAt": "2026-10-02T14:26:30.100Z",
+      "status": "CONSUMED",
+      "requestedScopes": [
+        "repo",
+        "read:org"
+      ],
+      "callbackExchange": {
+        "receivedState": "state_sec_c0e819b4fa27e10",
+        "stateMatched": true,
+        "consumedOnce": true,
+        "authorizationCodePresented": true,
+        "codePersisted": false,
+        "tokenEndpointResponse": {
+          "tokenType": "bearer",
+          "scope": "repo,read:org",
+          "rawAccessTokenPersisted": false,
+          "rawRefreshTokenPersisted": false
+        },
+        "issuedCredentialRef": {
+          "credentialId": "cred_ref_gh_default",
+          "credentialType": "OAUTH2",
+          "status": "VALID",
+          "expiresAt": "2026-10-02T15:16:30.500Z",
+          "metadata": {
+            "tokenType": "bearer",
+            "scopes": [
+              "repo",
+              "read:org"
+            ],
+            "containsRawSecret": false
+          }
+        }
+      }
+    }
+  ],
+  "credentialResolutionAudits": [
+    {
+      "auditId": "audit_res_01",
+      "actionId": "act_gh_read_test",
+      "connectorId": "connector_github",
+      "credentialRefId": "cred_ref_gh_default",
+      "resolvedAt": "2026-10-02T14:16:31.000Z",
+      "resolutionStore": "SECURE_IN_MEMORY_VAULT",
+      "ephemeralHeadersInjected": [
+        "Authorization",
+        "Accept"
+      ],
+      "disposedAt": "2026-10-02T14:16:31.050Z",
+      "retentionDurationMs": 50,
+      "rawSecretsPersisted": false
+    },
+    {
+      "auditId": "audit_res_02",
+      "actionId": "act_rate_limit_test",
+      "connectorId": "connector_github",
+      "credentialRefId": "cred_ref_gh_default",
+      "resolvedAt": "2026-10-02T14:16:32.000Z",
+      "errorEncountered": "HTTP 429 Rate Limit Exceeded",
+      "sanitizedErrorMessage": "Rate limit exceeded (Reset in 60000ms)",
+      "tokenLeakageDetected": false,
+      "disposedAt": "2026-10-02T14:16:32.020Z",
+      "retentionDurationMs": 20
+    }
+  ],
+  "revocationEvents": [
+    {
+      "connectorId": "conn_perm_revoked",
+      "credentialId": "cred_ref_revoked_17",
+      "action": "REVOKE",
+      "purgedFromMemory": true,
+      "refStatus": "REVOKED",
+      "reusable": false,
+      "timestamp": "2026-10-02T14:16:33.000Z"
+    }
+  ]
+}

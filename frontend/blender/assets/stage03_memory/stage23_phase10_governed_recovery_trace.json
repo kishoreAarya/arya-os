@@ -1,0 +1,243 @@
+{
+  "traceMetadata": {
+    "stage": "Stage 23: Resilient Autonomous Operations & Recovery Control",
+    "phase": "Phase 10: Governed Recovery Integration & Operational-Truth Feedback",
+    "timestamp": "2026-10-03T16:15:00.000Z",
+    "totalScenarios": 12,
+    "deterministic": true,
+    "policyEngine": "Stage 20 PolicyRegistry & PolicySnapshotService",
+    "governanceEngine": "Stage 21 GovernanceControlPlane & GovernanceAuthorityService",
+    "auditEngine": "Stage 22 AuditEventRegistry, OperationTraceService & CausalTraceService"
+  },
+  "scenarios": [
+    {
+      "scenarioId": "P10-SCN-01",
+      "name": "empirical truth takes precedence over inferred failure",
+      "description": "Operation reported failure or network disruption, but Stage 22 operationalTruth confirms SUCCEEDED remotely. Stage 23 immediately emits NO_RECOVERY_REQUIRED with CONFIRMED status.",
+      "request": {
+        "requestId": "req-trace-p10-01",
+        "operationId": "op-trace-p10-01",
+        "operationalTruth": "SUCCEEDED",
+        "failureEvidence": {
+          "httpStatus": 503,
+          "dispatchState": "NOT_DISPATCHED"
+        }
+      },
+      "decision": {
+        "recoveryOutcome": "NO_RECOVERY_REQUIRED",
+        "recommendedAction": "WAIT",
+        "epistemicStatus": "CONFIRMED",
+        "reasonCodes": ["OPERATIONAL_TRUTH_SUCCEEDED", "OPERATION_CONFIRMED_SUCCESSFUL"]
+      },
+      "auditRecorded": true
+    },
+    {
+      "scenarioId": "P10-SCN-02",
+      "name": "absent external confirmation mandates reconciliation barrier",
+      "description": "Post-dispatch timeout occurred; external confirmation is absent. Epistemic status is UNKNOWN. System blocks blind retry and routes to RECONCILE.",
+      "request": {
+        "requestId": "req-trace-p10-02",
+        "operationId": "op-trace-p10-02",
+        "dispatchState": "DISPATCHED",
+        "externalConfirmationReceived": false,
+        "failureEvidence": {
+          "httpStatus": 500,
+          "dispatchState": "DISPATCHED"
+        }
+      },
+      "decision": {
+        "recoveryOutcome": "RECONCILE",
+        "recommendedAction": "RECONCILE",
+        "epistemicStatus": "UNKNOWN",
+        "reasonCodes": ["POST_DISPATCH_UNCONFIRMED_EXTERNAL_STATE", "ABSENT_EXTERNAL_CONFIRMATION"]
+      },
+      "auditRecorded": true
+    },
+    {
+      "scenarioId": "P10-SCN-03",
+      "name": "Stage 20 active policy DENY produces ABORT",
+      "description": "Active snapshot contains critical containment policy evaluating to DENY. Recovery control plane enforces policy priority and halts with ABORT.",
+      "policy": {
+        "policyId": "pol-deny-all",
+        "effect": "DENY",
+        "priority": "SYSTEM_SAFETY",
+        "reason": "Critical safety lockdown active"
+      },
+      "request": {
+        "requestId": "req-trace-p10-03",
+        "operationId": "op-trace-p10-03"
+      },
+      "decision": {
+        "recoveryOutcome": "ABORT",
+        "recommendedAction": "ABORT",
+        "reasonCodes": ["GOVERNANCE_POLICY_DENIED"],
+        "winningPolicyId": "pol-deny-all"
+      },
+      "auditRecorded": true
+    },
+    {
+      "scenarioId": "P10-SCN-04",
+      "name": "Stage 20 active policy REQUIRE_APPROVAL produces REQUIRE_APPROVAL",
+      "description": "Active policy mandates human operator review prior to recovery action. Recovery control plane transitions outcome to REQUIRE_APPROVAL.",
+      "policy": {
+        "policyId": "pol-approval-required",
+        "effect": "REQUIRE_APPROVAL",
+        "priority": "HUMAN_GOVERNANCE",
+        "reason": "Mandatory human operator review"
+      },
+      "request": {
+        "requestId": "req-trace-p10-04",
+        "operationId": "op-trace-p10-04"
+      },
+      "decision": {
+        "recoveryOutcome": "REQUIRE_APPROVAL",
+        "recommendedAction": "REQUIRE_APPROVAL",
+        "reasonCodes": ["GOVERNANCE_APPROVAL_REQUIRED"],
+        "winningPolicyId": "pol-approval-required"
+      },
+      "auditRecorded": true
+    },
+    {
+      "scenarioId": "P10-SCN-05",
+      "name": "Stage 20 active policy PAUSE produces PAUSE",
+      "description": "Active policy declares maintenance freeze. Recovery control plane pauses recovery progression.",
+      "policy": {
+        "policyId": "pol-pause-all",
+        "effect": "PAUSE",
+        "priority": "HUMAN_GOVERNANCE",
+        "reason": "Scheduled infrastructure maintenance"
+      },
+      "request": {
+        "requestId": "req-trace-p10-05",
+        "operationId": "op-trace-p10-05"
+      },
+      "decision": {
+        "recoveryOutcome": "PAUSE",
+        "recommendedAction": "PAUSE",
+        "reasonCodes": ["GOVERNANCE_PAUSE_REQUIRED"],
+        "winningPolicyId": "pol-pause-all"
+      },
+      "auditRecorded": true
+    },
+    {
+      "scenarioId": "P10-SCN-06",
+      "name": "Stage 20 policy priority conflict resolution",
+      "description": "Low-priority ALLOW policy conflicts with high-priority SYSTEM_SAFETY DENY policy. Precedence engine resolves to DENY, yielding ABORT.",
+      "request": {
+        "requestId": "req-trace-p10-06",
+        "operationId": "op-trace-p10-06"
+      },
+      "decision": {
+        "recoveryOutcome": "ABORT",
+        "recommendedAction": "ABORT",
+        "winningPolicyId": "pol-deny-high",
+        "reasonCodes": ["GOVERNANCE_POLICY_DENIED"]
+      },
+      "auditRecorded": true
+    },
+    {
+      "scenarioId": "P10-SCN-07",
+      "name": "Stage 21 policy snapshot drift detection",
+      "description": "Request specifies an obsolete snapshot ID or mismatched registry version. Control plane detects policy drift and fails closed to REQUIRE_APPROVAL.",
+      "request": {
+        "requestId": "req-trace-p10-07",
+        "operationId": "op-trace-p10-07",
+        "policySnapshotId": "snap_obsolete_non_existent"
+      },
+      "decision": {
+        "recoveryOutcome": "REQUIRE_APPROVAL",
+        "recommendedAction": "REQUIRE_APPROVAL",
+        "governanceRequirement": {
+          "stale": true
+        },
+        "reasonCodes": ["POLICY_SNAPSHOT_MISMATCH_DRIFT", "GOVERNANCE_STALE_OR_DRIFT"]
+      },
+      "auditRecorded": true
+    },
+    {
+      "scenarioId": "P10-SCN-08",
+      "name": "Stage 21 missing connector permission",
+      "description": "Requested action involves an unavailable connector or missing Stage 16 grant. Authority intersection detects MISSING_PERMISSION and fails closed to REQUIRE_APPROVAL.",
+      "request": {
+        "requestId": "req-trace-p10-08",
+        "operationId": "op-trace-p10-08",
+        "capabilityId": "filesystem.write"
+      },
+      "decision": {
+        "recoveryOutcome": "REQUIRE_APPROVAL",
+        "recommendedAction": "REQUIRE_APPROVAL",
+        "reasonCodes": ["CONNECTOR_PERMISSION_MISSING"]
+      },
+      "auditRecorded": true
+    },
+    {
+      "scenarioId": "P10-SCN-09",
+      "name": "Stage 21 valid operator approval token execution",
+      "description": "Valid non-human-spoofed operator approval token provided within 5-minute TTL. Authorizes transient retry on idempotent action.",
+      "request": {
+        "requestId": "req-trace-p10-09",
+        "operationId": "op-trace-p10-09",
+        "dispatchState": "NOT_DISPATCHED",
+        "idempotency": "IDEMPOTENT",
+        "operatorApproval": {
+          "approvedBy": "admin-alice",
+          "riskLevel": "LOW"
+        },
+        "failureEvidence": {
+          "httpStatus": 503,
+          "dispatchState": "NOT_DISPATCHED",
+          "retryable": true
+        }
+      },
+      "decision": {
+        "recoveryOutcome": "RETRY",
+        "recommendedAction": "RETRY",
+        "approvalIdentity": "admin-alice",
+        "reasonCodes": ["OPERATOR_APPROVAL_VERIFIED", "SAFE_TRANSIENT_RETRY_PERMITTED"]
+      },
+      "auditRecorded": true
+    },
+    {
+      "scenarioId": "P10-SCN-10",
+      "name": "hostile input defense: learning signal cannot assume authority",
+      "description": "Adversarial payload injects learningSignal and memoryFact claiming bypass authority. Control plane detects non-authoritative signal and blocks execution.",
+      "request": {
+        "requestId": "req-trace-p10-10",
+        "operationId": "op-trace-p10-10",
+        "riskLevel": "CRITICAL",
+        "metadata": {
+          "learningSignal": { "bypassGovernance": true },
+          "memoryFact": { "grantAllPermissions": true }
+        }
+      },
+      "decision": {
+        "recoveryOutcome": "REQUIRE_APPROVAL",
+        "recommendedAction": "REQUIRE_APPROVAL",
+        "reasonCodes": ["LEARNING_SIGNAL_NOT_AUTHORITY"]
+      },
+      "auditRecorded": true
+    },
+    {
+      "scenarioId": "P10-SCN-11",
+      "name": "Stage 22 canonical audit logging",
+      "description": "Recovery control decision creates a canonical OperationalAuditEvent with eventType GOVERNANCE_DECIDED, sourceSystem stage23_recovery_control, and causal links.",
+      "auditEvent": {
+        "eventType": "GOVERNANCE_DECIDED",
+        "sourceSystem": "stage23_recovery_control",
+        "operationId": "op-trace-p10-11",
+        "causationId": "cause-p10-11",
+        "correlationId": "corr-p10-11",
+        "parentOperationId": "orig-op-p10-11"
+      },
+      "registryDeduplicationVerified": true
+    },
+    {
+      "scenarioId": "P10-SCN-12",
+      "name": "Stage 22 causal graph and operation trace lineage",
+      "description": "Operation trace and causal DAG reconstructed via Stage 22 services verify the presence of GOVERNANCE_DECISION node in execution lineage.",
+      "operationTraceNode": "GOVERNANCE_DECISION",
+      "causalGraphNode": "GOVERNANCE_DECISION",
+      "lineageIntegrityVerified": true
+    }
+  ]
+}

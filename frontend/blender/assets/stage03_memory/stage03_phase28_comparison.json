@@ -1,0 +1,688 @@
+{
+  "metadata": {
+    "phase": "2.8",
+    "date": "2026-10-01",
+    "solution": "Phase 2.8 Final Cinematic Reference Matching & Perceptual Convergence",
+    "config": {
+      "variant": "P28_CONVERGENCE",
+      "toneMapping": "ACESFilmic",
+      "exposure": 0.97,
+      "envOptions": {
+        "zenithColor": "#182230",
+        "upperSkyColor": "#2d3b4c",
+        "horizonColor": "#58697c",
+        "lowerHorizonColor": "#364658",
+        "groundColor": "#0e151e",
+        "warmGlowRadius": 130,
+        "warmGlowIntensity": 0.48,
+        "cloudBands": true
+      },
+      "fogType": "linear",
+      "fogNear": 19.2,
+      "fogFar": 182.0,
+      "fogColor": "#526478",
+      "hemisphereIntensity": 0.32,
+      "hemisphereSkyColor": "#56687c",
+      "hemisphereGroundColor": "#202226",
+      "ambientIntensity": 0.44,
+      "ambientColor": "#22262e",
+      "coreIntensity": 12.0,
+      "coreColor": "#ffa232",
+      "daisBounceIntensity": 7.8,
+      "daisBounceRange": 36.5,
+      "daisBounceColor": "#ff9824",
+      "tertiaryStairsIntensity": 3.0,
+      "tertiaryStairsRange": 28.0,
+      "tertiaryStairsColor": "#ff9226",
+      "tertiaryStairsPosition": [
+        0,
+        5.0,
+        15.0
+      ],
+      "pedestalIntensity": 4.4,
+      "canopyIntensity": 4.4,
+      "rimBackIntensity": 3.2,
+      "rimBackColor": "#ffb040",
+      "rotundaKeyIntensity": 1.6,
+      "rotundaKeyColor": "#566c86",
+      "sunIntensity": 0.7,
+      "sunColor": "#667d96",
+      "pathLightIntensity": 0.18,
+      "planarReflection": true,
+      "planarIntensity": 0.35,
+      "planarTint": "#141618",
+      "floorColor": "#121518",
+      "floorRoughness": 0.25,
+      "floorClearcoat": 0.64,
+      "floorClearcoatRoughness": 0.12,
+      "glassColor": "#141e2a",
+      "glassOpacity": 0.2,
+      "amberCoreEmissiveIntensity": 3.2,
+      "amberEnergyEmissiveIntensity": 0.58,
+      "renderMode": "standard"
+    }
+  },
+  "views": {
+    "hero": {
+      "camera": "CAM_CinematicHero",
+      "title": "Cinematic Hero Establishing",
+      "performance": {
+        "drawCalls": 53,
+        "triangles": 86842,
+        "points": 0,
+        "lines": 0,
+        "geometries": 63,
+        "textures": 9,
+        "gpuMemoryMb": 4.57,
+        "frameTimeMs": 2.03,
+        "fps": 492.6
+      },
+      "vs_target_reference": {
+        "overall": {
+          "mae": 41.8584,
+          "rmse": 56.7279,
+          "psnr": 13.05,
+          "ssim": 0.1204,
+          "max_diff": 255.0,
+          "mean_lum": 46.23,
+          "mean_rgb": [
+            40.27,
+            47.35,
+            56.12
+          ],
+          "warm_pixels_pct": 1.79
+        },
+        "regions": {
+          "floor": {
+            "mae": 39.7948,
+            "rmse": 55.5942,
+            "target_mean_rgb": [
+              44.1,
+              44.44,
+              44.77
+            ],
+            "render_mean_rgb": [
+              32.01,
+              36.2,
+              41.89
+            ],
+            "error_share_pct": 33.27
+          },
+          "core": {
+            "mae": 61.3148,
+            "rmse": 76.4667,
+            "target_mean_rgb": [
+              93.75,
+              82.28,
+              72.44
+            ],
+            "render_mean_rgb": [
+              36.82,
+              41.17,
+              45.61
+            ],
+            "error_share_pct": 17.58
+          },
+          "sky": {
+            "mae": 41.0399,
+            "rmse": 56.1117,
+            "target_mean_rgb": [
+              67.7,
+              71.4,
+              73.72
+            ],
+            "render_mean_rgb": [
+              42.18,
+              51.13,
+              62.1
+            ],
+            "error_share_pct": 34.32
+          },
+          "left_colonnade": {
+            "mae": 42.1752,
+            "rmse": 53.6939,
+            "target_mean_rgb": [
+              61.95,
+              71.16,
+              77.52
+            ],
+            "render_mean_rgb": [
+              54.21,
+              66.85,
+              81.8
+            ],
+            "error_share_pct": 14.11
+          },
+          "right_colonnade": {
+            "mae": 30.4811,
+            "rmse": 39.9832,
+            "target_mean_rgb": [
+              63.37,
+              72.01,
+              78.17
+            ],
+            "render_mean_rgb": [
+              48.91,
+              56.76,
+              67.01
+            ],
+            "error_share_pct": 10.19
+          }
+        }
+      },
+      "vs_phase27_baseline": {
+        "overall": {
+          "mae": 4.0059,
+          "rmse": 6.4927,
+          "psnr": 31.88,
+          "ssim": 0.9868,
+          "max_diff": 181.0,
+          "mean_lum": 46.23,
+          "mean_rgb": [
+            40.27,
+            47.35,
+            56.12
+          ],
+          "warm_pixels_pct": 1.79
+        },
+        "regions": {
+          "floor": {
+            "mae": 5.1995,
+            "rmse": 8.7348,
+            "target_mean_rgb": [
+              27.22,
+              31.87,
+              37.99
+            ],
+            "render_mean_rgb": [
+              32.01,
+              36.2,
+              41.89
+            ],
+            "error_share_pct": 45.43
+          },
+          "core": {
+            "mae": 2.0458,
+            "rmse": 4.0218,
+            "target_mean_rgb": [
+              34.12,
+              39.15,
+              44.33
+            ],
+            "render_mean_rgb": [
+              36.82,
+              41.17,
+              45.61
+            ],
+            "error_share_pct": 6.13
+          },
+          "sky": {
+            "mae": 3.6816,
+            "rmse": 5.2419,
+            "target_mean_rgb": [
+              37.64,
+              47.44,
+              59.32
+            ],
+            "render_mean_rgb": [
+              42.18,
+              51.13,
+              62.1
+            ],
+            "error_share_pct": 32.17
+          },
+          "left_colonnade": {
+            "mae": 4.5446,
+            "rmse": 5.438,
+            "target_mean_rgb": [
+              48.7,
+              62.27,
+              78.26
+            ],
+            "render_mean_rgb": [
+              54.21,
+              66.85,
+              81.8
+            ],
+            "error_share_pct": 15.88
+          },
+          "right_colonnade": {
+            "mae": 2.4824,
+            "rmse": 3.6815,
+            "target_mean_rgb": [
+              44.63,
+              54.39,
+              66.38
+            ],
+            "render_mean_rgb": [
+              48.91,
+              56.76,
+              67.01
+            ],
+            "error_share_pct": 8.68
+          }
+        }
+      },
+      "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_hero.png",
+      "diff_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_diff_hero.png",
+      "heat_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_heat_hero.png",
+      "warmcool_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_warmcool_hero.png",
+      "contrast_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_contrast_hero.png",
+      "panel_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_panel_hero.png"
+    },
+    "monumental": {
+      "camera": "CAM_MonumentalLowAngle",
+      "title": "Monumental Rotunda Colonnade",
+      "performance": {
+        "drawCalls": 53,
+        "triangles": 86842,
+        "points": 0,
+        "lines": 0,
+        "geometries": 63,
+        "textures": 9,
+        "gpuMemoryMb": 4.57,
+        "frameTimeMs": 1.49,
+        "fps": 672.6
+      },
+      "vs_target_reference": {
+        "overall": {
+          "mae": 45.5379,
+          "rmse": 61.0211,
+          "psnr": 12.42,
+          "ssim": 0.0269,
+          "max_diff": 255.0,
+          "mean_lum": 35.25,
+          "mean_rgb": [
+            30.58,
+            36.03,
+            43.48
+          ],
+          "warm_pixels_pct": 2.68
+        },
+        "regions": {
+          "floor": {
+            "mae": 43.6753,
+            "rmse": 60.4178,
+            "target_mean_rgb": [
+              51.53,
+              55.86,
+              55.49
+            ],
+            "render_mean_rgb": [
+              29.08,
+              31.33,
+              36.0
+            ],
+            "error_share_pct": 33.57
+          },
+          "core": {
+            "mae": 51.853,
+            "rmse": 64.9947,
+            "target_mean_rgb": [
+              60.65,
+              59.65,
+              54.23
+            ],
+            "render_mean_rgb": [
+              26.06,
+              31.4,
+              38.05
+            ],
+            "error_share_pct": 13.66
+          },
+          "sky": {
+            "mae": 49.2963,
+            "rmse": 64.5105,
+            "target_mean_rgb": [
+              63.84,
+              74.47,
+              79.21
+            ],
+            "render_mean_rgb": [
+              33.86,
+              42.21,
+              52.46
+            ],
+            "error_share_pct": 37.89
+          },
+          "left_colonnade": {
+            "mae": 38.4154,
+            "rmse": 51.2592,
+            "target_mean_rgb": [
+              49.62,
+              60.44,
+              64.85
+            ],
+            "render_mean_rgb": [
+              24.94,
+              31.16,
+              39.38
+            ],
+            "error_share_pct": 11.81
+          },
+          "right_colonnade": {
+            "mae": 42.2441,
+            "rmse": 57.0142,
+            "target_mean_rgb": [
+              53.35,
+              64.19,
+              68.77
+            ],
+            "render_mean_rgb": [
+              31.5,
+              37.42,
+              45.12
+            ],
+            "error_share_pct": 12.99
+          }
+        }
+      },
+      "vs_phase27_baseline": {
+        "overall": {
+          "mae": 3.0662,
+          "rmse": 5.0161,
+          "psnr": 34.12,
+          "ssim": 0.9881,
+          "max_diff": 127.0,
+          "mean_lum": 35.25,
+          "mean_rgb": [
+            30.58,
+            36.03,
+            43.48
+          ],
+          "warm_pixels_pct": 2.68
+        },
+        "regions": {
+          "floor": {
+            "mae": 2.9535,
+            "rmse": 4.9305,
+            "target_mean_rgb": [
+              25.71,
+              28.39,
+              33.51
+            ],
+            "render_mean_rgb": [
+              29.08,
+              31.33,
+              36.0
+            ],
+            "error_share_pct": 33.71
+          },
+          "core": {
+            "mae": 2.1665,
+            "rmse": 4.159,
+            "target_mean_rgb": [
+              23.64,
+              29.24,
+              36.15
+            ],
+            "render_mean_rgb": [
+              26.06,
+              31.4,
+              38.05
+            ],
+            "error_share_pct": 8.48
+          },
+          "sky": {
+            "mae": 3.5648,
+            "rmse": 5.639,
+            "target_mean_rgb": [
+              30.06,
+              38.62,
+              49.15
+            ],
+            "render_mean_rgb": [
+              33.86,
+              42.21,
+              52.46
+            ],
+            "error_share_pct": 40.69
+          },
+          "left_colonnade": {
+            "mae": 2.6311,
+            "rmse": 4.4154,
+            "target_mean_rgb": [
+              22.17,
+              28.58,
+              36.84
+            ],
+            "render_mean_rgb": [
+              24.94,
+              31.16,
+              39.38
+            ],
+            "error_share_pct": 12.01
+          },
+          "right_colonnade": {
+            "mae": 2.9626,
+            "rmse": 4.52,
+            "target_mean_rgb": [
+              28.02,
+              34.47,
+              42.8
+            ],
+            "render_mean_rgb": [
+              31.5,
+              37.42,
+              45.12
+            ],
+            "error_share_pct": 13.53
+          }
+        }
+      },
+      "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_monumental.png",
+      "diff_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_diff_monumental.png",
+      "heat_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_heat_monumental.png",
+      "warmcool_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_warmcool_monumental.png",
+      "contrast_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_contrast_monumental.png",
+      "panel_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_panel_monumental.png"
+    },
+    "detail": {
+      "camera": "CAM_ArchiveDetail",
+      "title": "Archival Vitrine Detail",
+      "performance": {
+        "drawCalls": 53,
+        "triangles": 86842,
+        "points": 0,
+        "lines": 0,
+        "geometries": 63,
+        "textures": 9,
+        "gpuMemoryMb": 4.57,
+        "frameTimeMs": 1.14,
+        "fps": 877.2
+      },
+      "vs_target_reference": {
+        "overall": {
+          "mae": 54.8081,
+          "rmse": 74.756,
+          "psnr": 10.66,
+          "ssim": 0.122,
+          "max_diff": 255.0,
+          "mean_lum": 47.83,
+          "mean_rgb": [
+            50.53,
+            47.11,
+            44.49
+          ],
+          "warm_pixels_pct": 31.02
+        },
+        "regions": {
+          "floor": {
+            "mae": 47.9466,
+            "rmse": 67.2036,
+            "target_mean_rgb": [
+              68.68,
+              53.63,
+              43.02
+            ],
+            "render_mean_rgb": [
+              45.51,
+              38.07,
+              31.57
+            ],
+            "error_share_pct": 30.62
+          },
+          "core": {
+            "mae": 69.1131,
+            "rmse": 91.4858,
+            "target_mean_rgb": [
+              100.14,
+              96.43,
+              94.26
+            ],
+            "render_mean_rgb": [
+              37.21,
+              40.79,
+              44.34
+            ],
+            "error_share_pct": 15.13
+          },
+          "sky": {
+            "mae": 54.9261,
+            "rmse": 72.6662,
+            "target_mean_rgb": [
+              86.8,
+              90.34,
+              93.8
+            ],
+            "render_mean_rgb": [
+              55.57,
+              56.23,
+              58.45
+            ],
+            "error_share_pct": 35.08
+          },
+          "left_colonnade": {
+            "mae": 68.0036,
+            "rmse": 92.4965,
+            "target_mean_rgb": [
+              96.17,
+              78.78,
+              67.78
+            ],
+            "render_mean_rgb": [
+              21.75,
+              23.33,
+              26.12
+            ],
+            "error_share_pct": 17.37
+          },
+          "right_colonnade": {
+            "mae": 48.8552,
+            "rmse": 62.4125,
+            "target_mean_rgb": [
+              98.36,
+              99.18,
+              100.06
+            ],
+            "render_mean_rgb": [
+              99.82,
+              86.3,
+              71.39
+            ],
+            "error_share_pct": 12.48
+          }
+        }
+      },
+      "vs_phase27_baseline": {
+        "overall": {
+          "mae": 5.4683,
+          "rmse": 10.3795,
+          "psnr": 27.81,
+          "ssim": 0.9698,
+          "max_diff": 218.0,
+          "mean_lum": 47.83,
+          "mean_rgb": [
+            50.53,
+            47.11,
+            44.49
+          ],
+          "warm_pixels_pct": 31.02
+        },
+        "regions": {
+          "floor": {
+            "mae": 8.1935,
+            "rmse": 15.071,
+            "target_mean_rgb": [
+              36.44,
+              31.82,
+              28.88
+            ],
+            "render_mean_rgb": [
+              45.51,
+              38.07,
+              31.57
+            ],
+            "error_share_pct": 52.44
+          },
+          "core": {
+            "mae": 2.2188,
+            "rmse": 3.8283,
+            "target_mean_rgb": [
+              34.49,
+              38.61,
+              42.75
+            ],
+            "render_mean_rgb": [
+              37.21,
+              40.79,
+              44.34
+            ],
+            "error_share_pct": 4.87
+          },
+          "sky": {
+            "mae": 3.7298,
+            "rmse": 5.6381,
+            "target_mean_rgb": [
+              49.64,
+              52.69,
+              57.63
+            ],
+            "render_mean_rgb": [
+              55.57,
+              56.23,
+              58.45
+            ],
+            "error_share_pct": 23.87
+          },
+          "left_colonnade": {
+            "mae": 2.4476,
+            "rmse": 4.5954,
+            "target_mean_rgb": [
+              19.15,
+              20.85,
+              24.05
+            ],
+            "render_mean_rgb": [
+              21.75,
+              23.33,
+              26.12
+            ],
+            "error_share_pct": 6.27
+          },
+          "right_colonnade": {
+            "mae": 7.7988,
+            "rmse": 10.6286,
+            "target_mean_rgb": [
+              86.82,
+              79.36,
+              72.08
+            ],
+            "render_mean_rgb": [
+              99.82,
+              86.3,
+              71.39
+            ],
+            "error_share_pct": 19.97
+          }
+        }
+      },
+      "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_detail.png",
+      "diff_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_diff_detail.png",
+      "heat_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_heat_detail.png",
+      "warmcool_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_warmcool_detail.png",
+      "contrast_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_contrast_detail.png",
+      "panel_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase28_panel_detail.png"
+    }
+  }
+}

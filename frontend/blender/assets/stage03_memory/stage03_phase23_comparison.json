@@ -1,0 +1,331 @@
+{
+  "metadata": {
+    "phase": "2.3",
+    "date": "2026-10-01",
+    "solution": "Candidate C (Hybrid Planar Floor Reflection + Reactor Dais GI Bounce + ACESFilmic 0.812)",
+    "config": {
+      "toneMapping": "ACESFilmic",
+      "exposure": 0.812,
+      "planarReflection": true,
+      "planarIntensity": 0.45,
+      "renderMode": "standard",
+      "daisBounceIntensity": 2.0,
+      "envOptions": {
+        "zenithColor": "#0c1624",
+        "horizonColor": "#1c2635",
+        "groundColor": "#040609",
+        "warmGlowIntensity": 0.35,
+        "warmGlowRadius": 110,
+        "bakedGroundBounce": false
+      }
+    }
+  },
+  "views": {
+    "hero": {
+      "camera": "CAM_CinematicHero",
+      "title": "Archival Hero Establishing",
+      "performance": {
+        "drawCalls": 52,
+        "triangles": 86830,
+        "points": 0,
+        "lines": 0,
+        "geometries": 62,
+        "textures": 7,
+        "gpuMemoryMb": 4.57,
+        "frameTimeMs": 0.92,
+        "fps": 1083
+      },
+      "overall": {
+        "mae": 8.5904,
+        "rmse": 22.9738,
+        "psnr": 20.91,
+        "ssim": 0.5808,
+        "max_diff": 253.0
+      },
+      "regions": {
+        "floor": {
+          "mae": 12.0005,
+          "rmse": 28.3219,
+          "clean_mean_rgb": [
+            10.74,
+            11.58,
+            13.12
+          ],
+          "render_mean_rgb": [
+            11.06,
+            12.51,
+            15.29
+          ],
+          "error_share_pct": 48.89
+        },
+        "core": {
+          "mae": 16.5218,
+          "rmse": 35.6436,
+          "clean_mean_rgb": [
+            23.24,
+            25.62,
+            28.58
+          ],
+          "render_mean_rgb": [
+            13.5,
+            13.26,
+            12.46
+          ],
+          "error_share_pct": 23.08
+        },
+        "sky": {
+          "mae": 4.6506,
+          "rmse": 11.3765,
+          "clean_mean_rgb": [
+            13.88,
+            16.41,
+            20.39
+          ],
+          "render_mean_rgb": [
+            10.25,
+            13.28,
+            17.76
+          ],
+          "error_share_pct": 18.95
+        },
+        "left_colonnade": {
+          "mae": 6.4835,
+          "rmse": 19.6391,
+          "clean_mean_rgb": [
+            19.81,
+            24.5,
+            31.17
+          ],
+          "render_mean_rgb": [
+            15.37,
+            20.23,
+            27.28
+          ],
+          "error_share_pct": 10.57
+        },
+        "right_colonnade": {
+          "mae": 2.2368,
+          "rmse": 7.2358,
+          "clean_mean_rgb": [
+            8.96,
+            10.33,
+            12.79
+          ],
+          "render_mean_rgb": [
+            7.45,
+            9.68,
+            13.15
+          ],
+          "error_share_pct": 3.65
+        }
+      },
+      "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase23_hero.png",
+      "diff_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase23_diff_hero.png",
+      "panel_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase23_panel_hero.png"
+    },
+    "monumental": {
+      "camera": "CAM_MonumentalLowAngle",
+      "title": "Monumental Rotunda Colonnade",
+      "performance": {
+        "drawCalls": 52,
+        "triangles": 86830,
+        "points": 0,
+        "lines": 0,
+        "geometries": 62,
+        "textures": 7,
+        "gpuMemoryMb": 4.57,
+        "frameTimeMs": 1.28,
+        "fps": 781.2
+      },
+      "overall": {
+        "mae": 11.7741,
+        "rmse": 29.143,
+        "psnr": 18.84,
+        "ssim": 0.4162,
+        "max_diff": 254.0
+      },
+      "regions": {
+        "floor": {
+          "mae": 13.9418,
+          "rmse": 29.6811,
+          "clean_mean_rgb": [
+            13.99,
+            15.46,
+            17.92
+          ],
+          "render_mean_rgb": [
+            9.41,
+            9.64,
+            10.85
+          ],
+          "error_share_pct": 41.44
+        },
+        "core": {
+          "mae": 8.2314,
+          "rmse": 19.7392,
+          "clean_mean_rgb": [
+            11.77,
+            13.05,
+            15.34
+          ],
+          "render_mean_rgb": [
+            5.59,
+            6.32,
+            7.93
+          ],
+          "error_share_pct": 8.39
+        },
+        "sky": {
+          "mae": 6.5556,
+          "rmse": 20.2952,
+          "clean_mean_rgb": [
+            12.62,
+            14.82,
+            18.22
+          ],
+          "render_mean_rgb": [
+            7.81,
+            10.28,
+            13.86
+          ],
+          "error_share_pct": 19.49
+        },
+        "left_colonnade": {
+          "mae": 15.8997,
+          "rmse": 40.1482,
+          "clean_mean_rgb": [
+            15.72,
+            18.06,
+            21.55
+          ],
+          "render_mean_rgb": [
+            6.78,
+            7.8,
+            10.77
+          ],
+          "error_share_pct": 18.91
+        },
+        "right_colonnade": {
+          "mae": 18.9401,
+          "rmse": 42.374,
+          "clean_mean_rgb": [
+            17.24,
+            19.65,
+            23.2
+          ],
+          "render_mean_rgb": [
+            11.46,
+            13.98,
+            18.19
+          ],
+          "error_share_pct": 22.52
+        }
+      },
+      "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase23_monumental.png",
+      "diff_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase23_diff_monumental.png",
+      "panel_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase23_panel_monumental.png"
+    },
+    "detail": {
+      "camera": "CAM_ArchiveDetail",
+      "title": "Archival Vitrine Detail",
+      "performance": {
+        "drawCalls": 52,
+        "triangles": 86830,
+        "points": 0,
+        "lines": 0,
+        "geometries": 62,
+        "textures": 7,
+        "gpuMemoryMb": 4.57,
+        "frameTimeMs": 1.32,
+        "fps": 755.7
+      },
+      "overall": {
+        "mae": 16.6806,
+        "rmse": 38.5825,
+        "psnr": 16.4,
+        "ssim": 0.1283,
+        "max_diff": 234.0
+      },
+      "regions": {
+        "floor": {
+          "mae": 25.3509,
+          "rmse": 51.552,
+          "clean_mean_rgb": [
+            19.67,
+            20.2,
+            22.26
+          ],
+          "render_mean_rgb": [
+            9.7,
+            10.98,
+            14.46
+          ],
+          "error_share_pct": 53.19
+        },
+        "core": {
+          "mae": 14.3141,
+          "rmse": 36.9999,
+          "clean_mean_rgb": [
+            7.21,
+            6.97,
+            7.07
+          ],
+          "render_mean_rgb": [
+            13.75,
+            13.47,
+            12.37
+          ],
+          "error_share_pct": 10.3
+        },
+        "sky": {
+          "mae": 11.286,
+          "rmse": 28.3871,
+          "clean_mean_rgb": [
+            17.55,
+            19.41,
+            22.74
+          ],
+          "render_mean_rgb": [
+            14.25,
+            16.88,
+            20.71
+          ],
+          "error_share_pct": 23.68
+        },
+        "left_colonnade": {
+          "mae": 16.9904,
+          "rmse": 34.7617,
+          "clean_mean_rgb": [
+            9.62,
+            7.94,
+            6.62
+          ],
+          "render_mean_rgb": [
+            14.69,
+            15.09,
+            18.12
+          ],
+          "error_share_pct": 14.26
+        },
+        "right_colonnade": {
+          "mae": 7.3936,
+          "rmse": 19.3796,
+          "clean_mean_rgb": [
+            22.65,
+            28.34,
+            36.12
+          ],
+          "render_mean_rgb": [
+            23.18,
+            28.55,
+            36.1
+          ],
+          "error_share_pct": 6.21
+        }
+      },
+      "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase23_detail.png",
+      "diff_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase23_diff_detail.png",
+      "panel_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_phase23_panel_detail.png"
+    }
+  }
+}

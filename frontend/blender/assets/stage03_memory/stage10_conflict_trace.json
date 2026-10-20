@@ -1,0 +1,52 @@
+{
+  "scenario": "SHARED_MEMORY_WRITE_COLLISION_AND_ARBITRATION",
+  "goalId": "goal-stage10-conf-01",
+  "conflictEvent": {
+    "conflictId": "CONF-1727827900-5510",
+    "detectedAt": "2026-10-02T00:15:30.220Z",
+    "category": "MEMORY_WRITE_CONFLICT",
+    "resourceOrMemoryId": "MEM-0010",
+    "description": "Concurrent write collision detected on memory entity 'MEM-0010' by tasks: TASK-mut-A, TASK-mut-B.",
+    "conflictingTasks": [
+      {
+        "taskId": "TASK-mut-A",
+        "actionId": "act-mut-A",
+        "agentId": "agent-writer",
+        "role": "WRITER",
+        "requestedAccess": "WRITE",
+        "priority": "HIGH"
+      },
+      {
+        "taskId": "TASK-mut-B",
+        "actionId": "act-mut-B",
+        "agentId": "agent-coder",
+        "role": "CODER",
+        "requestedAccess": "WRITE",
+        "priority": "MEDIUM"
+      }
+    ]
+  },
+  "arbitrationDecision": {
+    "evaluatedAt": "2026-10-02T00:15:30.250Z",
+    "strategy": "RESOLVE",
+    "arbitrator": "agentConflictManager.deterministicPriorityArbitrator",
+    "ruleApplied": "HIGH_PRIORITY_PREEMPTION",
+    "winnerTaskId": "TASK-mut-A",
+    "actionForWinner": "Granted exclusive WRITE lock on MEM-0010.",
+    "actionForContender": "Queued TASK-mut-B until TASK-mut-A completes and releases lock.",
+    "details": "Deterministic priority arbitration: TASK-mut-A (HIGH) prioritized over TASK-mut-B (MEDIUM)."
+  },
+  "postResolutionState": {
+    "resolvedAt": "2026-10-02T00:15:30.300Z",
+    "lockState": {
+      "memoryId": "MEM-0010",
+      "ownerTaskId": "TASK-mut-A",
+      "ownerAgentId": "agent-writer",
+      "state": "WRITE_LOCKED"
+    },
+    "queueState": {
+      "queuedTask": "TASK-mut-B",
+      "status": "WAITING"
+    }
+  }
+}

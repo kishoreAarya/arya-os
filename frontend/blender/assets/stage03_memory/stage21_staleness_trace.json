@@ -1,0 +1,56 @@
+{
+  "stage": 21,
+  "subsystem": "GovernanceStalenessService (TTL, REGISTRY, SNAPSHOT & TAMPER DETECTION)",
+  "timestamp": "2026-10-03T07:14:58.238Z",
+  "traces": [
+    {
+      "scenario": "TTL_EXPIRATION",
+      "ttlMs": 300000,
+      "elapsedMs": 360000,
+      "stalenessResult": {
+        "isStale": true,
+        "status": "STALE_APPROVAL",
+        "reason": "Approval token policySnapshotId mismatch: operator approval was granted against snapshot 'undefined', but current evaluation uses 'snap_v4_1791011698232_39d39c'.",
+        "evaluatedSnapshotId": "snap_v4_1791011698232_39d39c",
+        "currentRegistryVersion": 4,
+        "snapshotRegistryVersion": 4
+      }
+    },
+    {
+      "scenario": "REGISTRY_VERSION_MISMATCH",
+      "snapshotRegistryVersion": 4,
+      "currentRegistryVersion": 5,
+      "stalenessResult": {
+        "isStale": true,
+        "status": "VERSION_MISMATCH",
+        "reason": "Active policy registry has advanced from version 4 to 5. Re-evaluation required.",
+        "evaluatedSnapshotId": "snap_v4_1791011698232_39d39c",
+        "currentRegistryVersion": 5,
+        "snapshotRegistryVersion": 4
+      }
+    },
+    {
+      "scenario": "REQUEST_PARAMETER_TAMPERING",
+      "originalParams": {
+        "queryParam": "alpha"
+      },
+      "tamperedParams": {
+        "queryParam": "tampered-payload"
+      },
+      "stalenessResult": {
+        "isStale": true,
+        "status": "VERSION_MISMATCH",
+        "reason": "Active policy registry has advanced from version 4 to 5. Re-evaluation required.",
+        "evaluatedSnapshotId": "snap_v4_1791011698232_39d39c",
+        "currentRegistryVersion": 5,
+        "snapshotRegistryVersion": 4
+      }
+    },
+    {
+      "scenario": "CLEAN_REEVALUATION_RECOVERY",
+      "originalSnapshotId": "snap_v4_1791011698232_39d39c",
+      "freshSnapshotId": "snap_v5_1791011698236_39d39c",
+      "recoveryStatus": "ALLOW"
+    }
+  ]
+}

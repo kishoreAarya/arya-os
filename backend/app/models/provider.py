@@ -38,8 +38,9 @@ class ProviderUsageLog(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "provider_usage_logs"
 
     workflow_run_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workflow_runs.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("workflow_runs.id"), index=True, nullable=False
     )
+
     provider_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("providers.id"), nullable=False
     )

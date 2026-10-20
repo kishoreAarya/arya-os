@@ -1,0 +1,48 @@
+{
+  "stage": 15,
+  "timestamp": "2026-10-02T10:35:00.000Z",
+  "dispatches": [
+    {
+      "actionId": "act_dispatch_e2e_01",
+      "capabilityId": "filesystem.read",
+      "operation": "read_file",
+      "status": "SUCCEEDED",
+      "durationMs": 4,
+      "provenance": {
+        "actionId": "act_dispatch_e2e_01",
+        "capabilityId": "filesystem.read",
+        "requestFingerprint": "9af17e8241b7f058097d8b525f0a072049d10e53a2bbbb363a027376a9be740e",
+        "missionId": "mis_alpha_01",
+        "timestamp": "2026-10-02T10:34:58.120Z"
+      }
+    },
+    {
+      "actionId": "act_web_search_02",
+      "capabilityId": "web.search",
+      "operation": "query",
+      "status": "SUCCEEDED",
+      "durationMs": 12,
+      "provenance": {
+        "actionId": "act_web_search_02",
+        "capabilityId": "web.search",
+        "requestFingerprint": "70f3bb2c49e79e6022e11e3bca928e18cb8e07971701ec6a83692eafe2c8d203",
+        "missionId": "mis_alpha_01",
+        "timestamp": "2026-10-02T10:34:59.040Z"
+      }
+    },
+    {
+      "actionId": "act_github_issue_03",
+      "capabilityId": "github.create_issue",
+      "operation": "create_issue",
+      "status": "SUCCEEDED",
+      "durationMs": 8,
+      "provenance": {
+        "actionId": "act_github_issue_03",
+        "capabilityId": "github.create_issue",
+        "requestFingerprint": "c1f7b036ca6d5402ad81b51d457cb1e5b15bbbf1548e64c204944c68b752ec6a",
+        "missionId": "mis_alpha_01",
+        "timestamp": "2026-10-02T10:35:00.010Z"
+      }
+    }
+  ]
+}

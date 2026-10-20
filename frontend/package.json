@@ -7,12 +7,16 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run --fileParallelism=false"
   },
   "dependencies": {
+    "@react-three/drei": "^9.122.0",
+    "@react-three/fiber": "^8.18.0",
     "lucide-react": "^0.475.0",
+    "motion": "^13.4.4",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",

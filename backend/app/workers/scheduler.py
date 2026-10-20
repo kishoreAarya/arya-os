@@ -40,6 +40,14 @@ def start_scheduler() -> None:
     scheduler.add_job(jobs.aggregate_costs, "interval", hours=1, id="aggregate_costs", replace_existing=True)
     scheduler.add_job(jobs.run_learning_update, "interval", hours=24, id="run_learning_update", replace_existing=True)
     scheduler.add_job(jobs.cleanup_temp_files, "interval", hours=12, id="cleanup_temp_files", replace_existing=True)
+    if getattr(settings, "enable_lease_expiry_sweeper", True):
+        scheduler.add_job(
+            jobs.sweep_expired_leases,
+            "interval",
+            seconds=settings.lease_expiry_sweep_interval_seconds,
+            id="sweep_expired_leases",
+            replace_existing=True,
+        )
     scheduler.start()
     logger.info("scheduler_started", jobs=[j.id for j in scheduler.get_jobs()])
 

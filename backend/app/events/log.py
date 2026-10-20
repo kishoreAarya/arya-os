@@ -37,6 +37,10 @@ class EventType(str, enum.Enum):
     WORKFLOW_COMPLETED = "workflow_completed"
     WORKFLOW_FAILED = "workflow_failed"
     PIPELINE_RESUMED = "pipeline_resumed"
+    WORKFLOW_AWAITING_APPROVAL = "workflow_awaiting_approval"
+
+
+from app.core.sanitization import sanitize_payload, sanitize_text
 
 
 async def log_event(
@@ -49,12 +53,14 @@ async def log_event(
 ) -> None:
     """Fire-and-forget event write. Never raises — a logging failure
     must never take down the pipeline step that triggered it."""
-    full_message = message
-    if metadata:
+    clean_message = sanitize_text(message)
+    clean_metadata = sanitize_payload(metadata) if metadata else None
+    full_message = clean_message
+    if clean_metadata:
         try:
-            full_message = f"{message} | {json.dumps(metadata, default=str)}"
+            full_message = f"{clean_message} | {json.dumps(clean_metadata, default=str)}"
         except TypeError:
-            full_message = message
+            full_message = clean_message
 
     try:
         async with AsyncSessionLocal() as session:

@@ -265,6 +265,50 @@ async def test_ensure_local_asset_ssrf_rejection():
         await ensure_local_asset("http://127.0.0.1:8080/internal.png")
 
 
+@pytest.mark.asyncio
+async def test_ensure_local_asset_storage_confinement():
+    """Verify ensure_local_asset strictly confines local asset resolution."""
+    from pathlib import Path
+    import uuid
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    storage_root = Path(settings.storage_local_path).resolve()
+    storage_root.mkdir(parents=True, exist_ok=True)
+
+    test_file = storage_root / f"valid_asset_{uuid.uuid4().hex[:8]}.mp4"
+    test_file.write_bytes(b"deterministic video content")
+    try:
+        # 1. Valid file inside storage root succeeds (relative and absolute)
+        resolved_rel = await ensure_local_asset(test_file.name)
+        assert resolved_rel == str(test_file.resolve())
+
+        resolved_abs = await ensure_local_asset(str(test_file))
+        assert resolved_abs == str(test_file.resolve())
+
+        # 2. Absolute path outside storage root is rejected
+        outside_abs = os.path.abspath("pyproject.toml")
+        with pytest.raises(ValueError, match="Asset access denied"):
+            await ensure_local_asset(outside_abs)
+
+        # 3. Relative traversal outside storage root is rejected
+        with pytest.raises(ValueError, match="Asset access denied"):
+            await ensure_local_asset("../../.env")
+
+        # 4. Symlink inside storage root pointing outside is rejected
+        symlink_file = storage_root / f"symlink_{uuid.uuid4().hex[:8]}.mp4"
+        try:
+            os.symlink(outside_abs, symlink_file)
+            with pytest.raises(ValueError, match="Asset access denied"):
+                await ensure_local_asset(str(symlink_file))
+        finally:
+            if symlink_file.is_symlink() or symlink_file.exists():
+                symlink_file.unlink(missing_ok=True)
+    finally:
+        if test_file.exists():
+            test_file.unlink(missing_ok=True)
+
+
 # ---------------------------------------------------------------------------
 # 5. Remote Image Download, PIL Validation, and Cleanup in ShotExecutor
 # ---------------------------------------------------------------------------

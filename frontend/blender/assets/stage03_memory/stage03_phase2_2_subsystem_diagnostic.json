@@ -1,0 +1,371 @@
+{
+  "baseline_transmission": {
+    "name": "Baseline: Physical Transmission Glass (185 draws)",
+    "config": {
+      "toneMapping": "AgX",
+      "exposure": 0.95,
+      "cinematicGlass": false,
+      "neutralMaterial": false
+    },
+    "metrics": {
+      "hero": {
+        "camera": "CAM_CinematicHero",
+        "performance": {
+          "drawCalls": 101,
+          "triangles": 170728,
+          "points": 0,
+          "lines": 0,
+          "geometries": 62,
+          "textures": 5,
+          "gpuMemoryMb": 4.57,
+          "frameTimeMs": 1.13,
+          "fps": 885
+        },
+        "mae": 10.5747,
+        "mse": 648.3144,
+        "rmse": 25.462,
+        "psnr": 20.01,
+        "ssim": 0.541,
+        "max_diff": 255.0,
+        "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/diag_baseline_transmission_hero.png"
+      },
+      "monumental": {
+        "camera": "CAM_MonumentalLowAngle",
+        "performance": {
+          "drawCalls": 101,
+          "triangles": 170728,
+          "points": 0,
+          "lines": 0,
+          "geometries": 62,
+          "textures": 5,
+          "gpuMemoryMb": 4.57,
+          "frameTimeMs": 1.44,
+          "fps": 694.4
+        },
+        "mae": 13.0198,
+        "mse": 908.5248,
+        "rmse": 30.1417,
+        "psnr": 18.55,
+        "ssim": 0.4127,
+        "max_diff": 243.0,
+        "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/diag_baseline_transmission_monumental.png"
+      },
+      "detail": {
+        "camera": "CAM_ArchiveDetail",
+        "performance": {
+          "drawCalls": 101,
+          "triangles": 170728,
+          "points": 0,
+          "lines": 0,
+          "geometries": 62,
+          "textures": 5,
+          "gpuMemoryMb": 4.57,
+          "frameTimeMs": 1.6,
+          "fps": 626.3
+        },
+        "mae": 20.2562,
+        "mse": 1630.0175,
+        "rmse": 40.3735,
+        "psnr": 16.01,
+        "ssim": 0.1603,
+        "max_diff": 251.0,
+        "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/diag_baseline_transmission_detail.png"
+      }
+    }
+  },
+  "cinematic_glass": {
+    "name": "Optimized: Cinematic Physical Glass (~94 draws)",
+    "config": {
+      "toneMapping": "AgX",
+      "exposure": 0.95,
+      "cinematicGlass": true,
+      "neutralMaterial": false
+    },
+    "metrics": {
+      "hero": {
+        "camera": "CAM_CinematicHero",
+        "performance": {
+          "drawCalls": 52,
+          "triangles": 86830,
+          "points": 0,
+          "lines": 0,
+          "geometries": 62,
+          "textures": 5,
+          "gpuMemoryMb": 4.57,
+          "frameTimeMs": 0.7,
+          "fps": 1421.8
+        },
+        "mae": 10.1502,
+        "mse": 573.2231,
+        "rmse": 23.9421,
+        "psnr": 20.55,
+        "ssim": 0.565,
+        "max_diff": 251.0,
+        "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/diag_cinematic_glass_hero.png"
+      },
+      "monumental": {
+        "camera": "CAM_MonumentalLowAngle",
+        "performance": {
+          "drawCalls": 52,
+          "triangles": 86830,
+          "points": 0,
+          "lines": 0,
+          "geometries": 62,
+          "textures": 5,
+          "gpuMemoryMb": 4.57,
+          "frameTimeMs": 0.64,
+          "fps": 1570.7
+        },
+        "mae": 12.9015,
+        "mse": 851.496,
+        "rmse": 29.1804,
+        "psnr": 18.83,
+        "ssim": 0.4284,
+        "max_diff": 243.0,
+        "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/diag_cinematic_glass_monumental.png"
+      },
+      "detail": {
+        "camera": "CAM_ArchiveDetail",
+        "performance": {
+          "drawCalls": 52,
+          "triangles": 86830,
+          "points": 0,
+          "lines": 0,
+          "geometries": 62,
+          "textures": 5,
+          "gpuMemoryMb": 4.57,
+          "frameTimeMs": 0.57,
+          "fps": 1744.2
+        },
+        "mae": 19.3363,
+        "mse": 1473.7659,
+        "rmse": 38.3897,
+        "psnr": 16.45,
+        "ssim": 0.1711,
+        "max_diff": 234.0,
+        "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/diag_cinematic_glass_detail.png"
+      }
+    }
+  },
+  "cinematic_glass_exp100": {
+    "name": "Cinematic Glass + AgX Exp 1.00",
+    "config": {
+      "toneMapping": "AgX",
+      "exposure": 1.0,
+      "cinematicGlass": true,
+      "neutralMaterial": false
+    },
+    "metrics": {
+      "hero": {
+        "camera": "CAM_CinematicHero",
+        "performance": {
+          "drawCalls": 52,
+          "triangles": 86830,
+          "points": 0,
+          "lines": 0,
+          "geometries": 62,
+          "textures": 5,
+          "gpuMemoryMb": 4.57,
+          "frameTimeMs": 0.45,
+          "fps": 2205.9
+        },
+        "mae": 10.2908,
+        "mse": 582.4354,
+        "rmse": 24.1337,
+        "psnr": 20.48,
+        "ssim": 0.5622,
+        "max_diff": 251.0,
+        "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/diag_cinematic_glass_exp100_hero.png"
+      },
+      "monumental": {
+        "camera": "CAM_MonumentalLowAngle",
+        "performance": {
+          "drawCalls": 52,
+          "triangles": 86830,
+          "points": 0,
+          "lines": 0,
+          "geometries": 62,
+          "textures": 5,
+          "gpuMemoryMb": 4.57,
+          "frameTimeMs": 0.83,
+          "fps": 1209.7
+        },
+        "mae": 13.0112,
+        "mse": 854.705,
+        "rmse": 29.2353,
+        "psnr": 18.81,
+        "ssim": 0.4301,
+        "max_diff": 244.0,
+        "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/diag_cinematic_glass_exp100_monumental.png"
+      },
+      "detail": {
+        "camera": "CAM_ArchiveDetail",
+        "performance": {
+          "drawCalls": 52,
+          "triangles": 86830,
+          "points": 0,
+          "lines": 0,
+          "geometries": 62,
+          "textures": 5,
+          "gpuMemoryMb": 4.57,
+          "frameTimeMs": 0.73,
+          "fps": 1376.1
+        },
+        "mae": 19.5697,
+        "mse": 1485.8298,
+        "rmse": 38.5465,
+        "psnr": 16.41,
+        "ssim": 0.173,
+        "max_diff": 234.0,
+        "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/diag_cinematic_glass_exp100_detail.png"
+      }
+    }
+  },
+  "cinematic_glass_aces": {
+    "name": "Cinematic Glass + ACESFilmic",
+    "config": {
+      "toneMapping": "ACESFilmic",
+      "exposure": 0.95,
+      "cinematicGlass": true,
+      "neutralMaterial": false
+    },
+    "metrics": {
+      "hero": {
+        "camera": "CAM_CinematicHero",
+        "performance": {
+          "drawCalls": 52,
+          "triangles": 86830,
+          "points": 0,
+          "lines": 0,
+          "geometries": 62,
+          "textures": 5,
+          "gpuMemoryMb": 4.57,
+          "frameTimeMs": 0.92,
+          "fps": 1090.9
+        },
+        "mae": 9.0831,
+        "mse": 545.6301,
+        "rmse": 23.3587,
+        "psnr": 20.76,
+        "ssim": 0.5799,
+        "max_diff": 254.0,
+        "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/diag_cinematic_glass_aces_hero.png"
+      },
+      "monumental": {
+        "camera": "CAM_MonumentalLowAngle",
+        "performance": {
+          "drawCalls": 52,
+          "triangles": 86830,
+          "points": 0,
+          "lines": 0,
+          "geometries": 62,
+          "textures": 5,
+          "gpuMemoryMb": 4.57,
+          "frameTimeMs": 0.89,
+          "fps": 1119.4
+        },
+        "mae": 12.0147,
+        "mse": 852.0767,
+        "rmse": 29.1904,
+        "psnr": 18.83,
+        "ssim": 0.4249,
+        "max_diff": 254.0,
+        "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/diag_cinematic_glass_aces_monumental.png"
+      },
+      "detail": {
+        "camera": "CAM_ArchiveDetail",
+        "performance": {
+          "drawCalls": 52,
+          "triangles": 86830,
+          "points": 0,
+          "lines": 0,
+          "geometries": 62,
+          "textures": 5,
+          "gpuMemoryMb": 4.57,
+          "frameTimeMs": 0.72,
+          "fps": 1395.3
+        },
+        "mae": 17.5891,
+        "mse": 1494.3647,
+        "rmse": 38.657,
+        "psnr": 16.39,
+        "ssim": 0.1421,
+        "max_diff": 234.0,
+        "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/diag_cinematic_glass_aces_detail.png"
+      }
+    }
+  },
+  "neutral_lighting_only": {
+    "name": "Diagnostic: Neutral Clay Material (Lighting-Only)",
+    "config": {
+      "toneMapping": "AgX",
+      "exposure": 0.95,
+      "neutralMaterial": true
+    },
+    "metrics": {
+      "hero": {
+        "camera": "CAM_CinematicHero",
+        "performance": {
+          "drawCalls": 52,
+          "triangles": 86830,
+          "points": 0,
+          "lines": 0,
+          "geometries": 62,
+          "textures": 5,
+          "gpuMemoryMb": 4.57,
+          "frameTimeMs": 0.72,
+          "fps": 1388.9
+        },
+        "mae": 17.9457,
+        "mse": 765.9901,
+        "rmse": 27.6765,
+        "psnr": 19.29,
+        "ssim": 0.2465,
+        "max_diff": 231.0,
+        "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/diag_neutral_lighting_only_hero.png"
+      },
+      "monumental": {
+        "camera": "CAM_MonumentalLowAngle",
+        "performance": {
+          "drawCalls": 52,
+          "triangles": 86830,
+          "points": 0,
+          "lines": 0,
+          "geometries": 62,
+          "textures": 5,
+          "gpuMemoryMb": 4.57,
+          "frameTimeMs": 0.63,
+          "fps": 1578.9
+        },
+        "mae": 20.3256,
+        "mse": 1089.5126,
+        "rmse": 33.0078,
+        "psnr": 17.76,
+        "ssim": 0.136,
+        "max_diff": 232.0,
+        "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/diag_neutral_lighting_only_monumental.png"
+      },
+      "detail": {
+        "camera": "CAM_ArchiveDetail",
+        "performance": {
+          "drawCalls": 52,
+          "triangles": 86830,
+          "points": 0,
+          "lines": 0,
+          "geometries": 62,
+          "textures": 5,
+          "gpuMemoryMb": 4.57,
+          "frameTimeMs": 0.67,
+          "fps": 1492.5
+        },
+        "mae": 22.9451,
+        "mse": 1317.5155,
+        "rmse": 36.2976,
+        "psnr": 16.93,
+        "ssim": 0.0657,
+        "max_diff": 233.0,
+        "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/diag_neutral_lighting_only_detail.png"
+      }
+    }
+  }
+}

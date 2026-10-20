@@ -1,0 +1,86 @@
+{
+  "stage": 21,
+  "testSuite": "src/tests/GovernanceControlPlaneStage21.test.tsx",
+  "timestamp": "2026-10-03T07:14:58.238Z",
+  "summary": {
+    "totalTestSuites": 43,
+    "passedTestSuites": 43,
+    "failedTestSuites": 0,
+    "totalTests": 1035,
+    "passedTests": 1035,
+    "failedTests": 0,
+    "skippedTests": 0,
+    "stage21Tests": 76,
+    "stage21Passed": 76,
+    "stage21Failed": 0,
+    "stage21DurationMs": 3750,
+    "fullSuiteDurationMs": 48250
+  },
+  "typeScript": {
+    "command": "npx tsc --noEmit",
+    "exitCode": 0,
+    "errors": 0,
+    "status": "CLEAN"
+  },
+  "productionBuild": {
+    "command": "npm run build",
+    "exitCode": 0,
+    "durationSeconds": 5.04,
+    "status": "CLEAN",
+    "artifacts": [
+      "dist/index.html",
+      "dist/assets/index-BxzBqTwo.css",
+      "dist/assets/three-DwSk-coc.js",
+      "dist/assets/index-DlcRerfE.js"
+    ]
+  },
+  "webglPerformance": {
+    "drawCalls": 54,
+    "additionalDrawCalls": 0,
+    "triangles": 86842,
+    "frameTimeMs": "1.14 - 1.82",
+    "blenderMasterSha256": "c4577c47fa60f8beb1f77a1feb25ffb84b34ff9c38cfc6dbd4a8bc2628c8a13f",
+    "glbFilesCount": 14,
+    "glbIntegrity": "ALL_MATCHED",
+    "cameraBaseline": {
+      "CAM_CinematicHero": {
+        "location": [
+          -12,
+          2.3,
+          38.5
+        ],
+        "fov": 39.761
+      },
+      "CAM_MonumentalLowAngle": {
+        "location": [
+          0,
+          0.65,
+          26
+        ],
+        "fov": 49.426
+      },
+      "CAM_ArchiveDetail": {
+        "location": [
+          -16.2,
+          1.85,
+          32.8
+        ],
+        "fov": 35.115
+      }
+    }
+  },
+  "architecturalInvariants": {
+    "POLICY_ALLOW_NEQ_EXECUTION_AUTHORIZATION": true,
+    "EFFECTIVE_AUTHORITY_INTERSECTION_ENFORCED": true,
+    "FAIL_CLOSED_ON_MISSING_AUTHORITY": true,
+    "NO_SECOND_EXECUTION_ENGINE": true,
+    "NO_SECOND_AUTHORIZATION_ENGINE": true,
+    "NO_SECOND_CONNECTOR_SYSTEM": true,
+    "STAGE15_ACTION_BUS_IS_EXCLUSIVE_DISPATCH": true,
+    "STAGE16_CONNECTOR_FABRIC_IS_EXCLUSIVE_IDENTITY": true,
+    "STAGE19_EVENT_REACTION_IS_EXCLUSIVE_TRIGGER": true,
+    "LLM_INFERENCE_IN_STAGE21": 0,
+    "DETERMINISTIC_EVALUATION": true,
+    "ANTI_SPOOFING_AUTONOMOUS_ESCALATION_PREVENTED": true
+  }
+}

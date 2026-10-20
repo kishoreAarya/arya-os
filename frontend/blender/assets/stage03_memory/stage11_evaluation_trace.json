@@ -1,0 +1,161 @@
+{
+  "stage": "STAGE_11_AGENT_EVALUATION",
+  "generatedAt": "2026-10-02T03:13:00.000Z",
+  "evaluationsCount": 3,
+  "evaluations": [
+    {
+      "evaluationId": "eval-1790910504101-a1b2c",
+      "executionId": "exec-101",
+      "evaluationVersion": 1,
+      "goalId": "goal-stage11-eval",
+      "actionId": "act-memory-synth",
+      "agentId": "specialist-analyst",
+      "providerId": "gemini",
+      "capability": "SUMMARIZATION",
+      "taskType": "MEMORY_SYNTHESIS",
+      "timestamp": "2026-10-02T03:12:10.000Z",
+      "quality": {
+        "level": "QUALITY_HIGH",
+        "passed": true,
+        "scores": [
+          {
+            "value": 0.95,
+            "scale": { "min": 0, "max": 1 },
+            "dimension": "QUALITY",
+            "source": "AutomatedQualityGate",
+            "timestamp": "2026-10-02T03:12:10.000Z",
+            "confidence": "HIGH",
+            "evidenceReferences": ["exec-101"]
+          }
+        ],
+        "issues": []
+      },
+      "cost": {
+        "estimatedUsd": 0.01,
+        "actualUsd": 0.0042,
+        "withinBudget": true,
+        "efficiencyScore": 1.0
+      },
+      "latency": {
+        "estimatedMs": 1500,
+        "actualMs": 1240,
+        "withinDeadline": true,
+        "efficiencyScore": 1.0
+      },
+      "reliability": {
+        "fallbackUsed": false,
+        "retriesCount": 0,
+        "status": "SUCCESS"
+      },
+      "outcome": {
+        "isSuccess": true,
+        "status": "SUCCEEDED"
+      },
+      "overallScore": 0.94,
+      "evaluatorIdentity": "AgentEvaluationService:v1"
+    },
+    {
+      "evaluationId": "eval-1790910504102-d3e4f",
+      "executionId": "exec-102",
+      "evaluationVersion": 1,
+      "goalId": "goal-stage11-eval",
+      "actionId": "act-sec-audit",
+      "agentId": "specialist-coder",
+      "providerId": "ollama",
+      "capability": "CODE_GENERATION",
+      "taskType": "SECURITY_AUDIT",
+      "timestamp": "2026-10-02T03:12:15.000Z",
+      "quality": {
+        "level": "QUALITY_STANDARD",
+        "passed": true,
+        "scores": [
+          {
+            "value": 0.88,
+            "scale": { "min": 0, "max": 1 },
+            "dimension": "QUALITY",
+            "source": "AutomatedQualityGate",
+            "timestamp": "2026-10-02T03:12:15.000Z",
+            "confidence": "HIGH",
+            "evidenceReferences": ["exec-102"]
+          }
+        ],
+        "issues": []
+      },
+      "cost": {
+        "estimatedUsd": null,
+        "actualUsd": "UNKNOWN",
+        "withinBudget": true,
+        "efficiencyScore": "UNKNOWN"
+      },
+      "latency": {
+        "estimatedMs": 2000,
+        "actualMs": 850,
+        "withinDeadline": true,
+        "efficiencyScore": 1.0
+      },
+      "reliability": {
+        "fallbackUsed": false,
+        "retriesCount": 0,
+        "status": "SUCCESS"
+      },
+      "outcome": {
+        "isSuccess": true,
+        "status": "SUCCEEDED"
+      },
+      "overallScore": 0.89,
+      "evaluatorIdentity": "AgentEvaluationService:v1"
+    },
+    {
+      "evaluationId": "eval-1790910504103-g5h6j",
+      "executionId": "exec-103",
+      "evaluationVersion": 1,
+      "goalId": "goal-stage11-eval",
+      "actionId": "act-unstable-fetch",
+      "agentId": "agent-flake",
+      "providerId": "unstable-provider",
+      "capability": "RESEARCH",
+      "taskType": "WEB_FETCH",
+      "timestamp": "2026-10-02T03:12:20.000Z",
+      "quality": {
+        "level": "QUALITY_LOW",
+        "passed": false,
+        "scores": [
+          {
+            "value": 0.1,
+            "scale": { "min": 0, "max": 1 },
+            "dimension": "QUALITY",
+            "source": "AutomatedQualityGate",
+            "timestamp": "2026-10-02T03:12:20.000Z",
+            "confidence": "HIGH",
+            "evidenceReferences": ["exec-103"]
+          }
+        ],
+        "issues": ["Output is empty or undefined"]
+      },
+      "cost": {
+        "estimatedUsd": 0.05,
+        "actualUsd": 0.0,
+        "withinBudget": true,
+        "efficiencyScore": 1.0
+      },
+      "latency": {
+        "estimatedMs": 2000,
+        "actualMs": 5500,
+        "withinDeadline": false,
+        "efficiencyScore": 0.0
+      },
+      "reliability": {
+        "fallbackUsed": false,
+        "retriesCount": 1,
+        "status": "FAILURE"
+      },
+      "outcome": {
+        "isSuccess": false,
+        "status": "FAILED",
+        "error": "Connection timeout"
+      },
+      "overallScore": 0.05,
+      "evaluatorIdentity": "AgentEvaluationService:v1"
+    }
+  ]
+}

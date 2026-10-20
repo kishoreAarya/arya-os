@@ -1,0 +1,262 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "stage": "Stage 23: Recovery Control Plane & Autonomous Healing",
+  "phase": "Phase 11: Cold-Restart Continuity & Governed Recovery Resumption",
+  "timestamp": "2026-10-03T16:55:00Z",
+  "blenderMasterSha256": "c4577c47fa60f8beb1f77a1feb25ffb84b34ff9c38cfc6dbd4a8bc2628c8a13f",
+  "testSuiteSummary": {
+    "totalSuites": 45,
+    "totalTests": 1437,
+    "stage23Tests": 314,
+    "phase11Tests": 46,
+    "passRate": "100%",
+    "typeScriptErrors": 0,
+    "buildStatus": "PASS"
+  },
+  "coldRestartScenarios": [
+    {
+      "scenarioId": "SCENARIO_01_PRE_DISPATCH_RESTART",
+      "name": "Pre-Dispatch Restart & Counter Preservation",
+      "testIds": [269, 270, 271],
+      "invariants": [
+        "Recovery request persisted prior to dispatch preserves retryCount, recoveryDepth, and originalOperationId",
+        "Restart never resets attempt counter to 0",
+        "Retry bounds (MAX_AUTOMATIC_RETRIES = 3) enforced across cold-boot cycles"
+      ],
+      "verification": {
+        "preRestartState": { "retryCount": 2, "recoveryDepth": 1, "originalOperationId": "orig-op-269" },
+        "postRestartState": { "retryCount": 2, "recoveryDepth": 1, "originalOperationId": "orig-op-269" },
+        "revalidationResult": { "valid": true, "reasonCode": "VALID", "recommendedAction": "RETRY" }
+      }
+    },
+    {
+      "scenarioId": "SCENARIO_02_POST_DISPATCH_UNKNOWN_STATE",
+      "name": "Post-Dispatch Interruption with Epistemic UNKNOWN",
+      "testIds": [272, 273, 274],
+      "invariants": [
+        "In-flight action interrupted by restart preserves epistemicStatus: UNKNOWN",
+        "Blind retry is blocked; action is routed strictly to RECONCILE",
+        "No synthetic success or failure is fabricated upon boot"
+      ],
+      "verification": {
+        "epistemicStatus": "UNKNOWN",
+        "recommendedAction": "RECONCILE",
+        "reasonCode": "UNCONFIRMED_EXTERNAL_STATE",
+        "syntheticStateCreated": false
+      }
+    },
+    {
+      "scenarioId": "SCENARIO_03_CONFIRMED_EXTERNAL_SUCCESS",
+      "name": "External Success During Downtime Detection",
+      "testIds": [275, 276, 277],
+      "invariants": [
+        "Stage 22 empirical verification takes precedence over interrupted recovery intent",
+        "Confirmed remote success halts recovery; recommended action transitions to WAIT",
+        "Duplicate side-effect execution is mathematically blocked"
+      ],
+      "verification": {
+        "externalConfirmation": "SUCCEEDED",
+        "recommendedAction": "WAIT",
+        "reasonCode": "ALREADY_COMPLETED",
+        "duplicateExecutionPrevented": true
+      }
+    },
+    {
+      "scenarioId": "SCENARIO_04_PARTIAL_EXECUTION_RESTART",
+      "name": "Partial Execution Continuity & High-Risk Gate",
+      "testIds": [278, 279, 280],
+      "invariants": [
+        "Completed steps in multi-step recovery are preserved across restart",
+        "Resumption begins at first pending/failed step, never replaying step 0",
+        "High-risk partial operations require Stage 21 operator approval before resuming"
+      ],
+      "verification": {
+        "completedStepsPreserved": ["step-1-validate", "step-2-stage"],
+        "resumptionTarget": "step-3-commit",
+        "highRiskHumanOperatorRequired": true
+      }
+    },
+    {
+      "scenarioId": "SCENARIO_05_COMPENSATION_RESTART",
+      "name": "Compensation Plan Continuity & Anti-Double-Compensation",
+      "testIds": [281, 282, 283],
+      "invariants": [
+        "Compensation ID and reverse plan preserved across process restart",
+        "Already-compensated operations produce WAIT instead of second compensation",
+        "Connector permissions revalidated before resuming pending compensation"
+      ],
+      "verification": {
+        "compensationIdPreserved": true,
+        "alreadyCompensatedAction": "WAIT",
+        "revokedPermissionFailsClosed": true
+      }
+    },
+    {
+      "scenarioId": "SCENARIO_06_RECONCILIATION_RESTART",
+      "name": "Reconciliation Counter Continuity & Escalation",
+      "testIds": [284, 285, 286],
+      "invariants": [
+        "Reconciliation attempt counter accumulates across restarts without reset",
+        "MAX_RECONCILIATION_ATTEMPTS (3) bounds total probe attempts",
+        "Exceeded attempts escalate cleanly to ESCALATE without infinite loop"
+      ],
+      "verification": {
+        "reconciliationAttemptsPreserved": true,
+        "maxAttemptsEnforced": 3,
+        "escalationAction": "ESCALATE",
+        "reasonCode": "MAX_RECONCILIATION_ATTEMPTS_EXCEEDED"
+      }
+    },
+    {
+      "scenarioId": "SCENARIO_07_APPROVAL_RESTART_ANTI_REPLAY",
+      "name": "Operator Approval Token TTL & Anti-Replay Defense",
+      "testIds": [287, 288, 289],
+      "invariants": [
+        "Approval token within 5m TTL allows resumption across restart",
+        "Expired approval token (>5m TTL) fails closed to REQUIRE_APPROVAL",
+        "Approval token bound to mismatched request/snapshot is rejected as stale"
+      ],
+      "verification": {
+        "freshTokenResumption": true,
+        "expiredTokenAction": "REQUIRE_APPROVAL",
+        "mismatchedTokenRejected": true,
+        "reasonCode": "APPROVAL_TOKEN_EXPIRED"
+      }
+    },
+    {
+      "scenarioId": "SCENARIO_08_POLICY_DRIFT_RESTART",
+      "name": "Stage 20 Policy Drift Detection & Active Revalidation",
+      "testIds": [290, 291, 292],
+      "invariants": [
+        "Registry version change across downtime marks persisted decision stale",
+        "Policy snapshot ID mismatch forces governance revalidation",
+        "Newly matching active DENY rule terminates recovery with ABORT"
+      ],
+      "verification": {
+        "policyVersionMismatchDetected": true,
+        "policySnapshotMismatchAction": "REQUIRE_APPROVAL",
+        "activeDenyRuleAction": "ABORT"
+      }
+    },
+    {
+      "scenarioId": "SCENARIO_09_PERMISSION_REVOCATION_RESTART",
+      "name": "Stage 16 Connector Permission Revalidation",
+      "testIds": [293, 294, 295],
+      "invariants": [
+        "Revoked connector permission across restart halts recovery",
+        "Connector in ERROR health triggers REQUIRE_APPROVAL",
+        "Zero ambient authority retained from persisted records"
+      ],
+      "verification": {
+        "revokedPermissionFailsClosed": true,
+        "connectorErrorAction": "REQUIRE_APPROVAL",
+        "reasonCode": "CONNECTOR_PERMISSION_MISSING"
+      }
+    },
+    {
+      "scenarioId": "SCENARIO_10_MISSION_CONSTRAINT_RESTART",
+      "name": "Stage 12 Mission Constraint Resumption Gate",
+      "testIds": [296, 297, 298],
+      "invariants": [
+        "Recovery on paused mission suspended with PAUSE",
+        "Recovery on cancelled mission blocked with PAUSE",
+        "Unblocked running mission allows resumption following fresh revalidation"
+      ],
+      "verification": {
+        "pausedMissionAction": "PAUSE",
+        "cancelledMissionAction": "PAUSE",
+        "unblockedResumption": true,
+        "reasonCode": "MISSION_CONSTRAINT_BLOCKED"
+      }
+    },
+    {
+      "scenarioId": "SCENARIO_11_RECOVERY_COUNTER_CONTINUITY",
+      "name": "Cumulative Counter Monotonicity & Anti-Reset",
+      "testIds": [299, 300, 301],
+      "invariants": [
+        "retryCount accumulates strictly monotonically across multiple restarts",
+        "recoveryDepth bounded by MAX_RECOVERY_DEPTH (3)",
+        "Adversarial reset attacks via process reboot fail"
+      ],
+      "verification": {
+        "monotonicAccumulation": true,
+        "maxRecoveryDepthEnforced": 3,
+        "resetAttackDefeated": true
+      }
+    },
+    {
+      "scenarioId": "SCENARIO_12_CASCADE_CONTINUITY",
+      "name": "Cascade Containment Preservation Across Restarts",
+      "testIds": [302, 303, 304],
+      "invariants": [
+        "Active ISOLATE containment survives restart without downgrade",
+        "Active ABORT and PAUSE containment survives crash",
+        "Containment controls cannot be circumvented by process restart"
+      ],
+      "verification": {
+        "isolatePreserved": true,
+        "abortPreserved": true,
+        "pausePreserved": true,
+        "downgradeAllowed": false,
+        "reasonCode": "CASCADE_CONTAINMENT_PRESERVED"
+      }
+    },
+    {
+      "scenarioId": "SCENARIO_13_RECOVERY_LEASE_CONTINUITY",
+      "name": "Single-Runtime Lease Expiry & Mutual Exclusion",
+      "testIds": [305, 306],
+      "invariants": [
+        "Expired recovery lease after restart cannot be used to dispatch",
+        "Lease mutual exclusion prevents dual-worker collision during boot"
+      ],
+      "verification": {
+        "expiredLeaseInvalidated": true,
+        "mutexCollisionPrevented": true
+      }
+    },
+    {
+      "scenarioId": "SCENARIO_14_DUPLICATE_RESTART_IDEMPOTENCY",
+      "name": "Deterministic Idempotent Recovery Lookup",
+      "testIds": [307, 308],
+      "invariants": [
+        "Multiple consecutive reboots return identical frozen decision objects",
+        "Lookup by requestId and operationId yields stable decision IDs"
+      ],
+      "verification": {
+        "objectImmutability": true,
+        "idempotentDecisionIdStable": true
+      }
+    },
+    {
+      "scenarioId": "SCENARIO_15_CAUSAL_LINEAGE_CONTINUITY",
+      "name": "Causal Lineage & Audit Graph Preservation",
+      "testIds": [309, 310],
+      "invariants": [
+        "causationId, correlationId, parentOperationId preserved across restart",
+        "Stage 22 Operation Trace and Causal Trace fully reconstruct lineage"
+      ],
+      "verification": {
+        "causationIdPreserved": true,
+        "auditTraceStepCount": ">= 1",
+        "causalGraphGovernanceNodePresent": true
+      }
+    },
+    {
+      "scenarioId": "SCENARIO_16_SECURITY_TAMPERING_DEFENSE",
+      "name": "Cold-Restart Security Hardening & Tampering Defense",
+      "testIds": [311, 312, 313, 314],
+      "invariants": [
+        "Prototype pollution attempts in persisted records rejected with contract violation",
+        "Persisted records containing secrets (bearer, sk-, ghp_) rejected",
+        "Oversized payloads (>64KB) rejected",
+        "Forged lifecycle states loaded from disk rejected (returns null)"
+      ],
+      "verification": {
+        "prototypePollutionBlocked": true,
+        "credentialLeakBlocked": true,
+        "oversizedPayloadBlocked": true,
+        "forgedLifecycleRejected": true
+      }
+    }
+  ]
+}

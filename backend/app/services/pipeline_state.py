@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.events.log import EventType, log_event
 from app.models.core import WorkflowRun
-from app.models.enums import PipelineStage
+from app.models.enums import PipelineStage, WorkflowStatus
 from app.services.workflow_service import get_workflow_run
 
 # Happy-path edges exactly as orchestrator.py advances through its
@@ -32,7 +32,7 @@ STAGE_TRANSITIONS: dict[PipelineStage, set[PipelineStage]] = {
     PipelineStage.CREATED: {PipelineStage.TREND_SELECTED},
     PipelineStage.TREND_SELECTED: {PipelineStage.SCRIPT_GENERATED},
     PipelineStage.SCRIPT_GENERATED: {PipelineStage.SCRIPT_GENERATED, PipelineStage.STORYBOARD_GENERATED},
-    PipelineStage.STORYBOARD_GENERATED: {PipelineStage.PROMPT_GENERATED},
+    PipelineStage.STORYBOARD_GENERATED: {PipelineStage.PROMPT_GENERATED, PipelineStage.VIDEO_GENERATED},
     PipelineStage.PROMPT_GENERATED: {PipelineStage.IMAGE_GENERATED},
     PipelineStage.IMAGE_GENERATED: {PipelineStage.VIDEO_GENERATED},
     PipelineStage.VIDEO_GENERATED: {PipelineStage.VIDEO_GENERATED, PipelineStage.APPROVED},
@@ -63,6 +63,11 @@ async def advance_stage(
     run = await get_workflow_run(db, run_id)
     if run is None:
         raise ValueError(f"WorkflowRun {run_id} not found")
+
+    if run.status in (WorkflowStatus.COMPLETED, WorkflowStatus.FAILED):
+        raise InvalidStageTransitionError(
+            f"Cannot advance stage for workflow {run_id} in terminal status {run.status.value}"
+        )
 
     from_stage = _current_stage(run)
     allowed = STAGE_TRANSITIONS.get(from_stage, set())

@@ -1,0 +1,115 @@
+{
+  "stage": "Stage 18",
+  "generatedAt": "2026-10-02T21:05:00.000Z",
+  "totalEvents": 4,
+  "events": [
+    {
+      "eventId": "del_gh_trace_101",
+      "sourceSystem": "GITHUB",
+      "connectorId": "connector_github",
+      "eventType": "issue.created",
+      "authentication": {
+        "status": "AUTHENTICATED",
+        "signatureHeader": "x-hub-signature-256",
+        "verified": true
+      },
+      "validation": {
+        "valid": true,
+        "schemaVersion": "1.0.0",
+        "scrubbedSecrets": 0
+      },
+      "replay": {
+        "fingerprint": "fp_gh_01_a9e8f7",
+        "isDuplicate": false
+      },
+      "normalized": {
+        "normalizedEventId": "norm_github_del_gh_trace_101",
+        "resourceType": "ISSUE",
+        "resourceId": "aryaos/core#101",
+        "changeType": "CREATED",
+        "epistemicStatus": "OBSERVED"
+      },
+      "reconciliation": {
+        "capabilityId": "github.issue_read",
+        "operation": "get_issue",
+        "status": "CONFIRMED",
+        "epistemicStatus": "CONFIRMED"
+      },
+      "knowledgeGraphNode": "kn_ext_github_aryaos_core_101",
+      "journalSequence": 1041
+    },
+    {
+      "eventId": "gdrive_chan_trace_201",
+      "sourceSystem": "GOOGLE_DRIVE",
+      "connectorId": "connector_google_drive",
+      "eventType": "file.created",
+      "authentication": {
+        "status": "AUTHENTICATED",
+        "signatureHeader": "x-goog-channel-token",
+        "verified": true
+      },
+      "validation": {
+        "valid": true,
+        "schemaVersion": "1.0.0",
+        "scrubbedSecrets": 0
+      },
+      "replay": {
+        "fingerprint": "fp_gd_02_b8d3c1",
+        "isDuplicate": false
+      },
+      "normalized": {
+        "normalizedEventId": "norm_google_drive_gdrive_chan_trace_201",
+        "resourceType": "FILE",
+        "resourceId": "file_drive_test_101",
+        "changeType": "CREATED",
+        "epistemicStatus": "OBSERVED"
+      },
+      "reconciliation": {
+        "status": "CONFIRMED",
+        "epistemicStatus": "CONFIRMED"
+      },
+      "knowledgeGraphNode": "kn_ext_google_drive_file_drive_test_101",
+      "journalSequence": 1042
+    },
+    {
+      "eventId": "del_gh_trace_101_dup",
+      "sourceSystem": "GITHUB",
+      "connectorId": "connector_github",
+      "eventType": "issue.created",
+      "authentication": {
+        "status": "AUTHENTICATED",
+        "verified": true
+      },
+      "replay": {
+        "fingerprint": "fp_gh_01_a9e8f7",
+        "isDuplicate": true
+      },
+      "processingStatus": "DUPLICATE_EVENT",
+      "reconciliationSkipped": true,
+      "journalSequence": 1043
+    },
+    {
+      "eventId": "gdrive_chan_trace_del_202",
+      "sourceSystem": "GOOGLE_DRIVE",
+      "connectorId": "connector_google_drive",
+      "eventType": "file.deleted",
+      "authentication": {
+        "status": "AUTHENTICATED",
+        "verified": true
+      },
+      "normalized": {
+        "normalizedEventId": "norm_google_drive_gdrive_chan_trace_del_202",
+        "resourceType": "FILE",
+        "resourceId": "file_drive_deleted_01",
+        "changeType": "DELETED",
+        "epistemicStatus": "CONFIRMED"
+      },
+      "missionIntegration": {
+        "missionId": "mis_arch_recovery",
+        "replanTriggered": true,
+        "newPlanVersion": 2
+      },
+      "journalSequence": 1044
+    }
+  ]
+}

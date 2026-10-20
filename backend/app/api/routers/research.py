@@ -16,8 +16,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.core.security import AuthenticatedPrincipal, get_current_principal
 from app.database.session import get_db
 from app.models.system import SystemLog
+from app.services.authorization_service import verify_workflow_access
 from app.services.trend_sources.reddit import RedditTrendSource
 from app.services.trend_sources.service import TrendDiscoveryService
 
@@ -70,8 +72,12 @@ async def get_reddit_research(
     limit: int = Query(default=10, ge=1, le=50, description="Max results to return"),
     workflow_run_id: uuid.UUID | None = Query(default=None, description="Optional WorkflowRun ID"),
     db: AsyncSession = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ) -> ResearchResponse:
     """Query Reddit discussions for research signals with topic and/or subreddit filter."""
+    if workflow_run_id is not None:
+        await verify_workflow_access(db, principal, workflow_run_id)
+
     clean_topic = (topic or "").strip()
     clean_sub = (subreddit or "").strip().lstrip("r/").lstrip("/") or None
 
@@ -135,6 +141,7 @@ async def get_reddit_research(
 async def post_reddit_research(
     payload: RedditResearchRequest,
     db: AsyncSession = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ) -> ResearchResponse:
     """Submit a structured Reddit research request with optional workflow persistence."""
     return await get_reddit_research(
@@ -144,6 +151,7 @@ async def post_reddit_research(
         limit=payload.limit,
         workflow_run_id=payload.workflow_run_id,
         db=db,
+        principal=principal,
     )
 
 
@@ -155,8 +163,12 @@ async def get_multi_source_trends(
     limit: int = Query(default=10, ge=1, le=50, description="Max results to return"),
     workflow_run_id: uuid.UUID | None = Query(default=None, description="Optional WorkflowRun ID"),
     db: AsyncSession = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ) -> ResearchResponse:
     """Discover, rank, and blend signals across YouTube, Google Trends, and Reddit."""
+    if workflow_run_id is not None:
+        await verify_workflow_access(db, principal, workflow_run_id)
+
     signals = await _SHARED_DISCOVERY_SERVICE.discover_trends(
         topic_hint=topic.strip(),
         limit=limit,

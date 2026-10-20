@@ -16,8 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.base import AgentResult
 from app.agents.registry import AGENT_REGISTRY
+from app.core.security import AuthenticatedPrincipal, get_current_principal
 from app.database.session import get_db
 from app.schemas.agent_run import AgentRunRequest, AgentRunResponse
+from app.services.authorization_service import verify_workflow_access
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -50,7 +52,11 @@ async def run_agent_endpoint(
     agent_name: str,
     payload: AgentRunRequest,
     db: AsyncSession = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ) -> AgentRunResponse:
+    if payload.workflow_run_id is not None:
+        await verify_workflow_access(db, principal, payload.workflow_run_id)
+
     agent_cls = AGENT_REGISTRY.get(agent_name)
     if agent_cls is None:
         raise HTTPException(

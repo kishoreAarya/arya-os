@@ -32,6 +32,10 @@ class LocalStorageProvider(StorageProvider):
             raise ValueError(f"Refusing to access outside storage root: {key}")
         return path
 
+    def resolve_path(self, key: str) -> Path:
+        """Resolve a storage key or local path, strictly enforcing storage root containment."""
+        return self._resolve(key)
+
     async def upload(self, key: str, data: bytes, content_type: str | None = None) -> str:
         path = self._resolve(key)
         storage_root = self.base_path.resolve()

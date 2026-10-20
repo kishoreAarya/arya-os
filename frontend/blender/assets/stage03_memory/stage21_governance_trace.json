@@ -1,0 +1,454 @@
+{
+  "stage": 21,
+  "subsystem": "GovernanceControlPlane (FAÇADE & COORDINATOR)",
+  "timestamp": "2026-10-03T07:14:58.224Z",
+  "summary": {
+    "totalEvaluations": 3,
+    "allowedCount": 1,
+    "requireApprovalCount": 1,
+    "deniedCount": 1,
+    "architecturalAxiom": "Effective Authority = Policy Decision ∩ Connector Permissions ∩ Action Authorization ∩ Human Approval ∩ Mission Constraints",
+    "failClosedEnforced": true
+  },
+  "traces": [
+    {
+      "traceId": "trace-gov-01-safe-read",
+      "request": {
+        "requestId": "gov-req-01-safe-read",
+        "correlationId": "corr-stage21-001",
+        "actor": {
+          "actorId": "agent-explorer-01",
+          "actorType": "AUTONOMOUS_AGENT"
+        },
+        "targetSystem": "conn-github-governed",
+        "connectorId": "conn-github-governed",
+        "capabilityId": "repo_read",
+        "actionType": "get_tree",
+        "riskLevel": "LOW",
+        "parameters": {
+          "repo": "aryaos/core"
+        },
+        "timestamp": 1791000100000
+      },
+      "decision": {
+        "decisionId": "gov_dec_gov-req-01-safe-read_1791011698216_civ8",
+        "requestId": "gov-req-01-safe-read",
+        "correlationId": "corr-stage21-001",
+        "policySnapshotId": "snap_v4_1791011698207_39d39c",
+        "policyRegistryVersion": 4,
+        "evaluatedPolicyVersions": {
+          "pol-limit-burst": 1,
+          "pol-safety-critical": 1,
+          "pol-sec-baseline": 1
+        },
+        "decision": "REQUIRE_REVIEW",
+        "reason": "Decision deferred: Governance request has exceeded TTL (11598216ms > 300000ms). Re-evaluation required.",
+        "matchedPolicies": [
+          "pol-limit-burst"
+        ],
+        "conflictingPolicies": [],
+        "winningPolicyId": "pol-limit-burst",
+        "winningPriority": "RESOURCE_LIMITS",
+        "authorityIntersection": {
+          "effectiveStatus": "GRANTED",
+          "policyAllowed": true,
+          "connectorPermissionGranted": true,
+          "actionAuthorized": true,
+          "humanApprovalStatus": "NOT_REQUIRED",
+          "humanApprovalRequired": false,
+          "missionConstraintsSatisfied": true,
+          "requiredAuthority": [
+            "GOVERNANCE_POLICY",
+            "CONNECTOR_FABRIC_PERMISSION",
+            "ACTION_AUTHORIZATION"
+          ],
+          "blockingReasons": [],
+          "failClosed": false
+        },
+        "staleness": {
+          "isStale": true,
+          "status": "EXPIRED",
+          "reason": "Governance request has exceeded TTL (11598216ms > 300000ms). Re-evaluation required.",
+          "evaluatedSnapshotId": "snap_v4_1791011698207_39d39c",
+          "currentRegistryVersion": 4,
+          "snapshotRegistryVersion": 4
+        },
+        "explanation": {
+          "whatWasRequested": "Actor 'agent-explorer-01' (AUTONOMOUS_AGENT) requested execution of capability 'repo_read'",
+          "snapshotUsed": "PolicySnapshot 'snap_v4_1791011698207_39d39c' (Registry v4, activePolicies: 3)",
+          "policiesMatched": [
+            "pol-limit-burst"
+          ],
+          "matchedPolicies": [
+            "pol-limit-burst"
+          ],
+          "policiesConflicted": [],
+          "precedenceResolution": "Sole matching policy 'pol-limit-burst' applied.",
+          "resultingPolicyDecision": "REQUIRE_REVIEW",
+          "authorityRequired": [
+            "GOVERNANCE_POLICY",
+            "CONNECTOR_FABRIC_PERMISSION",
+            "ACTION_AUTHORIZATION"
+          ],
+          "humanApprovalRequired": false,
+          "approvalPresent": false,
+          "executingOrBlockingBoundary": "Stage 15 Universal Action Bus (outbound external execution)",
+          "epistemicStatus": "OBSERVED",
+          "requestId": "gov-req-01-safe-read",
+          "actor": {
+            "actorId": "agent-explorer-01",
+            "actorType": "AUTONOMOUS_AGENT"
+          },
+          "contextSummary": {
+            "actorId": "agent-explorer-01",
+            "actorType": "AUTONOMOUS_AGENT",
+            "riskLevel": "LOW",
+            "scopeType": "CONNECTOR"
+          },
+          "deterministicRationale": "Sole matching policy 'pol-limit-burst' applied.",
+          "policySnapshotId": "snap_v4_1791011698207_39d39c",
+          "authorityTiers": {
+            "policyTier": {
+              "evaluated": true,
+              "allowed": true,
+              "decision": "REQUIRE_REVIEW"
+            },
+            "connectorTier": {
+              "required": true,
+              "granted": true
+            },
+            "actionTier": {
+              "authorized": true
+            },
+            "humanTier": {
+              "required": false,
+              "status": "NOT_REQUIRED"
+            },
+            "missionTier": {
+              "satisfied": true
+            }
+          },
+          "humanApprovalCheck": {
+            "required": false,
+            "status": "NOT_REQUIRED",
+            "riskLevel": "LOW"
+          },
+          "stalenessEvaluation": {
+            "isStale": false,
+            "status": "FRESH"
+          },
+          "deterministicMetadata": {
+            "evaluationLatencyMs": 1,
+            "fingerprint": "fp_39d39cb8_v4"
+          }
+        },
+        "epistemicStatus": "OBSERVED",
+        "deterministicMetadata": {
+          "evaluationLatencyMs": 9.49,
+          "evaluatedAt": 1791011698216,
+          "cacheHit": false,
+          "fingerprint": "fp_39d39cb8_v4"
+        }
+      },
+      "preExecutionCheck": {
+        "isStale": true,
+        "status": "REQUIRES_REEVALUATION",
+        "reason": "Evaluated PolicySnapshot 'undefined' is no longer available in memory. Re-evaluation required.",
+        "currentRegistryVersion": 4
+      }
+    },
+    {
+      "traceId": "trace-gov-02-critical-approval",
+      "request": {
+        "requestId": "gov-req-02-critical-write",
+        "correlationId": "corr-stage21-002",
+        "actor": {
+          "actorId": "agent-explorer-01",
+          "actorType": "AUTONOMOUS_AGENT"
+        },
+        "targetSystem": "conn-github-governed",
+        "connectorId": "conn-github-governed",
+        "capabilityId": "repo_write",
+        "actionType": "delete_branch",
+        "riskLevel": "CRITICAL",
+        "parameters": {
+          "repo": "aryaos/core",
+          "branch": "main"
+        },
+        "timestamp": 1791000105000
+      },
+      "decision": {
+        "decisionId": "gov_dec_gov-req-02-critical-write_1791011698218_38se",
+        "requestId": "gov-req-02-critical-write",
+        "correlationId": "corr-stage21-002",
+        "policySnapshotId": "snap_v4_1791011698217_39d39c",
+        "policyRegistryVersion": 4,
+        "evaluatedPolicyVersions": {
+          "pol-limit-burst": 1,
+          "pol-safety-critical": 1,
+          "pol-sec-baseline": 1
+        },
+        "decision": "REQUIRE_REVIEW",
+        "reason": "Decision deferred: Governance request has exceeded TTL (11593218ms > 300000ms). Re-evaluation required.",
+        "matchedPolicies": [
+          "pol-limit-burst"
+        ],
+        "conflictingPolicies": [],
+        "winningPolicyId": "pol-limit-burst",
+        "winningPriority": "RESOURCE_LIMITS",
+        "authorityIntersection": {
+          "effectiveStatus": "REQUIRES_APPROVAL",
+          "policyAllowed": true,
+          "connectorPermissionGranted": true,
+          "actionAuthorized": false,
+          "humanApprovalStatus": "PENDING",
+          "humanApprovalRequired": true,
+          "missionConstraintsSatisfied": true,
+          "requiredAuthority": [
+            "GOVERNANCE_POLICY",
+            "CONNECTOR_FABRIC_PERMISSION",
+            "ACTION_AUTHORIZATION",
+            "HUMAN_OPERATOR_APPROVAL"
+          ],
+          "blockingReasons": [
+            "CRITICAL risk actions require explicit authorization token",
+            "Action requires human operator review and signoff"
+          ],
+          "failClosed": true
+        },
+        "staleness": {
+          "isStale": true,
+          "status": "EXPIRED",
+          "reason": "Governance request has exceeded TTL (11593218ms > 300000ms). Re-evaluation required.",
+          "evaluatedSnapshotId": "snap_v4_1791011698217_39d39c",
+          "currentRegistryVersion": 4,
+          "snapshotRegistryVersion": 4
+        },
+        "explanation": {
+          "whatWasRequested": "Actor 'agent-explorer-01' (AUTONOMOUS_AGENT) requested execution of capability 'repo_write'",
+          "snapshotUsed": "PolicySnapshot 'snap_v4_1791011698217_39d39c' (Registry v4, activePolicies: 3)",
+          "policiesMatched": [
+            "pol-limit-burst"
+          ],
+          "matchedPolicies": [
+            "pol-limit-burst"
+          ],
+          "policiesConflicted": [],
+          "precedenceResolution": "Sole matching policy 'pol-limit-burst' applied.",
+          "resultingPolicyDecision": "REQUIRE_REVIEW",
+          "authorityRequired": [
+            "GOVERNANCE_POLICY",
+            "CONNECTOR_FABRIC_PERMISSION",
+            "ACTION_AUTHORIZATION",
+            "HUMAN_OPERATOR_APPROVAL"
+          ],
+          "humanApprovalRequired": true,
+          "approvalPresent": false,
+          "executingOrBlockingBoundary": "Blocked at Governance Control Plane (CRITICAL risk actions require explicit authorization token; Action requires human operator review and signoff)",
+          "epistemicStatus": "OBSERVED",
+          "requestId": "gov-req-02-critical-write",
+          "actor": {
+            "actorId": "agent-explorer-01",
+            "actorType": "AUTONOMOUS_AGENT"
+          },
+          "contextSummary": {
+            "actorId": "agent-explorer-01",
+            "actorType": "AUTONOMOUS_AGENT",
+            "riskLevel": "CRITICAL",
+            "scopeType": "CONNECTOR"
+          },
+          "deterministicRationale": "Sole matching policy 'pol-limit-burst' applied.",
+          "policySnapshotId": "snap_v4_1791011698217_39d39c",
+          "authorityTiers": {
+            "policyTier": {
+              "evaluated": true,
+              "allowed": true,
+              "decision": "REQUIRE_REVIEW"
+            },
+            "connectorTier": {
+              "required": true,
+              "granted": true
+            },
+            "actionTier": {
+              "authorized": false
+            },
+            "humanTier": {
+              "required": true,
+              "status": "PENDING"
+            },
+            "missionTier": {
+              "satisfied": true
+            }
+          },
+          "humanApprovalCheck": {
+            "required": true,
+            "status": "PENDING",
+            "riskLevel": "CRITICAL"
+          },
+          "stalenessEvaluation": {
+            "isStale": false,
+            "status": "FRESH"
+          },
+          "deterministicMetadata": {
+            "evaluationLatencyMs": 1,
+            "fingerprint": "fp_39d39cb8_v4"
+          }
+        },
+        "epistemicStatus": "OBSERVED",
+        "deterministicMetadata": {
+          "evaluationLatencyMs": 0.84,
+          "evaluatedAt": 1791011698218,
+          "cacheHit": false,
+          "fingerprint": "fp_39d39cb8_v4"
+        }
+      },
+      "preExecutionCheck": {
+        "isStale": true,
+        "status": "REQUIRES_REEVALUATION",
+        "reason": "Evaluated PolicySnapshot 'undefined' is no longer available in memory. Re-evaluation required.",
+        "currentRegistryVersion": 4
+      }
+    },
+    {
+      "traceId": "trace-gov-03-safety-blocked",
+      "request": {
+        "requestId": "gov-req-03-safety-deny",
+        "correlationId": "corr-stage21-003",
+        "actor": {
+          "actorId": "user-admin",
+          "actorType": "USER"
+        },
+        "targetSystem": "database",
+        "actionType": "delete_database",
+        "riskLevel": "CRITICAL",
+        "parameters": {
+          "db": "production_store"
+        },
+        "timestamp": 1791000110000
+      },
+      "decision": {
+        "decisionId": "gov_dec_gov-req-03-safety-deny_1791011698219_2e46",
+        "requestId": "gov-req-03-safety-deny",
+        "correlationId": "corr-stage21-003",
+        "policySnapshotId": "snap_v4_1791011698219_39d39c",
+        "policyRegistryVersion": 4,
+        "evaluatedPolicyVersions": {
+          "pol-limit-burst": 1,
+          "pol-safety-critical": 1,
+          "pol-sec-baseline": 1
+        },
+        "decision": "REQUIRE_REVIEW",
+        "reason": "Decision deferred: Governance request has exceeded TTL (11588219ms > 300000ms). Re-evaluation required.",
+        "matchedPolicies": [],
+        "conflictingPolicies": [],
+        "winningPolicyId": "SYSTEM_DEFAULT",
+        "winningPriority": "OPTIMIZATION_POLICY",
+        "authorityIntersection": {
+          "effectiveStatus": "REQUIRES_APPROVAL",
+          "policyAllowed": true,
+          "connectorPermissionGranted": true,
+          "actionAuthorized": false,
+          "humanApprovalStatus": "PENDING",
+          "humanApprovalRequired": true,
+          "missionConstraintsSatisfied": true,
+          "requiredAuthority": [
+            "GOVERNANCE_POLICY",
+            "ACTION_AUTHORIZATION",
+            "HUMAN_OPERATOR_APPROVAL"
+          ],
+          "blockingReasons": [
+            "CRITICAL risk actions require explicit authorization token",
+            "Action requires human operator review and signoff"
+          ],
+          "failClosed": true
+        },
+        "staleness": {
+          "isStale": true,
+          "status": "EXPIRED",
+          "reason": "Governance request has exceeded TTL (11588219ms > 300000ms). Re-evaluation required.",
+          "evaluatedSnapshotId": "snap_v4_1791011698219_39d39c",
+          "currentRegistryVersion": 4,
+          "snapshotRegistryVersion": 4
+        },
+        "explanation": {
+          "whatWasRequested": "Actor 'user-admin' (USER) requested execution of actionType 'delete_database'",
+          "snapshotUsed": "PolicySnapshot 'snap_v4_1791011698219_39d39c' (Registry v4, activePolicies: 3)",
+          "policiesMatched": [],
+          "matchedPolicies": [],
+          "policiesConflicted": [],
+          "precedenceResolution": "No policies triggered for this evaluation context.",
+          "resultingPolicyDecision": "REQUIRE_REVIEW",
+          "authorityRequired": [
+            "GOVERNANCE_POLICY",
+            "ACTION_AUTHORIZATION",
+            "HUMAN_OPERATOR_APPROVAL"
+          ],
+          "humanApprovalRequired": true,
+          "approvalPresent": false,
+          "executingOrBlockingBoundary": "Blocked at Governance Control Plane (CRITICAL risk actions require explicit authorization token; Action requires human operator review and signoff)",
+          "epistemicStatus": "OBSERVED",
+          "requestId": "gov-req-03-safety-deny",
+          "actor": {
+            "actorId": "user-admin",
+            "actorType": "USER"
+          },
+          "contextSummary": {
+            "actorId": "user-admin",
+            "actorType": "USER",
+            "riskLevel": "CRITICAL",
+            "scopeType": "SYSTEM"
+          },
+          "deterministicRationale": "No policies triggered for this evaluation context.",
+          "policySnapshotId": "snap_v4_1791011698219_39d39c",
+          "authorityTiers": {
+            "policyTier": {
+              "evaluated": true,
+              "allowed": true,
+              "decision": "REQUIRE_REVIEW"
+            },
+            "connectorTier": {
+              "required": false,
+              "granted": true
+            },
+            "actionTier": {
+              "authorized": false
+            },
+            "humanTier": {
+              "required": true,
+              "status": "PENDING"
+            },
+            "missionTier": {
+              "satisfied": true
+            }
+          },
+          "humanApprovalCheck": {
+            "required": true,
+            "status": "PENDING",
+            "riskLevel": "CRITICAL"
+          },
+          "stalenessEvaluation": {
+            "isStale": false,
+            "status": "FRESH"
+          },
+          "deterministicMetadata": {
+            "evaluationLatencyMs": 1,
+            "fingerprint": "fp_39d39cb8_v4"
+          }
+        },
+        "epistemicStatus": "OBSERVED",
+        "deterministicMetadata": {
+          "evaluationLatencyMs": 0.79,
+          "evaluatedAt": 1791011698219,
+          "cacheHit": false,
+          "fingerprint": "fp_39d39cb8_v4"
+        }
+      },
+      "preExecutionCheck": {
+        "isStale": true,
+        "status": "REQUIRES_REEVALUATION",
+        "reason": "Evaluated PolicySnapshot 'undefined' is no longer available in memory. Re-evaluation required.",
+        "currentRegistryVersion": 4
+      }
+    }
+  ]
+}

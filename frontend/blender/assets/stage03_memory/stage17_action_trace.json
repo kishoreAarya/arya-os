@@ -1,0 +1,136 @@
+{
+  "stage": 17,
+  "component": "UniversalActionBus & RealConnectorAdapters",
+  "generatedAt": "2026-10-02T14:16:50.000Z",
+  "actions": [
+    {
+      "actionId": "act_gh_read_test",
+      "capabilityId": "github.read_issue",
+      "operation": "get_issue",
+      "parameters": {
+        "repository": "aryaos/core",
+        "issueNumber": 101
+      },
+      "connectorId": "connector_github",
+      "status": "SUCCEEDED",
+      "riskLevel": "LOW",
+      "durationMs": 14,
+      "operatorApprovalRequired": false,
+      "transportDetails": {
+        "endpoint": "https://api.github.com/repos/aryaos/core/issues/101",
+        "method": "GET",
+        "statusCode": 200
+      },
+      "result": {
+        "repository": "aryaos/core",
+        "number": 101,
+        "title": "Memory Environment Anchor"
+      }
+    },
+    {
+      "actionId": "act_gh_write_test",
+      "capabilityId": "github.create_issue",
+      "operation": "create_issue",
+      "parameters": {
+        "repository": "aryaos/core",
+        "title": "Stage 17 Real Connector Integration",
+        "body": "Controlled external activation verified"
+      },
+      "connectorId": "connector_github",
+      "status": "SUCCEEDED",
+      "riskLevel": "HIGH",
+      "durationMs": 28,
+      "operatorApprovalRequired": true,
+      "operatorApproval": {
+        "approvedBy": "OPERATOR_ALICE",
+        "timestamp": "2026-10-02T14:16:50.200Z"
+      },
+      "transportDetails": {
+        "endpoint": "https://api.github.com/repos/aryaos/core/issues",
+        "method": "POST",
+        "statusCode": 201
+      },
+      "result": {
+        "number": 201,
+        "issueNumber": 201,
+        "title": "Stage 17 Real Connector Integration",
+        "state": "open"
+      }
+    },
+    {
+      "actionId": "act_rate_limit_test",
+      "capabilityId": "github.issue_read",
+      "operation": "get_issue",
+      "parameters": {
+        "repository": "aryaos/core",
+        "issueNumber": 101
+      },
+      "connectorId": "connector_github",
+      "status": "FAILED",
+      "error": {
+        "category": "RATE_LIMIT",
+        "statusCode": 429,
+        "retryAfterMs": 60000,
+        "isRetryable": true,
+        "message": "GitHub API rate limit exceeded. Reset in 60000ms"
+      },
+      "durationMs": 12
+    },
+    {
+      "actionId": "act_gdrive_list_test",
+      "capabilityId": "google_drive.list_files",
+      "operation": "list_files",
+      "parameters": {
+        "pageSize": 10
+      },
+      "connectorId": "connector_google_drive",
+      "status": "SUCCEEDED",
+      "riskLevel": "LOW",
+      "durationMs": 18,
+      "transportDetails": {
+        "endpoint": "https://www.googleapis.com/drive/v3/files?pageSize=10",
+        "method": "GET",
+        "statusCode": 200
+      },
+      "result": {
+        "files": [
+          { "id": "gdrive_doc_01", "name": "aryaos_architecture_spec.pdf" },
+          { "id": "gdrive_doc_02", "name": "memory_environment_manifest.json" }
+        ]
+      }
+    },
+    {
+      "actionId": "act_gdrive_scope_rejection",
+      "capabilityId": "google_drive.read_file",
+      "operation": "read_file",
+      "parameters": {
+        "fileId": "../../etc/shadow"
+      },
+      "connectorId": "connector_google_drive",
+      "status": "DENIED",
+      "error": {
+        "category": "PERMISSION",
+        "message": "Scope boundary violation: Target path escapes declared root /drive/root"
+      },
+      "interceptedBeforeTransport": true
+    },
+    {
+      "actionId": "act_net_offline_test",
+      "capabilityId": "github.issue_read",
+      "operation": "get_issue",
+      "parameters": {
+        "repository": "aryaos/core",
+        "issueNumber": 101
+      },
+      "connectorId": "connector_github",
+      "status": "FAILED",
+      "error": {
+        "category": "TRANSIENT",
+        "statusCode": 503,
+        "isRetryable": true,
+        "message": "Network transport is unavailable (offline)"
+      },
+      "failClosed": true
+    }
+  ]
+}

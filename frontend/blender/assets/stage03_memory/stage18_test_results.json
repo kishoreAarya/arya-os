@@ -1,0 +1,55 @@
+{
+  "stage": "Stage 18",
+  "generatedAt": "2026-10-02T21:05:00.000Z",
+  "status": "PASS",
+  "metrics": {
+    "stage18Tests": {
+      "total": 52,
+      "passed": 52,
+      "failed": 0,
+      "skipped": 0,
+      "suite": "src/tests/ExternalEventStage18.test.tsx"
+    },
+    "fullRegression": {
+      "totalTestSuites": 40,
+      "passedTestSuites": 40,
+      "totalTests": 839,
+      "passedTests": 839,
+      "failedTests": 0
+    },
+    "typeScript": {
+      "errors": 0,
+      "command": "npx tsc --noEmit"
+    },
+    "productionBuild": {
+      "status": "SUCCESS",
+      "timeSeconds": 5.80,
+      "command": "npm run build"
+    },
+    "graphicsAudit": {
+      "masterBlendSha256": "c4577c47fa60f8beb1f77a1feb25ffb84b34ff9c38cfc6dbd4a8bc2628c8a13f",
+      "totalGLBCount": 14,
+      "glbsImmutable": true,
+      "webglDrawCalls": "53-54",
+      "triangleCount": 86842,
+      "stage18AdditionalDrawCalls": 0
+    },
+    "reconciledCameraBaseline": {
+      "CAM_CinematicHero": {
+        "position": [-12.0, 2.3, 38.5],
+        "fov": 39.761,
+        "lensMm": 28.0
+      },
+      "CAM_MonumentalLowAngle": {
+        "position": [0.0, 0.65, 26.0],
+        "fov": 49.426,
+        "lensMm": 22.0
+      },
+      "CAM_ArchiveDetail": {
+        "position": [-16.2, 1.85, 32.8],
+        "fov": 35.115,
+        "lensMm": 32.0
+      }
+    }
+  }
+}

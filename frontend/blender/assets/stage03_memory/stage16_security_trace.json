@@ -1,0 +1,53 @@
+{
+  "stage": 16,
+  "title": "Connector Fabric Security Boundary Trace",
+  "timestamp": "2026-10-02T05:55:00.000Z",
+  "securityAssertions": [
+    {
+      "testIndex": 6,
+      "case": "Credential Reference Masking",
+      "connectorId": "conn_test",
+      "credentialType": "TOKEN",
+      "result": {
+        "credentialId": "cred_conn_test_mock",
+        "hasRawSecret": false,
+        "status": "VALID"
+      }
+    },
+    {
+      "testIndex": 7,
+      "case": "Raw Credential Detection & Rejection",
+      "input": {
+        "connectorId": "conn_bad",
+        "token": "ghp_secret_access_token_1234567890"
+      },
+      "result": {
+        "rejected": true,
+        "error": "Security Violation: Direct storage of raw credential field 'token' is prohibited."
+      }
+    },
+    {
+      "testIndex": 25,
+      "case": "Autonomous Approval Escalation Rejection",
+      "connectorId": "conn_privileged_auto",
+      "attemptedSignoff": {
+        "approvedBy": "AUTONOMOUS_AGENT"
+      },
+      "result": {
+        "rejected": true,
+        "error": "Security Boundary: Autonomous approval cannot install privileged connectors."
+      }
+    },
+    {
+      "testIndex": 30,
+      "case": "Secret Sanitization in Persistence",
+      "inputKeys": ["apiKey", "clientSecret", "bearerToken", "connectorId"],
+      "sanitizedKeys": {
+        "apiKey": "[REDACTED_SECRET]",
+        "clientSecret": "[REDACTED_SECRET]",
+        "bearerToken": "[REDACTED_SECRET]",
+        "connectorId": "conn_sanitized"
+      }
+    }
+  ]
+}

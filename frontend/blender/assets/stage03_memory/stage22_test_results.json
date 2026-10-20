@@ -1,0 +1,96 @@
+{
+  "stage": 22,
+  "testSuite": "src/tests/OperationalAuditStage22.test.tsx",
+  "timestamp": "2026-10-03T07:57:45.066Z",
+  "summary": {
+    "totalTestSuites": 44,
+    "passedTestSuites": 44,
+    "failedTestSuites": 0,
+    "totalTests": 1123,
+    "passedTests": 1123,
+    "failedTests": 0,
+    "skippedTests": 0,
+    "stage22Tests": 88,
+    "stage22Passed": 88,
+    "stage22Failed": 0,
+    "stage22DurationMs": 1810,
+    "fullSuiteDurationMs": 78340
+  },
+  "typeScript": {
+    "command": "npx tsc --noEmit",
+    "exitCode": 0,
+    "errors": 0,
+    "status": "CLEAN"
+  },
+  "productionBuild": {
+    "command": "npm run build",
+    "exitCode": 0,
+    "durationSeconds": 5.8,
+    "status": "CLEAN",
+    "artifacts": [
+      "dist/index.html",
+      "dist/assets/index-BxzBqTwo.css",
+      "dist/assets/three-DwSk-coc.js",
+      "dist/assets/index-BWsyq2us.js"
+    ]
+  },
+  "webglPerformance": {
+    "drawCalls": 54,
+    "additionalDrawCalls": 0,
+    "triangles": 86842,
+    "frameTimeMs": "1.14 - 1.82",
+    "blenderMasterSha256": "c4577c47fa60f8beb1f77a1feb25ffb84b34ff9c38cfc6dbd4a8bc2628c8a13f",
+    "glbFilesCount": 14,
+    "glbIntegrity": "ALL_MATCHED",
+    "cameraBaseline": {
+      "CAM_CinematicHero": {
+        "location": [
+          -12,
+          2.3,
+          38.5
+        ],
+        "fov": 39.761
+      },
+      "CAM_MonumentalLowAngle": {
+        "location": [
+          0,
+          0.65,
+          26
+        ],
+        "fov": 49.426
+      },
+      "CAM_ArchiveDetail": {
+        "location": [
+          -16.2,
+          1.85,
+          32.8
+        ],
+        "fov": 35.115
+      }
+    }
+  },
+  "architecturalInvariants": {
+    "AUDIT_EVENT_NEQ_AUTHORITY": true,
+    "AUDIT_EVENT_NEQ_PERMISSION": true,
+    "AUDIT_EVENT_NEQ_KNOWLEDGE_FACT": true,
+    "REQUESTED_NEQ_PLANNED_NEQ_AUTHORIZED_NEQ_DISPATCHED_NEQ_EXECUTED_NEQ_OBSERVED_NEQ_RECONCILED": true,
+    "ACTION_DISPATCH_NEQ_EXTERNAL_SUCCESS": true,
+    "UNKNOWN_STATUS_ON_MISSING_EXTERNAL_CONFIRMATION": true,
+    "GRAPH_MAX_DEPTH_LE_10": true,
+    "GRAPH_MAX_NODES_LE_100": true,
+    "LOSSLESS_EVIDENCE_NEVER_FABRICATE_OR_DELETE_EDGES": true,
+    "NO_SECOND_EXECUTION_ENGINE": true,
+    "NO_SECOND_AUTHORIZATION_ENGINE": true,
+    "NO_SECOND_POLICY_ENGINE": true,
+    "NO_SECOND_TRIGGER_ENGINE": true,
+    "NO_SECOND_MISSION_ENGINE": true,
+    "NO_SECOND_MEMORY_ENGINE": true,
+    "NO_SECOND_PERSISTENCE_ENGINE": true,
+    "NO_SECOND_SCHEDULER": true,
+    "NO_SECOND_PROVIDER_ROUTER": true,
+    "LLM_INFERENCE_IN_STAGE22": 0,
+    "DETERMINISTIC_RECONSTRUCTION": true,
+    "PROTOTYPE_POLLUTION_PROTECTION": true,
+    "SECRET_SCRUBBING_ENFORCED": true
+  }
+}

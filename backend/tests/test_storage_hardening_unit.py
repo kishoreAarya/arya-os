@@ -109,6 +109,27 @@ async def test_local_storage_path_traversal_blocked():
 
 
 @pytest.mark.asyncio
+async def test_local_storage_resolve_path():
+    """Verify resolve_path strictly enforces root confinement."""
+    temp_dir = tempfile.mkdtemp(prefix="arya_storage_resolve_")
+    try:
+        provider = LocalStorageProvider(base_path=temp_dir)
+        valid_file = Path(temp_dir) / "valid.txt"
+        valid_file.write_text("ok")
+
+        # Valid relative and absolute
+        assert provider.resolve_path("valid.txt") == valid_file.resolve()
+        assert provider.resolve_path(str(valid_file)) == valid_file.resolve()
+
+        # Rejections
+        for bad in ["../../.env", "/etc/passwd", "sub/../../outside"]:
+            with pytest.raises(ValueError):
+                provider.resolve_path(bad)
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@pytest.mark.asyncio
 async def test_local_storage_directory_read_rejected():
     """Verify that downloading a directory path raises FileNotFoundError rather than returning raw directory data."""
     temp_dir = tempfile.mkdtemp(prefix="arya_storage_test_")

@@ -640,13 +640,22 @@ class VideoAssembler:
             return media_path if os.path.exists(media_path) else None
 
         try:
+            from app.utils.asset_manager import ensure_local_asset
+
+            downloaded = await ensure_local_asset(
+                media_path,
+                timeout_seconds=60.0,
+                max_bytes=200 * 1024 * 1024,
+            )
+            if not downloaded or not os.path.exists(downloaded):
+                return None
+
             local_path = tmp_dir / f"{uuid.uuid4().hex}{suffix}"
-
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.get(media_path)
-                response.raise_for_status()
-
-            local_path.write_bytes(response.content)
+            shutil.copy2(downloaded, str(local_path))
+            try:
+                os.remove(downloaded)
+            except OSError:
+                pass
 
             logger.info(
                 "media_downloaded",

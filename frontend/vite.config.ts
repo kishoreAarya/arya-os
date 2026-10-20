@@ -7,6 +7,10 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
       '/creator': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
@@ -31,11 +35,41 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
+      '/lineage': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/research': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/publishing': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/learning': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/approvals': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+    },
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          three: ['three', '@react-three/fiber'],
+        },
+      },
     },
   },
   test: {
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/tests/setup.ts'],
+    testTimeout: 15000,
   },
 });

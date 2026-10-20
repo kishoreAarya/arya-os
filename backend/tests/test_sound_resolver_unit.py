@@ -133,3 +133,108 @@ def test_sound_resolver_graceful_omission():
     resolver = SoundAssetResolver(assets_dir=tmp_dir)
     assert resolver.resolve_sound("foley", "") is None
     assert resolver.resolve_sound("foley", "   ") is None
+
+
+def test_sound_resolver_elevenlabs_bounded_stream_success(monkeypatch):
+    """Verify ElevenLabs sound effects response is streamed in chunks and writes valid file."""
+    tmp_dir = Path(tempfile.mkdtemp())
+    resolver = SoundAssetResolver(assets_dir=tmp_dir)
+
+    class MockStreamResponse:
+        def __init__(self, data: bytes, headers: dict | None = None):
+            self._data = data
+            self._pos = 0
+            self.headers = headers or {"Content-Length": str(len(data))}
+
+        def read(self, size: int = -1) -> bytes:
+            if size == -1:
+                chunk = self._data[self._pos :]
+                self._pos = len(self._data)
+                return chunk
+            if self._pos >= len(self._data):
+                return b""
+            chunk = self._data[self._pos : self._pos + size]
+            self._pos += len(chunk)
+            return chunk
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    import urllib.request
+    sample_mp3 = b"ID3" + (b"\x00" * 100000)  # ~100KB
+    mock_resp = MockStreamResponse(sample_mp3)
+
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test-xi-key")
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=15: mock_resp)
+
+    res_path = resolver._resolve_external_provider("foley", "laser_zap", duration=2.0)
+    assert res_path is not None
+    assert Path(res_path).exists()
+    assert Path(res_path).stat().st_size == len(sample_mp3)
+
+
+def test_sound_resolver_elevenlabs_oversized_response_rejected(monkeypatch):
+    """Verify ElevenLabs sound effects response exceeding 15MB is rejected and cleaned up."""
+    tmp_dir = Path(tempfile.mkdtemp())
+    resolver = SoundAssetResolver(assets_dir=tmp_dir)
+
+    class MockOversizedStreamResponse:
+        def __init__(self):
+            self.headers = {}
+            self.total_read = 0
+
+        def read(self, size: int = 65536) -> bytes:
+            # Continuously emit chunks up to 16MB (exceeding 15MB cap)
+            if self.total_read > 16 * 1024 * 1024:
+                return b""
+            self.total_read += size
+            return b"A" * size
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    import urllib.request
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test-xi-key")
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=15: MockOversizedStreamResponse())
+
+    res_path = resolver._resolve_external_provider("foley", "huge_explosion", duration=5.0)
+    # Must fail gracefully (return None)
+    assert res_path is None
+
+    # Verify no partial files were left in cache external directory
+    ext_dir = resolver.cache.cache_dir / "external"
+    if ext_dir.exists():
+        files = list(ext_dir.glob("*.mp3"))
+        assert len(files) == 0
+
+
+def test_sound_resolver_elevenlabs_content_length_oversized_rejected(monkeypatch):
+    """Verify ElevenLabs response with Content-Length > 15MB is aborted before downloading."""
+    tmp_dir = Path(tempfile.mkdtemp())
+    resolver = SoundAssetResolver(assets_dir=tmp_dir)
+
+    class MockContentLengthOversizedResponse:
+        def __init__(self):
+            self.headers = {"Content-Length": "20000000"}  # ~20MB
+
+        def read(self, size: int = 65536) -> bytes:
+            raise RuntimeError("Should not be called if Content-Length check works")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    import urllib.request
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test-xi-key")
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=15: MockContentLengthOversizedResponse())
+
+    res_path = resolver._resolve_external_provider("foley", "giant_explosion", duration=5.0)
+    assert res_path is None

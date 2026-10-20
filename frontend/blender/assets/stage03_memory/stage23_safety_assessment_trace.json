@@ -1,0 +1,414 @@
+{
+  "stage": 23,
+  "phase": 4,
+  "subsystem": "recoverySafetyService",
+  "generatedAt": "2026-10-03T08:44:55.336Z",
+  "architecturalAxioms": [
+    "Safety assessment is NOT authorization and is NOT execution.",
+    "retryPermitted means safety analysis finds no known duplicate-side-effect or state uncertainty barrier preventing a retry.",
+    "Zero execution logic, zero direct API calls, zero Action Bus dispatches.",
+    "UNKNOWN external state requires reconciliation prior to any retry.",
+    "Confirmed successful operations strictly forbid replay (routes duplicate risk to CRITICAL)."
+  ],
+  "traces": [
+    {
+      "scenario": "READ_ONLY_OPERATION",
+      "inputClassification": "TRANSIENT",
+      "dispatchState": "NOT_DISPATCHED",
+      "epistemicState": "OBSERVED",
+      "idempotency": "READ_ONLY",
+      "partialExecutionState": {
+        "detected": false,
+        "completedSteps": [],
+        "incompleteSteps": []
+      },
+      "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+      "rollbackAvailability": false,
+      "outputSafetyAssessment": {
+        "idempotencyClassification": "READ_ONLY",
+        "duplicateSideEffectRisk": "NONE",
+        "reconciliationRequirement": false,
+        "partialExecutionDetected": false,
+        "completedSteps": [],
+        "incompleteSteps": [],
+        "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+        "rollbackAvailability": false,
+        "retryPermitted": true,
+        "humanApprovalRequired": false,
+        "safetyRationale": "READ_ONLY_OPERATION_NO_SIDE_EFFECT_RISK; READ_ONLY_RETRY_SAFE",
+        "assessmentTimestamp": 1791017095335
+      },
+      "deterministicSafetyReasons": [
+        "READ_ONLY_OPERATION_NO_SIDE_EFFECT_RISK",
+        "READ_ONLY_RETRY_SAFE"
+      ]
+    },
+    {
+      "scenario": "IDEMPOTENT_OPERATION",
+      "inputClassification": "TRANSIENT",
+      "dispatchState": "NOT_DISPATCHED",
+      "epistemicState": "OBSERVED",
+      "idempotency": "IDEMPOTENT",
+      "partialExecutionState": {
+        "detected": false,
+        "completedSteps": [],
+        "incompleteSteps": []
+      },
+      "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+      "rollbackAvailability": false,
+      "outputSafetyAssessment": {
+        "idempotencyClassification": "IDEMPOTENT",
+        "duplicateSideEffectRisk": "LOW",
+        "reconciliationRequirement": false,
+        "partialExecutionDetected": false,
+        "completedSteps": [],
+        "incompleteSteps": [],
+        "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+        "rollbackAvailability": false,
+        "retryPermitted": true,
+        "humanApprovalRequired": false,
+        "safetyRationale": "PRE_DISPATCH_IDEMPOTENT_RETRY_SAFE",
+        "assessmentTimestamp": 1791017095335
+      },
+      "deterministicSafetyReasons": [
+        "PRE_DISPATCH_IDEMPOTENT_RETRY_SAFE"
+      ]
+    },
+    {
+      "scenario": "CONDITIONAL_IDEMPOTENCY_SATISFIED",
+      "inputClassification": "TRANSIENT",
+      "dispatchState": "NOT_DISPATCHED",
+      "epistemicState": "OBSERVED",
+      "idempotency": "CONDITIONALLY_IDEMPOTENT",
+      "partialExecutionState": {
+        "detected": false,
+        "completedSteps": [],
+        "incompleteSteps": []
+      },
+      "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+      "rollbackAvailability": false,
+      "outputSafetyAssessment": {
+        "idempotencyClassification": "CONDITIONALLY_IDEMPOTENT",
+        "duplicateSideEffectRisk": "LOW",
+        "reconciliationRequirement": false,
+        "partialExecutionDetected": false,
+        "completedSteps": [],
+        "incompleteSteps": [],
+        "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+        "rollbackAvailability": false,
+        "retryPermitted": true,
+        "humanApprovalRequired": true,
+        "safetyRationale": "CONDITIONAL_IDEMPOTENCY_CONDITIONS_SATISFIED; PRE_DISPATCH_CONDITIONAL_IDEMPOTENT_RETRY_SAFE; HUMAN_APPROVAL_REQUIRED",
+        "assessmentTimestamp": 1791017095335
+      },
+      "deterministicSafetyReasons": [
+        "CONDITIONAL_IDEMPOTENCY_CONDITIONS_SATISFIED",
+        "PRE_DISPATCH_CONDITIONAL_IDEMPOTENT_RETRY_SAFE",
+        "HUMAN_APPROVAL_REQUIRED"
+      ]
+    },
+    {
+      "scenario": "CONDITIONAL_IDEMPOTENCY_MISSING",
+      "inputClassification": "TRANSIENT",
+      "dispatchState": "NOT_DISPATCHED",
+      "epistemicState": "OBSERVED",
+      "idempotency": "CONDITIONALLY_IDEMPOTENT",
+      "partialExecutionState": {
+        "detected": false,
+        "completedSteps": [],
+        "incompleteSteps": []
+      },
+      "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+      "rollbackAvailability": false,
+      "outputSafetyAssessment": {
+        "idempotencyClassification": "CONDITIONALLY_IDEMPOTENT",
+        "duplicateSideEffectRisk": "HIGH",
+        "reconciliationRequirement": false,
+        "partialExecutionDetected": false,
+        "completedSteps": [],
+        "incompleteSteps": [],
+        "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+        "rollbackAvailability": false,
+        "retryPermitted": false,
+        "humanApprovalRequired": true,
+        "safetyRationale": "CONDITIONAL_IDEMPOTENCY_REQUIREMENTS_UNMET; HUMAN_APPROVAL_REQUIRED",
+        "assessmentTimestamp": 1791017095335
+      },
+      "deterministicSafetyReasons": [
+        "CONDITIONAL_IDEMPOTENCY_REQUIREMENTS_UNMET",
+        "HUMAN_APPROVAL_REQUIRED"
+      ]
+    },
+    {
+      "scenario": "NON_IDEMPOTENT_OPERATION",
+      "inputClassification": "SYSTEM_INTERRUPTION",
+      "dispatchState": "NOT_DISPATCHED",
+      "epistemicState": "OBSERVED",
+      "idempotency": "NON_IDEMPOTENT",
+      "partialExecutionState": {
+        "detected": false,
+        "completedSteps": [],
+        "incompleteSteps": []
+      },
+      "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+      "rollbackAvailability": false,
+      "outputSafetyAssessment": {
+        "idempotencyClassification": "NON_IDEMPOTENT",
+        "duplicateSideEffectRisk": "MEDIUM",
+        "reconciliationRequirement": false,
+        "partialExecutionDetected": false,
+        "completedSteps": [],
+        "incompleteSteps": [],
+        "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+        "rollbackAvailability": false,
+        "retryPermitted": false,
+        "humanApprovalRequired": false,
+        "safetyRationale": "NON_IDEMPOTENT_OPERATION",
+        "assessmentTimestamp": 1791017095335
+      },
+      "deterministicSafetyReasons": [
+        "NON_IDEMPOTENT_OPERATION"
+      ]
+    },
+    {
+      "scenario": "UNKNOWN_IDEMPOTENCY",
+      "inputClassification": "TRANSIENT",
+      "dispatchState": "NOT_DISPATCHED",
+      "epistemicState": "OBSERVED",
+      "idempotency": "UNKNOWN",
+      "partialExecutionState": {
+        "detected": false,
+        "completedSteps": [],
+        "incompleteSteps": []
+      },
+      "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+      "rollbackAvailability": false,
+      "outputSafetyAssessment": {
+        "idempotencyClassification": "UNKNOWN",
+        "duplicateSideEffectRisk": "MEDIUM",
+        "reconciliationRequirement": false,
+        "partialExecutionDetected": false,
+        "completedSteps": [],
+        "incompleteSteps": [],
+        "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+        "rollbackAvailability": false,
+        "retryPermitted": false,
+        "humanApprovalRequired": true,
+        "safetyRationale": "UNKNOWN_IDEMPOTENCY; HUMAN_APPROVAL_REQUIRED",
+        "assessmentTimestamp": 1791017095335
+      },
+      "deterministicSafetyReasons": [
+        "UNKNOWN_IDEMPOTENCY",
+        "HUMAN_APPROVAL_REQUIRED"
+      ]
+    },
+    {
+      "scenario": "UNKNOWN_EXTERNAL_STATE_POST_DISPATCH",
+      "inputClassification": "UNKNOWN_EXTERNAL_STATE",
+      "dispatchState": "DISPATCHED",
+      "epistemicState": "UNKNOWN",
+      "idempotency": "IDEMPOTENT",
+      "partialExecutionState": {
+        "detected": false,
+        "completedSteps": [],
+        "incompleteSteps": []
+      },
+      "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+      "rollbackAvailability": false,
+      "outputSafetyAssessment": {
+        "idempotencyClassification": "IDEMPOTENT",
+        "duplicateSideEffectRisk": "MEDIUM",
+        "reconciliationRequirement": true,
+        "partialExecutionDetected": false,
+        "completedSteps": [],
+        "incompleteSteps": [],
+        "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+        "rollbackAvailability": false,
+        "retryPermitted": false,
+        "humanApprovalRequired": false,
+        "safetyRationale": "UNKNOWN_EXTERNAL_STATE_REQUIRES_RECONCILIATION; RECONCILIATION_BARRIER_PREVENTS_RETRY",
+        "assessmentTimestamp": 1791017095335
+      },
+      "deterministicSafetyReasons": [
+        "UNKNOWN_EXTERNAL_STATE_REQUIRES_RECONCILIATION",
+        "RECONCILIATION_BARRIER_PREVENTS_RETRY"
+      ]
+    },
+    {
+      "scenario": "CONFIRMED_EXTERNAL_SUCCESS",
+      "inputClassification": "UNKNOWN_EXTERNAL_STATE",
+      "dispatchState": "EXTERNAL_CONFIRMATION_RECEIVED",
+      "epistemicState": "UNKNOWN",
+      "idempotency": "UNKNOWN",
+      "partialExecutionState": {
+        "detected": false,
+        "completedSteps": [],
+        "incompleteSteps": []
+      },
+      "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+      "rollbackAvailability": false,
+      "outputSafetyAssessment": {
+        "idempotencyClassification": "UNKNOWN",
+        "duplicateSideEffectRisk": "CRITICAL",
+        "reconciliationRequirement": false,
+        "partialExecutionDetected": false,
+        "completedSteps": [],
+        "incompleteSteps": [],
+        "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+        "rollbackAvailability": false,
+        "retryPermitted": false,
+        "humanApprovalRequired": false,
+        "safetyRationale": "CONFIRMED_EXTERNAL_SUCCESS; DUPLICATE_SIDE_EFFECT_RISK",
+        "assessmentTimestamp": 1791017095335
+      },
+      "deterministicSafetyReasons": [
+        "CONFIRMED_EXTERNAL_SUCCESS",
+        "DUPLICATE_SIDE_EFFECT_RISK"
+      ]
+    },
+    {
+      "scenario": "PARTIAL_EXECUTION_COMPLETED_STEPS",
+      "inputClassification": "PARTIAL_EXECUTION",
+      "dispatchState": "NOT_DISPATCHED",
+      "epistemicState": "OBSERVED",
+      "idempotency": "UNKNOWN",
+      "partialExecutionState": {
+        "detected": true,
+        "completedSteps": [
+          "step-01-validate",
+          "step-02-allocate"
+        ],
+        "incompleteSteps": [
+          "step-03-charge",
+          "step-04-confirm"
+        ]
+      },
+      "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+      "rollbackAvailability": false,
+      "outputSafetyAssessment": {
+        "idempotencyClassification": "UNKNOWN",
+        "duplicateSideEffectRisk": "MEDIUM",
+        "reconciliationRequirement": true,
+        "partialExecutionDetected": true,
+        "completedSteps": [
+          "step-01-validate",
+          "step-02-allocate"
+        ],
+        "incompleteSteps": [
+          "step-03-charge",
+          "step-04-confirm"
+        ],
+        "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+        "rollbackAvailability": false,
+        "retryPermitted": false,
+        "humanApprovalRequired": false,
+        "safetyRationale": "UNKNOWN_IDEMPOTENCY; RECONCILIATION_REQUIRED_AFTER_DISPATCH; RECONCILIATION_BARRIER_PREVENTS_RETRY; PARTIAL_EXECUTION_DETECTED",
+        "assessmentTimestamp": 1791017095335
+      },
+      "deterministicSafetyReasons": [
+        "UNKNOWN_IDEMPOTENCY",
+        "RECONCILIATION_REQUIRED_AFTER_DISPATCH",
+        "RECONCILIATION_BARRIER_PREVENTS_RETRY",
+        "PARTIAL_EXECUTION_DETECTED"
+      ]
+    },
+    {
+      "scenario": "COMPENSATION_AVAILABLE",
+      "inputClassification": "PERMANENT",
+      "dispatchState": "NOT_DISPATCHED",
+      "epistemicState": "OBSERVED",
+      "idempotency": "UNKNOWN",
+      "partialExecutionState": {
+        "detected": false,
+        "completedSteps": [],
+        "incompleteSteps": []
+      },
+      "compensationAvailability": "COMPENSATION_AVAILABLE",
+      "rollbackAvailability": false,
+      "outputSafetyAssessment": {
+        "idempotencyClassification": "UNKNOWN",
+        "duplicateSideEffectRisk": "MEDIUM",
+        "reconciliationRequirement": false,
+        "partialExecutionDetected": false,
+        "completedSteps": [],
+        "incompleteSteps": [],
+        "compensationAvailability": "COMPENSATION_AVAILABLE",
+        "rollbackAvailability": false,
+        "retryPermitted": false,
+        "humanApprovalRequired": false,
+        "safetyRationale": "UNKNOWN_IDEMPOTENCY; PERMANENT_CLIENT_ERROR_NO_RETRY; COMPENSATION_AVAILABLE",
+        "assessmentTimestamp": 1791017095335
+      },
+      "deterministicSafetyReasons": [
+        "UNKNOWN_IDEMPOTENCY",
+        "PERMANENT_CLIENT_ERROR_NO_RETRY",
+        "COMPENSATION_AVAILABLE"
+      ]
+    },
+    {
+      "scenario": "ROLLBACK_AVAILABLE",
+      "inputClassification": "SYSTEM_INTERRUPTION",
+      "dispatchState": "NOT_DISPATCHED",
+      "epistemicState": "OBSERVED",
+      "idempotency": "UNKNOWN",
+      "partialExecutionState": {
+        "detected": false,
+        "completedSteps": [],
+        "incompleteSteps": []
+      },
+      "compensationAvailability": "ROLLBACK_AVAILABLE",
+      "rollbackAvailability": true,
+      "outputSafetyAssessment": {
+        "idempotencyClassification": "UNKNOWN",
+        "duplicateSideEffectRisk": "MEDIUM",
+        "reconciliationRequirement": false,
+        "partialExecutionDetected": false,
+        "completedSteps": [],
+        "incompleteSteps": [],
+        "compensationAvailability": "ROLLBACK_AVAILABLE",
+        "rollbackAvailability": true,
+        "retryPermitted": false,
+        "humanApprovalRequired": false,
+        "safetyRationale": "UNKNOWN_IDEMPOTENCY; ROLLBACK_AVAILABLE",
+        "assessmentTimestamp": 1791017095335
+      },
+      "deterministicSafetyReasons": [
+        "UNKNOWN_IDEMPOTENCY",
+        "ROLLBACK_AVAILABLE"
+      ]
+    },
+    {
+      "scenario": "HUMAN_APPROVAL_REQUIRED",
+      "inputClassification": "PERMISSION",
+      "dispatchState": "NOT_DISPATCHED",
+      "epistemicState": "OBSERVED",
+      "idempotency": "UNKNOWN",
+      "partialExecutionState": {
+        "detected": false,
+        "completedSteps": [],
+        "incompleteSteps": []
+      },
+      "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+      "rollbackAvailability": false,
+      "outputSafetyAssessment": {
+        "idempotencyClassification": "UNKNOWN",
+        "duplicateSideEffectRisk": "MEDIUM",
+        "reconciliationRequirement": false,
+        "partialExecutionDetected": false,
+        "completedSteps": [],
+        "incompleteSteps": [],
+        "compensationAvailability": "NO_COMPENSATION_AVAILABLE",
+        "rollbackAvailability": false,
+        "retryPermitted": false,
+        "humanApprovalRequired": true,
+        "safetyRationale": "UNKNOWN_IDEMPOTENCY; HUMAN_APPROVAL_REQUIRED; PERMISSION_REVOCATION_REQUIRES_HUMAN_APPROVAL",
+        "assessmentTimestamp": 1791017095335
+      },
+      "deterministicSafetyReasons": [
+        "UNKNOWN_IDEMPOTENCY",
+        "HUMAN_APPROVAL_REQUIRED",
+        "PERMISSION_REVOCATION_REQUIRES_HUMAN_APPROVAL"
+      ]
+    }
+  ]
+}

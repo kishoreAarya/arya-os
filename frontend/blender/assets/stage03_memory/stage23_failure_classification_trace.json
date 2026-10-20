@@ -1,0 +1,341 @@
+{
+  "stage": 23,
+  "phase": 2,
+  "subsystem": "failureClassificationService",
+  "generatedAt": "2026-10-03T08:21:11.354Z",
+  "architecturalAxiom": "CLASSIFICATION ≠ RECOVERY DECISION. Pure evidence-based categorization.",
+  "precedenceOrder": [
+    "PARTIAL_EXECUTION",
+    "UNKNOWN_EXTERNAL_STATE",
+    "RECONCILIATION",
+    "PERMISSION",
+    "AUTHORIZATION",
+    "POLICY",
+    "STALE_STATE",
+    "RESOURCE",
+    "DEPENDENCY",
+    "PERMANENT",
+    "SYSTEM_INTERRUPTION",
+    "TRANSIENT",
+    "HUMAN_REQUIRED"
+  ],
+  "traces": [
+    {
+      "scenario": "TRANSIENT_NETWORK_PRE_DISPATCH",
+      "inputEvidence": {
+        "operationId": "op-trace-trans-01",
+        "causationId": "cause-trace-01",
+        "correlationId": "corr-trace-01",
+        "dispatchState": "NOT_DISPATCHED",
+        "httpStatus": 503,
+        "timeoutEvidence": {
+          "timedOut": true,
+          "phase": "PRE_DISPATCH"
+        }
+      },
+      "classificationResult": {
+        "classification": "TRANSIENT",
+        "reasonCode": "TRANSIENT_NETWORK_FAILURE",
+        "epistemicStatus": "OBSERVED",
+        "explanation": "Transient network failure before dispatch (HTTP 503). Network connection or upstream gateway unavailable.",
+        "evidenceReferences": [],
+        "causationId": "cause-trace-01",
+        "correlationId": "corr-trace-01",
+        "classifiedAt": 1791015671354
+      }
+    },
+    {
+      "scenario": "PERMANENT_CLIENT_ERROR",
+      "inputEvidence": {
+        "operationId": "op-trace-perm-02",
+        "causationId": "cause-trace-02",
+        "correlationId": "corr-trace-02",
+        "dispatchState": "NOT_DISPATCHED",
+        "httpStatus": 400,
+        "providerErrorCategory": "INVALID_REQUEST"
+      },
+      "classificationResult": {
+        "classification": "PERMANENT",
+        "reasonCode": "PERMANENT_CLIENT_REJECTION",
+        "epistemicStatus": "OBSERVED",
+        "explanation": "Permanent client rejection (HTTP 400): invalid request structure or rejected parameters.",
+        "evidenceReferences": [],
+        "causationId": "cause-trace-02",
+        "correlationId": "corr-trace-02",
+        "classifiedAt": 1791015671354
+      }
+    },
+    {
+      "scenario": "AUTHORIZATION_DENIED",
+      "inputEvidence": {
+        "operationId": "op-trace-auth-03",
+        "causationId": "cause-trace-03",
+        "correlationId": "corr-trace-03",
+        "dispatchState": "NOT_DISPATCHED",
+        "authorizationResult": {
+          "authorized": false,
+          "reason": "Capability git_push not granted to agent"
+        }
+      },
+      "classificationResult": {
+        "classification": "AUTHORIZATION",
+        "reasonCode": "AUTHORIZATION_DENIED",
+        "epistemicStatus": "OBSERVED",
+        "explanation": "Action authorization denied: Capability git_push not granted to agent.",
+        "evidenceReferences": [],
+        "causationId": "cause-trace-03",
+        "correlationId": "corr-trace-03",
+        "classifiedAt": 1791015671354
+      }
+    },
+    {
+      "scenario": "CONNECTOR_REVOKED",
+      "inputEvidence": {
+        "operationId": "op-trace-conn-04",
+        "causationId": "cause-trace-04",
+        "correlationId": "corr-trace-04",
+        "dispatchState": "NOT_DISPATCHED",
+        "connectorStatus": "REVOKED",
+        "permissionResult": {
+          "granted": false,
+          "revoked": true,
+          "reason": "GitHub App user token uninstalled"
+        }
+      },
+      "classificationResult": {
+        "classification": "PERMISSION",
+        "reasonCode": "CONNECTOR_PERMISSION_REVOKED",
+        "epistemicStatus": "OBSERVED",
+        "explanation": "Connector permission revoked or missing: GitHub App user token uninstalled.",
+        "evidenceReferences": [],
+        "causationId": "cause-trace-04",
+        "correlationId": "corr-trace-04",
+        "classifiedAt": 1791015671354
+      }
+    },
+    {
+      "scenario": "POLICY_DENIED",
+      "inputEvidence": {
+        "operationId": "op-trace-pol-05",
+        "causationId": "cause-trace-05",
+        "correlationId": "corr-trace-05",
+        "dispatchState": "NOT_DISPATCHED",
+        "policyResult": {
+          "decision": "DENY",
+          "matchedPolicyId": "pol-critical-finance-v2",
+          "reason": "Transfer exceeds autonomous limit"
+        }
+      },
+      "classificationResult": {
+        "classification": "POLICY",
+        "reasonCode": "POLICY_DENIED",
+        "epistemicStatus": "OBSERVED",
+        "explanation": "Operation denied by policy rule 'pol-critical-finance-v2': Transfer exceeds autonomous limit.",
+        "evidenceReferences": [],
+        "causationId": "cause-trace-05",
+        "correlationId": "corr-trace-05",
+        "classifiedAt": 1791015671354
+      }
+    },
+    {
+      "scenario": "STALE_STATE",
+      "inputEvidence": {
+        "operationId": "op-trace-stale-06",
+        "causationId": "cause-trace-06",
+        "correlationId": "corr-trace-06",
+        "dispatchState": "NOT_DISPATCHED",
+        "staleStateEvidence": {
+          "isStale": true,
+          "reason": "Governance decision exceeded 5m TTL window"
+        }
+      },
+      "classificationResult": {
+        "classification": "STALE_STATE",
+        "reasonCode": "STALE_AUTHORITY",
+        "epistemicStatus": "OBSERVED",
+        "explanation": "Stale state detected: Governance decision exceeded 5m TTL window.",
+        "evidenceReferences": [],
+        "causationId": "cause-trace-06",
+        "correlationId": "corr-trace-06",
+        "classifiedAt": 1791015671354
+      }
+    },
+    {
+      "scenario": "UNKNOWN_EXTERNAL_STATE_POST_DISPATCH",
+      "inputEvidence": {
+        "operationId": "op-trace-unk-07",
+        "causationId": "cause-trace-07",
+        "correlationId": "corr-trace-07",
+        "dispatchState": "EXTERNAL_CONFIRMATION_ABSENT",
+        "epistemicStatus": "UNKNOWN",
+        "timeoutEvidence": {
+          "timedOut": true,
+          "timeoutMs": 30000,
+          "phase": "POST_DISPATCH"
+        }
+      },
+      "classificationResult": {
+        "classification": "UNKNOWN_EXTERNAL_STATE",
+        "reasonCode": "EXTERNAL_CONFIRMATION_ABSENT",
+        "epistemicStatus": "UNKNOWN",
+        "explanation": "Action was dispatched to external system but confirmation is absent or timed out (dispatchState: EXTERNAL_CONFIRMATION_ABSENT, epistemicStatus: UNKNOWN). Status unconfirmed.",
+        "evidenceReferences": [],
+        "causationId": "cause-trace-07",
+        "correlationId": "corr-trace-07",
+        "classifiedAt": 1791015671354
+      }
+    },
+    {
+      "scenario": "PARTIAL_EXECUTION_WORKFLOW",
+      "inputEvidence": {
+        "operationId": "op-trace-part-08",
+        "causationId": "cause-trace-08",
+        "correlationId": "corr-trace-08",
+        "dispatchState": "EXECUTING",
+        "partialExecutionEvidence": {
+          "completedSteps": [
+            "step_01_init",
+            "step_02_provision"
+          ],
+          "failedStep": "step_03_deploy",
+          "pendingSteps": [
+            "step_04_verify",
+            "step_05_route"
+          ]
+        }
+      },
+      "classificationResult": {
+        "classification": "PARTIAL_EXECUTION",
+        "reasonCode": "PARTIAL_WORKFLOW_COMPLETION",
+        "epistemicStatus": "OBSERVED",
+        "explanation": "Partial workflow execution detected: completed [step_01_init, step_02_provision], failed at 'step_03_deploy'. Completed side-effects must be preserved.",
+        "evidenceReferences": [],
+        "causationId": "cause-trace-08",
+        "correlationId": "corr-trace-08",
+        "classifiedAt": 1791015671354
+      }
+    },
+    {
+      "scenario": "RECONCILIATION_MISMATCH",
+      "inputEvidence": {
+        "operationId": "op-trace-reconcile-09",
+        "causationId": "cause-trace-09",
+        "correlationId": "corr-trace-09",
+        "dispatchState": "RECONCILIATION_FAILED",
+        "reconciliationEvidence": {
+          "attempted": true,
+          "matched": false,
+          "discrepancies": [
+            "dns record returned 10.0.0.1, expected 10.0.0.2"
+          ]
+        }
+      },
+      "classificationResult": {
+        "classification": "RECONCILIATION",
+        "reasonCode": "RECONCILIATION_FAILED",
+        "epistemicStatus": "OBSERVED",
+        "explanation": "Reconciliation failure: dns record returned 10.0.0.1, expected 10.0.0.2. State drift detected.",
+        "evidenceReferences": [],
+        "causationId": "cause-trace-09",
+        "correlationId": "corr-trace-09",
+        "classifiedAt": 1791015671354
+      }
+    },
+    {
+      "scenario": "RESOURCE_EXHAUSTION",
+      "inputEvidence": {
+        "operationId": "op-trace-res-10",
+        "causationId": "cause-trace-10",
+        "correlationId": "corr-trace-10",
+        "dispatchState": "NOT_DISPATCHED",
+        "httpStatus": 429,
+        "resourceExhaustionEvidence": {
+          "exhausted": true,
+          "resourceType": "CLAUDE_TOKENS_PER_MINUTE"
+        }
+      },
+      "classificationResult": {
+        "classification": "RESOURCE",
+        "reasonCode": "RESOURCE_EXHAUSTED",
+        "epistemicStatus": "OBSERVED",
+        "explanation": "Resource exhaustion: CLAUDE_TOKENS_PER_MINUTE.",
+        "evidenceReferences": [],
+        "causationId": "cause-trace-10",
+        "correlationId": "corr-trace-10",
+        "classifiedAt": 1791015671354
+      }
+    },
+    {
+      "scenario": "DEPENDENCY_MISSING",
+      "inputEvidence": {
+        "operationId": "op-trace-dep-11",
+        "causationId": "cause-trace-11",
+        "correlationId": "corr-trace-11",
+        "dispatchState": "NOT_DISPATCHED",
+        "dependencyState": {
+          "satisfied": false,
+          "missingDependencies": [
+            "artifact_manifest_json"
+          ]
+        }
+      },
+      "classificationResult": {
+        "classification": "DEPENDENCY",
+        "reasonCode": "DEPENDENCY_UNAVAILABLE",
+        "epistemicStatus": "OBSERVED",
+        "explanation": "Dependency failure: missing or unsatisfied dependencies [artifact_manifest_json].",
+        "evidenceReferences": [],
+        "causationId": "cause-trace-11",
+        "correlationId": "corr-trace-11",
+        "classifiedAt": 1791015671354
+      }
+    },
+    {
+      "scenario": "SYSTEM_INTERRUPTION",
+      "inputEvidence": {
+        "operationId": "op-trace-sys-12",
+        "causationId": "cause-trace-12",
+        "correlationId": "corr-trace-12",
+        "dispatchState": "NOT_DISPATCHED",
+        "cancellationEvidence": {
+          "cancelled": true,
+          "reason": "SIGTERM received on container teardown"
+        }
+      },
+      "classificationResult": {
+        "classification": "SYSTEM_INTERRUPTION",
+        "reasonCode": "SYSTEM_INTERRUPTION",
+        "epistemicStatus": "OBSERVED",
+        "explanation": "System interruption: SIGTERM received on container teardown.",
+        "evidenceReferences": [],
+        "causationId": "cause-trace-12",
+        "correlationId": "corr-trace-12",
+        "classifiedAt": 1791015671354
+      }
+    },
+    {
+      "scenario": "HUMAN_REQUIRED_OPERATOR_GATE",
+      "inputEvidence": {
+        "operationId": "op-trace-human-13",
+        "causationId": "cause-trace-13",
+        "correlationId": "corr-trace-13",
+        "dispatchState": "NOT_DISPATCHED",
+        "humanInterventionRequired": true,
+        "policyResult": {
+          "decision": "REQUIRE_APPROVAL",
+          "matchedPolicyId": "pol-prod-database-drop"
+        }
+      },
+      "classificationResult": {
+        "classification": "HUMAN_REQUIRED",
+        "reasonCode": "HUMAN_APPROVAL_REQUIRED",
+        "epistemicStatus": "OBSERVED",
+        "explanation": "Human intervention required: operation mandates explicit operator review or signature.",
+        "evidenceReferences": [],
+        "causationId": "cause-trace-13",
+        "correlationId": "corr-trace-13",
+        "classifiedAt": 1791015671354
+      }
+    }
+  ]
+}

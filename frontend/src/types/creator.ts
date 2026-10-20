@@ -62,26 +62,35 @@ export type JobStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 
 export interface GenerationJob {
   job_id: string;
-  workflow_run_id: string;
+  workflow_run_id?: string;
   status: JobStatus;
   current_stage?: string;
   generation_type: GenerationType;
   prompt: string;
   model?: string;
   provider?: string;
+  requested_model?: string;
+  requested_provider?: string;
+  actual_model?: string;
+  actual_provider?: string;
   aspect_ratio?: string;
   duration_seconds?: number;
   total_cost_usd: number;
   started_at?: string;
   completed_at?: string;
+  created_at?: string;
   failure_reason?: string;
-  output: {
+  error_message?: string;
+  progress?: number;
+  output_url?: string;
+  output?: {
     asset_url?: string;
     storage_path?: string;
     candidate_urls?: string[];
     source_image_path?: string;
     keyframe_image_url?: string;
     provider_used?: string;
+    model_used?: string;
     duration_seconds?: number;
     aspect_ratio?: string;
     generation_type?: string;
@@ -95,6 +104,10 @@ export interface HistoryItem {
   prompt: string;
   model?: string;
   provider?: string;
+  requested_model?: string;
+  requested_provider?: string;
+  actual_model?: string;
+  actual_provider?: string;
   aspect_ratio?: string;
   duration_seconds?: number;
   status: JobStatus;

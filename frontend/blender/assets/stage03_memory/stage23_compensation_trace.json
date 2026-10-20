@@ -1,0 +1,146 @@
+{
+  "stage": 23,
+  "phase": 6,
+  "subsystem": "recoveryCompensationService",
+  "generatedAt": "2026-10-03T11:06:57.343Z",
+  "architecturalAxioms": [
+    "Compensation is a newly governed operation; it is not a rollback or historical mutation.",
+    "Zero direct network calls (no fetch, no Axios, no provider SDKs).",
+    "All external compensation routes strictly through Stage 15 Action Bus or Stage 07 Execution Gateway.",
+    "Human approval is strictly enforced via Stage 21 Governance contracts for destructive operations.",
+    "Dispatched != Executed != Confirmed != Reconciled. Epistemic uncertainty is strictly preserved.",
+    "Finite depth bounds (MAX_RECOVERY_DEPTH = 3) and cycle detection prevent recursion loops."
+  ],
+  "traces": [
+    {
+      "scenario": "NO_COMPENSATION_REQUIRED",
+      "originalOperationId": "op-trace-comp-01",
+      "causationId": "op-trace-comp-01",
+      "correlationId": "corr-trace-01",
+      "sourceCapability": "filesystem.write",
+      "eligibility": "COMPENSATION_NOT_REQUIRED",
+      "reversibilityClass": "IRREVERSIBLE",
+      "rationale": "Operation failed pre-dispatch before any external side effect occurred.",
+      "candidatePlan": null,
+      "lifecycleState": "TERMINATED",
+      "epistemicState": "OBSERVED"
+    },
+    {
+      "scenario": "ELIGIBLE_COMPENSATION",
+      "originalOperationId": "op-trace-comp-02",
+      "causationId": "op-trace-comp-02",
+      "correlationId": "corr-trace-02",
+      "sourceCapability": "github.create_issue",
+      "compensatingCapability": "github.close_issue",
+      "compensationId": "comp_op-trace-comp-02_1791025617342_1m72k",
+      "idempotencyKey": "comp-idem-op-trace-comp-02-github.close_issue-1791025617342",
+      "eligibility": "COMPENSATION_ELIGIBLE",
+      "reversibilityClass": "COMPENSATABLE",
+      "targetState": "ISSUE_CLOSED",
+      "lifecycleState": "READY",
+      "epistemicState": "CONFIRMED"
+    },
+    {
+      "scenario": "RECONCILIATION_REQUIRED",
+      "originalOperationId": "op-trace-comp-03",
+      "causationId": "op-trace-comp-03",
+      "correlationId": "corr-trace-03",
+      "sourceCapability": "filesystem.write",
+      "eligibility": "COMPENSATION_REQUIRES_RECONCILIATION",
+      "reversibilityClass": "IRREVERSIBLE",
+      "rationale": "External operational state is UNKNOWN. Read-only reconciliation is required before compensation can be evaluated.",
+      "requiresReconciliation": true,
+      "candidatePlan": null,
+      "lifecycleState": "BLOCKED_PENDING_RECONCILIATION",
+      "epistemicState": "UNKNOWN"
+    },
+    {
+      "scenario": "UNSUPPORTED_INVERSE",
+      "originalOperationId": "op-trace-comp-04",
+      "causationId": "op-trace-comp-04",
+      "correlationId": "corr-trace-04",
+      "sourceCapability": "custom.unsupported_service",
+      "eligibility": "COMPENSATION_UNAVAILABLE",
+      "reversibilityClass": "IRREVERSIBLE",
+      "rationale": "No explicit compensating reverse mapping exists for capability 'custom.unsupported_service'.",
+      "candidatePlan": null,
+      "lifecycleState": "TERMINATED",
+      "epistemicState": "OBSERVED"
+    },
+    {
+      "scenario": "IRREVERSIBLE_NOTIFICATION",
+      "originalOperationId": "op-trace-comp-05",
+      "causationId": "op-trace-comp-05",
+      "correlationId": "corr-trace-05",
+      "sourceCapability": "notification.send",
+      "eligibility": "COMPENSATION_UNAVAILABLE",
+      "reversibilityClass": "IRREVERSIBLE",
+      "rationale": "Capability 'notification.send' produces irreversible external side effects (e.g., notifications). No automatic inverse exists.",
+      "candidatePlan": null,
+      "lifecycleState": "TERMINATED",
+      "epistemicState": "CONFIRMED"
+    },
+    {
+      "scenario": "GOVERNANCE_REJECTION",
+      "originalOperationId": "op-trace-comp-06",
+      "compensationId": "comp_op-trace-comp-06_1791025617342_n4det",
+      "actorType": "SYSTEM",
+      "rejectionStatus": "REJECTED",
+      "rejectionReason": "[RecoveryContractViolation] Invalid approval actor type 'SYSTEM'. Only authenticated human operators ('USER') can authorize compensation.",
+      "lifecycleState": "PROPOSED",
+      "epistemicState": "CONFIRMED"
+    },
+    {
+      "scenario": "APPROVED_COMPENSATION",
+      "originalOperationId": "op-trace-comp-06",
+      "compensationId": "comp_op-trace-comp-06_1791025617342_n4det",
+      "approvedBy": "operator-alice",
+      "governanceDecisionId": "gov-decision-07",
+      "lifecycleState": "APPROVED",
+      "epistemicState": "CONFIRMED"
+    },
+    {
+      "scenario": "DUPLICATE_PROTECTION",
+      "originalOperationId": "op-trace-comp-08",
+      "eligibility": "COMPENSATION_UNSAFE",
+      "rationale": "Cycle detected: operation 'op-trace-comp-08' is already in visited compensation chain.",
+      "lifecycleState": "ABORTED",
+      "epistemicState": "OBSERVED"
+    },
+    {
+      "scenario": "COMPENSATION_DISPATCH",
+      "originalOperationId": "op-trace-comp-06",
+      "compensationId": "comp_op-trace-comp-06_1791025617342_n4det",
+      "dispatchedActionId": "act_comp_comp_op-trace-comp-06_1791025617342_n4det_1791025617343",
+      "dispatchSuccess": true,
+      "lifecycleState": "VERIFYING",
+      "epistemicState": "DISPATCHED_AWAITING_VERIFICATION"
+    },
+    {
+      "scenario": "POST_COMPENSATION_VERIFICATION",
+      "originalOperationId": "op-trace-comp-06",
+      "compensationId": "comp_op-trace-comp-06_1791025617342_n4det",
+      "reconciliationId": "recon-trace-10",
+      "outcome": "VERIFIED_SUCCESS",
+      "epistemicState": "CONFIRMED",
+      "lifecycleState": "COMPLETED"
+    },
+    {
+      "scenario": "UNKNOWN_VERIFICATION",
+      "originalOperationId": "op-trace-comp-06",
+      "compensationId": "comp_op-trace-comp-06_1791025617342_n4det",
+      "reconciliationId": "recon-trace-11",
+      "outcome": "STILL_UNKNOWN",
+      "epistemicState": "UNKNOWN",
+      "lifecycleState": "UNKNOWN"
+    },
+    {
+      "scenario": "LOOP_DEPTH_REJECTION",
+      "originalOperationId": "op-trace-comp-12",
+      "eligibility": "COMPENSATION_UNSAFE",
+      "rationale": "Maximum recovery depth of 3 reached. Prevents recursive compensation loops.",
+      "lifecycleState": "ESCALATED",
+      "epistemicState": "OBSERVED"
+    }
+  ]
+}

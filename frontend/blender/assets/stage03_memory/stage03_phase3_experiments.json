@@ -1,0 +1,596 @@
+{
+  "metadata": {
+    "phase": "3.0",
+    "date": "2026-10-01",
+    "experiment_count": 6,
+    "cameras": [
+      "CAM_CinematicHero",
+      "CAM_MonumentalLowAngle",
+      "CAM_ArchiveDetail"
+    ]
+  },
+  "experiments": {
+    "exp_baseline_p29": {
+      "id": "exp_baseline_p29",
+      "name": "Phase 2.9 Baseline",
+      "description": "Locked Phase 2.9 baseline configuration with bloom diffusion.",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 22,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.96,
+            "fps": 1045.3
+          },
+          "overall": {
+            "mae": 41.2385,
+            "rmse": 56.215,
+            "psnr": 13.13,
+            "ssim": 0.1252,
+            "mean_lum": 47.97,
+            "mean_rgb": [
+              39.27,
+              49.56,
+              62.57
+            ],
+            "warm_pixels_pct": 2.16
+          },
+          "floor_mae": 39.7025,
+          "core_mae": 59.7261
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 22,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.14,
+            "fps": 879.8
+          },
+          "overall": {
+            "mae": 45.0213,
+            "rmse": 60.7177,
+            "psnr": 12.46,
+            "ssim": 0.0272,
+            "mean_lum": 36.63,
+            "mean_rgb": [
+              29.35,
+              37.85,
+              49.43
+            ],
+            "warm_pixels_pct": 3.07
+          },
+          "floor_mae": 42.9251,
+          "core_mae": 52.9785
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 22,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.09,
+            "fps": 914.6
+          },
+          "overall": {
+            "mae": 54.6323,
+            "rmse": 74.6239,
+            "psnr": 10.67,
+            "ssim": 0.1323,
+            "mean_lum": 51.05,
+            "mean_rgb": [
+              53.78,
+              50.3,
+              47.72
+            ],
+            "warm_pixels_pct": 32.05
+          },
+          "floor_mae": 48.5885,
+          "core_mae": 67.2894
+        }
+      }
+    },
+    "exp_a_subtle_vignette": {
+      "id": "exp_a_subtle_vignette",
+      "name": "Experiment A: Subtle Lens Vignette",
+      "description": "Applies a gentle lens vignette (darkness 0.15, offset 1.15) to simulate optical falloff in frame corners.",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 25,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.16,
+            "fps": 862.1
+          },
+          "overall": {
+            "mae": 41.007,
+            "rmse": 56.0649,
+            "psnr": 13.16,
+            "ssim": 0.1288,
+            "mean_lum": 46.7,
+            "mean_rgb": [
+              38.2,
+              48.25,
+              61.01
+            ],
+            "warm_pixels_pct": 2.15
+          },
+          "floor_mae": 39.1974,
+          "core_mae": 59.7344
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 25,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.97,
+            "fps": 1030.9
+          },
+          "overall": {
+            "mae": 45.0409,
+            "rmse": 60.8407,
+            "psnr": 12.45,
+            "ssim": 0.0271,
+            "mean_lum": 35.56,
+            "mean_rgb": [
+              28.44,
+              36.76,
+              48.08
+            ],
+            "warm_pixels_pct": 2.97
+          },
+          "floor_mae": 43.012,
+          "core_mae": 52.9397
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 25,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.01,
+            "fps": 986.8
+          },
+          "overall": {
+            "mae": 54.5245,
+            "rmse": 74.6705,
+            "psnr": 10.67,
+            "ssim": 0.1321,
+            "mean_lum": 49.72,
+            "mean_rgb": [
+              52.45,
+              48.97,
+              46.41
+            ],
+            "warm_pixels_pct": 32.03
+          },
+          "floor_mae": 47.973,
+          "core_mae": 67.3393
+        }
+      }
+    },
+    "exp_b_fine_film_grain": {
+      "id": "exp_b_fine_film_grain",
+      "name": "Experiment B: Fine Monochromatic Film Grain",
+      "description": "Adds ultra-fine monochromatic film grain (amplitude 0.012) to soften pin-hole rasterization edges.",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 28,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.74,
+            "fps": 1345.3
+          },
+          "overall": {
+            "mae": 40.9914,
+            "rmse": 56.056,
+            "psnr": 13.16,
+            "ssim": 0.1277,
+            "mean_lum": 46.78,
+            "mean_rgb": [
+              38.28,
+              48.33,
+              61.05
+            ],
+            "warm_pixels_pct": 2.16
+          },
+          "floor_mae": 39.1226,
+          "core_mae": 59.6936
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 28,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.19,
+            "fps": 840.3
+          },
+          "overall": {
+            "mae": 44.9133,
+            "rmse": 60.6981,
+            "psnr": 12.47,
+            "ssim": 0.0275,
+            "mean_lum": 35.74,
+            "mean_rgb": [
+              28.61,
+              36.95,
+              48.21
+            ],
+            "warm_pixels_pct": 3.0
+          },
+          "floor_mae": 42.9647,
+          "core_mae": 52.6322
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 28,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.24,
+            "fps": 806.5
+          },
+          "overall": {
+            "mae": 54.4395,
+            "rmse": 74.5839,
+            "psnr": 10.68,
+            "ssim": 0.1319,
+            "mean_lum": 49.86,
+            "mean_rgb": [
+              52.6,
+              49.12,
+              46.49
+            ],
+            "warm_pixels_pct": 32.04
+          },
+          "floor_mae": 47.7798,
+          "core_mae": 67.2751
+        }
+      }
+    },
+    "exp_c_filmic_micro_contrast": {
+      "id": "exp_c_filmic_micro_contrast",
+      "name": "Experiment C: Filmic Micro-Contrast",
+      "description": "Slight midtone contrast expansion (contrast 1.02 around midtone 0.18) preserving graphite blacks.",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 31,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.74,
+            "fps": 1345.3
+          },
+          "overall": {
+            "mae": 41.7965,
+            "rmse": 57.0478,
+            "psnr": 13.01,
+            "ssim": 0.1241,
+            "mean_lum": 44.85,
+            "mean_rgb": [
+              36.05,
+              46.49,
+              59.47
+            ],
+            "warm_pixels_pct": 2.08
+          },
+          "floor_mae": 39.7511,
+          "core_mae": 61.5533
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 31,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.49,
+            "fps": 671.1
+          },
+          "overall": {
+            "mae": 45.7059,
+            "rmse": 61.6454,
+            "psnr": 12.33,
+            "ssim": 0.0277,
+            "mean_lum": 33.74,
+            "mean_rgb": [
+              26.3,
+              35.04,
+              46.51
+            ],
+            "warm_pixels_pct": 2.82
+          },
+          "floor_mae": 43.8688,
+          "core_mae": 53.5471
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 31,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.78,
+            "fps": 1282.1
+          },
+          "overall": {
+            "mae": 55.2637,
+            "rmse": 75.5524,
+            "psnr": 10.57,
+            "ssim": 0.1303,
+            "mean_lum": 48.2,
+            "mean_rgb": [
+              51.0,
+              47.47,
+              44.61
+            ],
+            "warm_pixels_pct": 32.05
+          },
+          "floor_mae": 48.0622,
+          "core_mae": 68.6279
+        }
+      }
+    },
+    "exp_d_highlight_halation": {
+      "id": "exp_d_highlight_halation",
+      "name": "Experiment D: Highlight Halation Tuning",
+      "description": "Softens halation around the central core (threshold 0.90, strength 0.025, radius 0.45).",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 34,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.97,
+            "fps": 1030.9
+          },
+          "overall": {
+            "mae": 41.0725,
+            "rmse": 55.9527,
+            "psnr": 13.17,
+            "ssim": 0.1254,
+            "mean_lum": 48.5,
+            "mean_rgb": [
+              40.41,
+              49.87,
+              62.65
+            ],
+            "warm_pixels_pct": 2.86
+          },
+          "floor_mae": 39.4066,
+          "core_mae": 59.2855
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 34,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.09,
+            "fps": 917.4
+          },
+          "overall": {
+            "mae": 45.0626,
+            "rmse": 60.6991,
+            "psnr": 12.47,
+            "ssim": 0.0229,
+            "mean_lum": 37.04,
+            "mean_rgb": [
+              30.23,
+              38.08,
+              49.48
+            ],
+            "warm_pixels_pct": 3.44
+          },
+          "floor_mae": 42.8696,
+          "core_mae": 52.9584
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 34,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.17,
+            "fps": 852.3
+          },
+          "overall": {
+            "mae": 53.9778,
+            "rmse": 73.7761,
+            "psnr": 10.77,
+            "ssim": 0.1388,
+            "mean_lum": 52.18,
+            "mean_rgb": [
+              56.16,
+              50.98,
+              47.92
+            ],
+            "warm_pixels_pct": 33.7
+          },
+          "floor_mae": 48.499,
+          "core_mae": 65.5151
+        }
+      }
+    },
+    "exp_e_atmospheric_tint": {
+      "id": "exp_e_atmospheric_tint",
+      "name": "Experiment E: Atmospheric Color Integration",
+      "description": "Subtle full-frame chromatic balance adjustment (tint [1.002, 1.000, 0.998]).",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 37,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.2,
+            "fps": 831
+          },
+          "overall": {
+            "mae": 41.7861,
+            "rmse": 57.0362,
+            "psnr": 13.01,
+            "ssim": 0.1242,
+            "mean_lum": 44.86,
+            "mean_rgb": [
+              36.11,
+              46.49,
+              59.39
+            ],
+            "warm_pixels_pct": 2.08
+          },
+          "floor_mae": 39.7456,
+          "core_mae": 61.5355
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 37,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.79,
+            "fps": 1265.8
+          },
+          "overall": {
+            "mae": 45.6997,
+            "rmse": 61.639,
+            "psnr": 12.33,
+            "ssim": 0.0277,
+            "mean_lum": 33.74,
+            "mean_rgb": [
+              26.35,
+              35.04,
+              46.45
+            ],
+            "warm_pixels_pct": 2.82
+          },
+          "floor_mae": 43.8651,
+          "core_mae": 53.538
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 64,
+            "textures": 37,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.8,
+            "fps": 1255.2
+          },
+          "overall": {
+            "mae": 55.2674,
+            "rmse": 75.5562,
+            "psnr": 10.57,
+            "ssim": 0.1303,
+            "mean_lum": 48.21,
+            "mean_rgb": [
+              51.06,
+              47.47,
+              44.55
+            ],
+            "warm_pixels_pct": 32.1
+          },
+          "floor_mae": 48.0665,
+          "core_mae": 68.6248
+        }
+      }
+    }
+  }
+}

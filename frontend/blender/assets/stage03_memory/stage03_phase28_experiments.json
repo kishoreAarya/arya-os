@@ -1,0 +1,2662 @@
+{
+  "metadata": {
+    "phase": "2.8",
+    "date": "2026-10-01",
+    "experiment_count": 8,
+    "cameras": [
+      "CAM_CinematicHero",
+      "CAM_MonumentalLowAngle",
+      "CAM_ArchiveDetail"
+    ]
+  },
+  "variants": {
+    "variant_baseline_p27": {
+      "id": "variant_baseline_p27",
+      "name": "Phase 2.7 Baseline",
+      "description": "Baseline established at the end of Phase 2.7.",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 9,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.46,
+            "fps": 686.5
+          },
+          "metrics": {
+            "overall": {
+              "mae": 41.4194,
+              "rmse": 56.5258,
+              "psnr": 13.09,
+              "ssim": 0.1223,
+              "max_diff": 255.0,
+              "mean_lum": 42.71,
+              "mean_rgb": [
+                35.92,
+                44.0,
+                53.86
+              ],
+              "warm_pixels_pct": 1.69
+            },
+            "regions": {
+              "floor": {
+                "mae": 38.4689,
+                "rmse": 54.5299,
+                "target_mean_rgb": [
+                  44.1,
+                  44.44,
+                  44.77
+                ],
+                "render_mean_rgb": [
+                  27.68,
+                  32.86,
+                  39.71
+                ],
+                "error_share_pct": 32.51
+              },
+              "core": {
+                "mae": 61.7632,
+                "rmse": 77.0744,
+                "target_mean_rgb": [
+                  93.75,
+                  82.28,
+                  72.44
+                ],
+                "render_mean_rgb": [
+                  34.12,
+                  39.15,
+                  44.33
+                ],
+                "error_share_pct": 17.89
+              },
+              "sky": {
+                "mae": 41.094,
+                "rmse": 56.4712,
+                "target_mean_rgb": [
+                  67.7,
+                  71.4,
+                  73.72
+                ],
+                "render_mean_rgb": [
+                  37.64,
+                  47.44,
+                  59.32
+                ],
+                "error_share_pct": 34.73
+              },
+              "left_colonnade": {
+                "mae": 41.2778,
+                "rmse": 52.9131,
+                "target_mean_rgb": [
+                  61.95,
+                  71.16,
+                  77.52
+                ],
+                "render_mean_rgb": [
+                  48.7,
+                  62.27,
+                  78.26
+                ],
+                "error_share_pct": 13.95
+              },
+              "right_colonnade": {
+                "mae": 30.5609,
+                "rmse": 40.2721,
+                "target_mean_rgb": [
+                  63.37,
+                  72.01,
+                  78.17
+                ],
+                "render_mean_rgb": [
+                  44.63,
+                  54.39,
+                  66.38
+                ],
+                "error_share_pct": 10.33
+              }
+            }
+          }
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 9,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.24,
+            "fps": 808.6
+          },
+          "metrics": {
+            "overall": {
+              "mae": 45.479,
+              "rmse": 61.3222,
+              "psnr": 12.38,
+              "ssim": 0.0278,
+              "max_diff": 255.0,
+              "mean_lum": 32.22,
+              "mean_rgb": [
+                27.23,
+                33.06,
+                40.98
+              ],
+              "warm_pixels_pct": 2.49
+            },
+            "regions": {
+              "floor": {
+                "mae": 43.6211,
+                "rmse": 60.3296,
+                "target_mean_rgb": [
+                  51.53,
+                  55.86,
+                  55.49
+                ],
+                "render_mean_rgb": [
+                  25.87,
+                  28.68,
+                  34.04
+                ],
+                "error_share_pct": 33.57
+              },
+              "core": {
+                "mae": 51.3189,
+                "rmse": 64.9356,
+                "target_mean_rgb": [
+                  60.65,
+                  59.65,
+                  54.23
+                ],
+                "render_mean_rgb": [
+                  23.64,
+                  29.24,
+                  36.15
+                ],
+                "error_share_pct": 13.54
+              },
+              "sky": {
+                "mae": 49.5089,
+                "rmse": 65.4302,
+                "target_mean_rgb": [
+                  63.84,
+                  74.47,
+                  79.21
+                ],
+                "render_mean_rgb": [
+                  30.06,
+                  38.62,
+                  49.15
+                ],
+                "error_share_pct": 38.1
+              },
+              "left_colonnade": {
+                "mae": 38.5328,
+                "rmse": 51.598,
+                "target_mean_rgb": [
+                  49.62,
+                  60.44,
+                  64.85
+                ],
+                "render_mean_rgb": [
+                  22.17,
+                  28.58,
+                  36.84
+                ],
+                "error_share_pct": 11.86
+              },
+              "right_colonnade": {
+                "mae": 42.2606,
+                "rmse": 57.2538,
+                "target_mean_rgb": [
+                  53.35,
+                  64.19,
+                  68.77
+                ],
+                "render_mean_rgb": [
+                  28.02,
+                  34.47,
+                  42.8
+                ],
+                "error_share_pct": 13.01
+              }
+            }
+          }
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 9,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.44,
+            "fps": 696.1
+          },
+          "metrics": {
+            "overall": {
+              "mae": 54.3647,
+              "rmse": 74.8975,
+              "psnr": 10.64,
+              "ssim": 0.128,
+              "max_diff": 255.0,
+              "mean_lum": 42.87,
+              "mean_rgb": [
+                43.39,
+                42.55,
+                43.13
+              ],
+              "warm_pixels_pct": 22.25
+            },
+            "regions": {
+              "floor": {
+                "mae": 45.8624,
+                "rmse": 66.1003,
+                "target_mean_rgb": [
+                  68.68,
+                  53.63,
+                  43.02
+                ],
+                "render_mean_rgb": [
+                  35.88,
+                  31.51,
+                  28.94
+                ],
+                "error_share_pct": 29.53
+              },
+              "core": {
+                "mae": 69.9353,
+                "rmse": 92.2473,
+                "target_mean_rgb": [
+                  100.14,
+                  96.43,
+                  94.26
+                ],
+                "render_mean_rgb": [
+                  34.43,
+                  38.6,
+                  42.8
+                ],
+                "error_share_pct": 15.44
+              },
+              "sky": {
+                "mae": 55.6151,
+                "rmse": 73.6233,
+                "target_mean_rgb": [
+                  86.8,
+                  90.34,
+                  93.8
+                ],
+                "render_mean_rgb": [
+                  49.64,
+                  52.69,
+                  57.63
+                ],
+                "error_share_pct": 35.81
+              },
+              "left_colonnade": {
+                "mae": 68.9749,
+                "rmse": 93.4476,
+                "target_mean_rgb": [
+                  96.17,
+                  78.78,
+                  67.78
+                ],
+                "render_mean_rgb": [
+                  19.36,
+                  21.16,
+                  24.53
+                ],
+                "error_share_pct": 17.76
+              },
+              "right_colonnade": {
+                "mae": 47.9088,
+                "rmse": 62.0616,
+                "target_mean_rgb": [
+                  98.36,
+                  99.18,
+                  100.06
+                ],
+                "render_mean_rgb": [
+                  88.14,
+                  80.46,
+                  73.0
+                ],
+                "error_share_pct": 12.34
+              }
+            }
+          }
+        }
+      }
+    },
+    "variant_a_atmosphere": {
+      "id": "variant_a_atmosphere",
+      "name": "Variant A: Atmospheric Gradient Refinement",
+      "description": "Layered multi-stop sky dome with warm horizon corona and softer haze integration.",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 12,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.77,
+            "fps": 563.9
+          },
+          "metrics": {
+            "overall": {
+              "mae": 41.8625,
+              "rmse": 56.5886,
+              "psnr": 13.08,
+              "ssim": 0.1201,
+              "max_diff": 255.0,
+              "mean_lum": 47.52,
+              "mean_rgb": [
+                41.66,
+                48.6,
+                57.35
+              ],
+              "warm_pixels_pct": 1.74
+            },
+            "regions": {
+              "floor": {
+                "mae": 40.0797,
+                "rmse": 55.7209,
+                "target_mean_rgb": [
+                  44.1,
+                  44.44,
+                  44.77
+                ],
+                "render_mean_rgb": [
+                  33.14,
+                  37.23,
+                  42.97
+                ],
+                "error_share_pct": 33.51
+              },
+              "core": {
+                "mae": 60.855,
+                "rmse": 75.9064,
+                "target_mean_rgb": [
+                  93.75,
+                  82.28,
+                  72.44
+                ],
+                "render_mean_rgb": [
+                  37.82,
+                  41.79,
+                  46.08
+                ],
+                "error_share_pct": 17.44
+              },
+              "sky": {
+                "mae": 41.0559,
+                "rmse": 55.9266,
+                "target_mean_rgb": [
+                  67.7,
+                  71.4,
+                  73.72
+                ],
+                "render_mean_rgb": [
+                  43.58,
+                  52.43,
+                  63.39
+                ],
+                "error_share_pct": 34.33
+              },
+              "left_colonnade": {
+                "mae": 42.4886,
+                "rmse": 53.9441,
+                "target_mean_rgb": [
+                  61.95,
+                  71.16,
+                  77.52
+                ],
+                "render_mean_rgb": [
+                  55.94,
+                  68.61,
+                  83.61
+                ],
+                "error_share_pct": 14.21
+              },
+              "right_colonnade": {
+                "mae": 30.0767,
+                "rmse": 39.359,
+                "target_mean_rgb": [
+                  63.37,
+                  72.01,
+                  78.17
+                ],
+                "render_mean_rgb": [
+                  51.04,
+                  58.6,
+                  68.67
+                ],
+                "error_share_pct": 10.06
+              }
+            }
+          }
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 12,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.97,
+            "fps": 1027.4
+          },
+          "metrics": {
+            "overall": {
+              "mae": 45.3492,
+              "rmse": 60.7074,
+              "psnr": 12.47,
+              "ssim": 0.0295,
+              "max_diff": 255.0,
+              "mean_lum": 36.07,
+              "mean_rgb": [
+                31.39,
+                36.84,
+                44.36
+              ],
+              "warm_pixels_pct": 2.56
+            },
+            "regions": {
+              "floor": {
+                "mae": 43.3848,
+                "rmse": 59.9108,
+                "target_mean_rgb": [
+                  51.53,
+                  55.86,
+                  55.49
+                ],
+                "render_mean_rgb": [
+                  29.69,
+                  31.99,
+                  36.78
+                ],
+                "error_share_pct": 33.48
+              },
+              "core": {
+                "mae": 52.1538,
+                "rmse": 65.0958,
+                "target_mean_rgb": [
+                  60.65,
+                  59.65,
+                  54.23
+                ],
+                "render_mean_rgb": [
+                  26.81,
+                  32.25,
+                  39.09
+                ],
+                "error_share_pct": 13.8
+              },
+              "sky": {
+                "mae": 49.1861,
+                "rmse": 64.369,
+                "target_mean_rgb": [
+                  63.84,
+                  74.47,
+                  79.21
+                ],
+                "render_mean_rgb": [
+                  34.79,
+                  43.15,
+                  53.42
+                ],
+                "error_share_pct": 37.96
+              },
+              "left_colonnade": {
+                "mae": 38.0851,
+                "rmse": 50.8708,
+                "target_mean_rgb": [
+                  49.62,
+                  60.44,
+                  64.85
+                ],
+                "render_mean_rgb": [
+                  25.82,
+                  32.18,
+                  40.48
+                ],
+                "error_share_pct": 11.76
+              },
+              "right_colonnade": {
+                "mae": 41.8152,
+                "rmse": 56.4307,
+                "target_mean_rgb": [
+                  53.35,
+                  64.19,
+                  68.77
+                ],
+                "render_mean_rgb": [
+                  32.47,
+                  38.11,
+                  45.64
+                ],
+                "error_share_pct": 12.91
+              }
+            }
+          }
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 12,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.22,
+            "fps": 821.9
+          },
+          "metrics": {
+            "overall": {
+              "mae": 54.5481,
+              "rmse": 74.32,
+              "psnr": 10.71,
+              "ssim": 0.1282,
+              "max_diff": 255.0,
+              "mean_lum": 49.05,
+              "mean_rgb": [
+                52.19,
+                48.25,
+                44.94
+              ],
+              "warm_pixels_pct": 31.99
+            },
+            "regions": {
+              "floor": {
+                "mae": 47.9444,
+                "rmse": 66.9539,
+                "target_mean_rgb": [
+                  68.68,
+                  53.63,
+                  43.02
+                ],
+                "render_mean_rgb": [
+                  46.32,
+                  38.84,
+                  31.99
+                ],
+                "error_share_pct": 30.76
+              },
+              "core": {
+                "mae": 68.2306,
+                "rmse": 90.6974,
+                "target_mean_rgb": [
+                  100.14,
+                  96.43,
+                  94.26
+                ],
+                "render_mean_rgb": [
+                  38.6,
+                  41.7,
+                  44.92
+                ],
+                "error_share_pct": 15.01
+              },
+              "sky": {
+                "mae": 54.4313,
+                "rmse": 71.969,
+                "target_mean_rgb": [
+                  86.8,
+                  90.34,
+                  93.8
+                ],
+                "render_mean_rgb": [
+                  57.81,
+                  57.71,
+                  59.07
+                ],
+                "error_share_pct": 34.93
+              },
+              "left_colonnade": {
+                "mae": 67.4808,
+                "rmse": 91.9904,
+                "target_mean_rgb": [
+                  96.17,
+                  78.78,
+                  67.78
+                ],
+                "render_mean_rgb": [
+                  22.36,
+                  23.71,
+                  26.45
+                ],
+                "error_share_pct": 17.32
+              },
+              "right_colonnade": {
+                "mae": 49.2044,
+                "rmse": 62.602,
+                "target_mean_rgb": [
+                  98.36,
+                  99.18,
+                  100.06
+                ],
+                "render_mean_rgb": [
+                  103.98,
+                  88.62,
+                  71.27
+                ],
+                "error_share_pct": 12.63
+              }
+            }
+          }
+        }
+      }
+    },
+    "variant_b_reactor_warmth": {
+      "id": "variant_b_reactor_warmth",
+      "name": "Variant B: Reactor-to-Dais Warm-Light Distribution",
+      "description": "Astrolabe core emissive boost, warm rim back aperture, expanded dais GI bounce.",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 15,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.64,
+            "fps": 609.8
+          },
+          "metrics": {
+            "overall": {
+              "mae": 41.519,
+              "rmse": 56.6806,
+              "psnr": 13.06,
+              "ssim": 0.1218,
+              "max_diff": 255.0,
+              "mean_lum": 42.88,
+              "mean_rgb": [
+                36.04,
+                44.19,
+                54.09
+              ],
+              "warm_pixels_pct": 1.79
+            },
+            "regions": {
+              "floor": {
+                "mae": 38.6871,
+                "rmse": 54.8793,
+                "target_mean_rgb": [
+                  44.1,
+                  44.44,
+                  44.77
+                ],
+                "render_mean_rgb": [
+                  27.95,
+                  33.22,
+                  40.12
+                ],
+                "error_share_pct": 32.61
+              },
+              "core": {
+                "mae": 61.9659,
+                "rmse": 77.307,
+                "target_mean_rgb": [
+                  93.75,
+                  82.28,
+                  72.44
+                ],
+                "render_mean_rgb": [
+                  34.3,
+                  39.64,
+                  45.06
+                ],
+                "error_share_pct": 17.91
+              },
+              "sky": {
+                "mae": 41.0935,
+                "rmse": 56.4704,
+                "target_mean_rgb": [
+                  67.7,
+                  71.4,
+                  73.72
+                ],
+                "render_mean_rgb": [
+                  37.64,
+                  47.44,
+                  59.32
+                ],
+                "error_share_pct": 34.64
+              },
+              "left_colonnade": {
+                "mae": 41.2711,
+                "rmse": 52.9044,
+                "target_mean_rgb": [
+                  61.95,
+                  71.16,
+                  77.52
+                ],
+                "render_mean_rgb": [
+                  48.71,
+                  62.28,
+                  78.26
+                ],
+                "error_share_pct": 13.92
+              },
+              "right_colonnade": {
+                "mae": 30.5609,
+                "rmse": 40.2722,
+                "target_mean_rgb": [
+                  63.37,
+                  72.01,
+                  78.17
+                ],
+                "render_mean_rgb": [
+                  44.63,
+                  54.39,
+                  66.38
+                ],
+                "error_share_pct": 10.3
+              }
+            }
+          }
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 15,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.09,
+            "fps": 920.2
+          },
+          "metrics": {
+            "overall": {
+              "mae": 45.5872,
+              "rmse": 61.4949,
+              "psnr": 12.35,
+              "ssim": 0.0249,
+              "max_diff": 255.0,
+              "mean_lum": 32.4,
+              "mean_rgb": [
+                27.41,
+                33.24,
+                41.15
+              ],
+              "warm_pixels_pct": 2.65
+            },
+            "regions": {
+              "floor": {
+                "mae": 43.8724,
+                "rmse": 60.7406,
+                "target_mean_rgb": [
+                  51.53,
+                  55.86,
+                  55.49
+                ],
+                "render_mean_rgb": [
+                  26.35,
+                  29.11,
+                  34.41
+                ],
+                "error_share_pct": 33.68
+              },
+              "core": {
+                "mae": 51.3161,
+                "rmse": 64.9333,
+                "target_mean_rgb": [
+                  60.65,
+                  59.65,
+                  54.23
+                ],
+                "render_mean_rgb": [
+                  23.65,
+                  29.25,
+                  36.15
+                ],
+                "error_share_pct": 13.51
+              },
+              "sky": {
+                "mae": 49.506,
+                "rmse": 65.4255,
+                "target_mean_rgb": [
+                  63.84,
+                  74.47,
+                  79.21
+                ],
+                "render_mean_rgb": [
+                  30.07,
+                  38.62,
+                  49.15
+                ],
+                "error_share_pct": 38.01
+              },
+              "left_colonnade": {
+                "mae": 38.5321,
+                "rmse": 51.5974,
+                "target_mean_rgb": [
+                  49.62,
+                  60.44,
+                  64.85
+                ],
+                "render_mean_rgb": [
+                  22.18,
+                  28.58,
+                  36.84
+                ],
+                "error_share_pct": 11.83
+              },
+              "right_colonnade": {
+                "mae": 42.4154,
+                "rmse": 57.5062,
+                "target_mean_rgb": [
+                  53.35,
+                  64.19,
+                  68.77
+                ],
+                "render_mean_rgb": [
+                  28.03,
+                  34.63,
+                  43.12
+                ],
+                "error_share_pct": 13.03
+              }
+            }
+          }
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 15,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.56,
+            "fps": 642.4
+          },
+          "metrics": {
+            "overall": {
+              "mae": 54.448,
+              "rmse": 74.9847,
+              "psnr": 10.63,
+              "ssim": 0.1279,
+              "max_diff": 255.0,
+              "mean_lum": 43.13,
+              "mean_rgb": [
+                43.56,
+                42.84,
+                43.5
+              ],
+              "warm_pixels_pct": 22.32
+            },
+            "regions": {
+              "floor": {
+                "mae": 45.9381,
+                "rmse": 66.1538,
+                "target_mean_rgb": [
+                  68.68,
+                  53.63,
+                  43.02
+                ],
+                "render_mean_rgb": [
+                  36.22,
+                  31.78,
+                  29.05
+                ],
+                "error_share_pct": 29.53
+              },
+              "core": {
+                "mae": 70.1415,
+                "rmse": 92.4526,
+                "target_mean_rgb": [
+                  100.14,
+                  96.43,
+                  94.26
+                ],
+                "render_mean_rgb": [
+                  34.44,
+                  39.15,
+                  43.85
+                ],
+                "error_share_pct": 15.46
+              },
+              "sky": {
+                "mae": 55.6684,
+                "rmse": 73.7065,
+                "target_mean_rgb": [
+                  86.8,
+                  90.34,
+                  93.8
+                ],
+                "render_mean_rgb": [
+                  49.7,
+                  52.93,
+                  58.01
+                ],
+                "error_share_pct": 35.78
+              },
+              "left_colonnade": {
+                "mae": 69.0792,
+                "rmse": 93.5348,
+                "target_mean_rgb": [
+                  96.17,
+                  78.78,
+                  67.78
+                ],
+                "render_mean_rgb": [
+                  19.5,
+                  21.63,
+                  25.24
+                ],
+                "error_share_pct": 17.76
+              },
+              "right_colonnade": {
+                "mae": 47.9663,
+                "rmse": 62.1287,
+                "target_mean_rgb": [
+                  98.36,
+                  99.18,
+                  100.06
+                ],
+                "render_mean_rgb": [
+                  88.22,
+                  80.65,
+                  73.29
+                ],
+                "error_share_pct": 12.33
+              }
+            }
+          }
+        }
+      }
+    },
+    "variant_c_stairs_spill": {
+      "id": "variant_c_stairs_spill",
+      "name": "Variant C: Foreground Stair Warm Spill",
+      "description": "Tertiary stairs grazing light forward projection reaching foreground vitrines.",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 18,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.09,
+            "fps": 914.6
+          },
+          "metrics": {
+            "overall": {
+              "mae": 41.417,
+              "rmse": 56.522,
+              "psnr": 13.09,
+              "ssim": 0.1224,
+              "max_diff": 255.0,
+              "mean_lum": 42.7,
+              "mean_rgb": [
+                35.91,
+                44.0,
+                53.86
+              ],
+              "warm_pixels_pct": 1.66
+            },
+            "regions": {
+              "floor": {
+                "mae": 38.464,
+                "rmse": 54.5209,
+                "target_mean_rgb": [
+                  44.1,
+                  44.44,
+                  44.77
+                ],
+                "render_mean_rgb": [
+                  27.64,
+                  32.84,
+                  39.71
+                ],
+                "error_share_pct": 32.5
+              },
+              "core": {
+                "mae": 61.7599,
+                "rmse": 77.0708,
+                "target_mean_rgb": [
+                  93.75,
+                  82.28,
+                  72.44
+                ],
+                "render_mean_rgb": [
+                  34.13,
+                  39.15,
+                  44.33
+                ],
+                "error_share_pct": 17.89
+              },
+              "sky": {
+                "mae": 41.0939,
+                "rmse": 56.4712,
+                "target_mean_rgb": [
+                  67.7,
+                  71.4,
+                  73.72
+                ],
+                "render_mean_rgb": [
+                  37.64,
+                  47.44,
+                  59.32
+                ],
+                "error_share_pct": 34.73
+              },
+              "left_colonnade": {
+                "mae": 41.2764,
+                "rmse": 52.9121,
+                "target_mean_rgb": [
+                  61.95,
+                  71.16,
+                  77.52
+                ],
+                "render_mean_rgb": [
+                  48.7,
+                  62.27,
+                  78.26
+                ],
+                "error_share_pct": 13.95
+              },
+              "right_colonnade": {
+                "mae": 30.5609,
+                "rmse": 40.2721,
+                "target_mean_rgb": [
+                  63.37,
+                  72.01,
+                  78.17
+                ],
+                "render_mean_rgb": [
+                  44.63,
+                  54.39,
+                  66.38
+                ],
+                "error_share_pct": 10.33
+              }
+            }
+          }
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 18,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.08,
+            "fps": 923.1
+          },
+          "metrics": {
+            "overall": {
+              "mae": 45.4714,
+              "rmse": 61.3126,
+              "psnr": 12.38,
+              "ssim": 0.028,
+              "max_diff": 255.0,
+              "mean_lum": 32.23,
+              "mean_rgb": [
+                27.25,
+                33.07,
+                40.98
+              ],
+              "warm_pixels_pct": 2.49
+            },
+            "regions": {
+              "floor": {
+                "mae": 43.6004,
+                "rmse": 60.3035,
+                "target_mean_rgb": [
+                  51.53,
+                  55.86,
+                  55.49
+                ],
+                "render_mean_rgb": [
+                  25.92,
+                  28.7,
+                  34.04
+                ],
+                "error_share_pct": 33.56
+              },
+              "core": {
+                "mae": 51.3184,
+                "rmse": 64.9335,
+                "target_mean_rgb": [
+                  60.65,
+                  59.65,
+                  54.23
+                ],
+                "render_mean_rgb": [
+                  23.65,
+                  29.24,
+                  36.15
+                ],
+                "error_share_pct": 13.54
+              },
+              "sky": {
+                "mae": 49.5087,
+                "rmse": 65.43,
+                "target_mean_rgb": [
+                  63.84,
+                  74.47,
+                  79.21
+                ],
+                "render_mean_rgb": [
+                  30.07,
+                  38.62,
+                  49.15
+                ],
+                "error_share_pct": 38.11
+              },
+              "left_colonnade": {
+                "mae": 38.5312,
+                "rmse": 51.5964,
+                "target_mean_rgb": [
+                  49.62,
+                  60.44,
+                  64.85
+                ],
+                "render_mean_rgb": [
+                  22.18,
+                  28.58,
+                  36.84
+                ],
+                "error_share_pct": 11.86
+              },
+              "right_colonnade": {
+                "mae": 42.2603,
+                "rmse": 57.2529,
+                "target_mean_rgb": [
+                  53.35,
+                  64.19,
+                  68.77
+                ],
+                "render_mean_rgb": [
+                  28.03,
+                  34.47,
+                  42.8
+                ],
+                "error_share_pct": 13.01
+              }
+            }
+          }
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 18,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.56,
+            "fps": 641
+          },
+          "metrics": {
+            "overall": {
+              "mae": 54.6155,
+              "rmse": 75.1451,
+              "psnr": 10.61,
+              "ssim": 0.1218,
+              "max_diff": 255.0,
+              "mean_lum": 43.25,
+              "mean_rgb": [
+                44.01,
+                42.86,
+                43.22
+              ],
+              "warm_pixels_pct": 22.74
+            },
+            "regions": {
+              "floor": {
+                "mae": 46.5757,
+                "rmse": 66.8875,
+                "target_mean_rgb": [
+                  68.68,
+                  53.63,
+                  43.02
+                ],
+                "render_mean_rgb": [
+                  37.66,
+                  32.41,
+                  29.19
+                ],
+                "error_share_pct": 29.85
+              },
+              "core": {
+                "mae": 69.9238,
+                "rmse": 92.2388,
+                "target_mean_rgb": [
+                  100.14,
+                  96.43,
+                  94.26
+                ],
+                "render_mean_rgb": [
+                  34.46,
+                  38.61,
+                  42.81
+                ],
+                "error_share_pct": 15.36
+              },
+              "sky": {
+                "mae": 55.6139,
+                "rmse": 73.622,
+                "target_mean_rgb": [
+                  86.8,
+                  90.34,
+                  93.8
+                ],
+                "render_mean_rgb": [
+                  49.64,
+                  52.69,
+                  57.63
+                ],
+                "error_share_pct": 35.64
+              },
+              "left_colonnade": {
+                "mae": 68.9938,
+                "rmse": 93.4749,
+                "target_mean_rgb": [
+                  96.17,
+                  78.78,
+                  67.78
+                ],
+                "render_mean_rgb": [
+                  19.31,
+                  21.14,
+                  24.52
+                ],
+                "error_share_pct": 17.69
+              },
+              "right_colonnade": {
+                "mae": 47.9075,
+                "rmse": 62.0604,
+                "target_mean_rgb": [
+                  98.36,
+                  99.18,
+                  100.06
+                ],
+                "render_mean_rgb": [
+                  88.15,
+                  80.46,
+                  73.0
+                ],
+                "error_share_pct": 12.28
+              }
+            }
+          }
+        }
+      }
+    },
+    "variant_d_floor_reflection": {
+      "id": "variant_d_floor_reflection",
+      "name": "Variant D: Floor Reflection Balance",
+      "description": "Neutral dark obsidian/slate base, neutral graphite planar tint, refined clearcoat.",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 21,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.1,
+            "fps": 911.9
+          },
+          "metrics": {
+            "overall": {
+              "mae": 41.4391,
+              "rmse": 56.5291,
+              "psnr": 13.09,
+              "ssim": 0.1211,
+              "max_diff": 255.0,
+              "mean_lum": 42.78,
+              "mean_rgb": [
+                35.99,
+                44.07,
+                53.89
+              ],
+              "warm_pixels_pct": 1.69
+            },
+            "regions": {
+              "floor": {
+                "mae": 38.5257,
+                "rmse": 54.541,
+                "target_mean_rgb": [
+                  44.1,
+                  44.44,
+                  44.77
+                ],
+                "render_mean_rgb": [
+                  27.87,
+                  33.06,
+                  39.81
+                ],
+                "error_share_pct": 32.54
+              },
+              "core": {
+                "mae": 61.762,
+                "rmse": 77.0723,
+                "target_mean_rgb": [
+                  93.75,
+                  82.28,
+                  72.44
+                ],
+                "render_mean_rgb": [
+                  34.12,
+                  39.14,
+                  44.33
+                ],
+                "error_share_pct": 17.89
+              },
+              "sky": {
+                "mae": 41.094,
+                "rmse": 56.4712,
+                "target_mean_rgb": [
+                  67.7,
+                  71.4,
+                  73.72
+                ],
+                "render_mean_rgb": [
+                  37.64,
+                  47.44,
+                  59.32
+                ],
+                "error_share_pct": 34.71
+              },
+              "left_colonnade": {
+                "mae": 41.2777,
+                "rmse": 52.9131,
+                "target_mean_rgb": [
+                  61.95,
+                  71.16,
+                  77.52
+                ],
+                "render_mean_rgb": [
+                  48.7,
+                  62.27,
+                  78.26
+                ],
+                "error_share_pct": 13.95
+              },
+              "right_colonnade": {
+                "mae": 30.5609,
+                "rmse": 40.2721,
+                "target_mean_rgb": [
+                  63.37,
+                  72.01,
+                  78.17
+                ],
+                "render_mean_rgb": [
+                  44.63,
+                  54.39,
+                  66.38
+                ],
+                "error_share_pct": 10.32
+              }
+            }
+          }
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 21,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.17,
+            "fps": 854.7
+          },
+          "metrics": {
+            "overall": {
+              "mae": 45.4776,
+              "rmse": 61.3204,
+              "psnr": 12.38,
+              "ssim": 0.0276,
+              "max_diff": 255.0,
+              "mean_lum": 32.23,
+              "mean_rgb": [
+                27.24,
+                33.07,
+                40.98
+              ],
+              "warm_pixels_pct": 2.49
+            },
+            "regions": {
+              "floor": {
+                "mae": 43.6172,
+                "rmse": 60.3246,
+                "target_mean_rgb": [
+                  51.53,
+                  55.86,
+                  55.49
+                ],
+                "render_mean_rgb": [
+                  25.9,
+                  28.7,
+                  34.04
+                ],
+                "error_share_pct": 33.57
+              },
+              "core": {
+                "mae": 51.3189,
+                "rmse": 64.9356,
+                "target_mean_rgb": [
+                  60.65,
+                  59.65,
+                  54.23
+                ],
+                "render_mean_rgb": [
+                  23.64,
+                  29.24,
+                  36.15
+                ],
+                "error_share_pct": 13.54
+              },
+              "sky": {
+                "mae": 49.5089,
+                "rmse": 65.4302,
+                "target_mean_rgb": [
+                  63.84,
+                  74.47,
+                  79.21
+                ],
+                "render_mean_rgb": [
+                  30.06,
+                  38.62,
+                  49.15
+                ],
+                "error_share_pct": 38.1
+              },
+              "left_colonnade": {
+                "mae": 38.5326,
+                "rmse": 51.598,
+                "target_mean_rgb": [
+                  49.62,
+                  60.44,
+                  64.85
+                ],
+                "render_mean_rgb": [
+                  22.17,
+                  28.58,
+                  36.84
+                ],
+                "error_share_pct": 11.86
+              },
+              "right_colonnade": {
+                "mae": 42.2604,
+                "rmse": 57.2537,
+                "target_mean_rgb": [
+                  53.35,
+                  64.19,
+                  68.77
+                ],
+                "render_mean_rgb": [
+                  28.02,
+                  34.47,
+                  42.8
+                ],
+                "error_share_pct": 13.01
+              }
+            }
+          }
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 21,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.52,
+            "fps": 659.3
+          },
+          "metrics": {
+            "overall": {
+              "mae": 54.3617,
+              "rmse": 74.8757,
+              "psnr": 10.64,
+              "ssim": 0.1273,
+              "max_diff": 255.0,
+              "mean_lum": 42.99,
+              "mean_rgb": [
+                43.54,
+                42.67,
+                43.17
+              ],
+              "warm_pixels_pct": 22.4
+            },
+            "regions": {
+              "floor": {
+                "mae": 45.8657,
+                "rmse": 66.0513,
+                "target_mean_rgb": [
+                  68.68,
+                  53.63,
+                  43.02
+                ],
+                "render_mean_rgb": [
+                  36.21,
+                  31.82,
+                  29.06
+                ],
+                "error_share_pct": 29.53
+              },
+              "core": {
+                "mae": 69.9334,
+                "rmse": 92.2427,
+                "target_mean_rgb": [
+                  100.14,
+                  96.43,
+                  94.26
+                ],
+                "render_mean_rgb": [
+                  34.45,
+                  38.62,
+                  42.77
+                ],
+                "error_share_pct": 15.44
+              },
+              "sky": {
+                "mae": 55.6151,
+                "rmse": 73.623,
+                "target_mean_rgb": [
+                  86.8,
+                  90.34,
+                  93.8
+                ],
+                "render_mean_rgb": [
+                  49.64,
+                  52.69,
+                  57.63
+                ],
+                "error_share_pct": 35.81
+              },
+              "left_colonnade": {
+                "mae": 68.974,
+                "rmse": 93.4334,
+                "target_mean_rgb": [
+                  96.17,
+                  78.78,
+                  67.78
+                ],
+                "render_mean_rgb": [
+                  19.4,
+                  21.19,
+                  24.47
+                ],
+                "error_share_pct": 17.76
+              },
+              "right_colonnade": {
+                "mae": 47.8816,
+                "rmse": 62.0313,
+                "target_mean_rgb": [
+                  98.36,
+                  99.18,
+                  100.06
+                ],
+                "render_mean_rgb": [
+                  88.27,
+                  80.57,
+                  73.04
+                ],
+                "error_share_pct": 12.33
+              }
+            }
+          }
+        }
+      }
+    },
+    "variant_e_colonnade_shadows": {
+      "id": "variant_e_colonnade_shadows",
+      "name": "Variant E: Colonnade Shadow/Midtone Distribution",
+      "description": "Neutral slate hemisphere ground bounce, neutral ambient fill, softened key light.",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 24,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.7,
+            "fps": 589.4
+          },
+          "metrics": {
+            "overall": {
+              "mae": 41.4185,
+              "rmse": 56.5247,
+              "psnr": 13.09,
+              "ssim": 0.1223,
+              "max_diff": 255.0,
+              "mean_lum": 42.71,
+              "mean_rgb": [
+                35.93,
+                44.0,
+                53.86
+              ],
+              "warm_pixels_pct": 1.69
+            },
+            "regions": {
+              "floor": {
+                "mae": 38.4683,
+                "rmse": 54.5292,
+                "target_mean_rgb": [
+                  44.1,
+                  44.44,
+                  44.77
+                ],
+                "render_mean_rgb": [
+                  27.68,
+                  32.86,
+                  39.71
+                ],
+                "error_share_pct": 32.51
+              },
+              "core": {
+                "mae": 61.76,
+                "rmse": 77.0702,
+                "target_mean_rgb": [
+                  93.75,
+                  82.28,
+                  72.44
+                ],
+                "render_mean_rgb": [
+                  34.13,
+                  39.15,
+                  44.33
+                ],
+                "error_share_pct": 17.89
+              },
+              "sky": {
+                "mae": 41.093,
+                "rmse": 56.4704,
+                "target_mean_rgb": [
+                  67.7,
+                  71.4,
+                  73.72
+                ],
+                "render_mean_rgb": [
+                  37.64,
+                  47.44,
+                  59.32
+                ],
+                "error_share_pct": 34.72
+              },
+              "left_colonnade": {
+                "mae": 41.2778,
+                "rmse": 52.9132,
+                "target_mean_rgb": [
+                  61.95,
+                  71.16,
+                  77.52
+                ],
+                "render_mean_rgb": [
+                  48.7,
+                  62.27,
+                  78.26
+                ],
+                "error_share_pct": 13.95
+              },
+              "right_colonnade": {
+                "mae": 30.5608,
+                "rmse": 40.272,
+                "target_mean_rgb": [
+                  63.37,
+                  72.01,
+                  78.17
+                ],
+                "render_mean_rgb": [
+                  44.63,
+                  54.39,
+                  66.38
+                ],
+                "error_share_pct": 10.33
+              }
+            }
+          }
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 24,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.17,
+            "fps": 852.3
+          },
+          "metrics": {
+            "overall": {
+              "mae": 45.4778,
+              "rmse": 61.3203,
+              "psnr": 12.38,
+              "ssim": 0.0279,
+              "max_diff": 255.0,
+              "mean_lum": 32.22,
+              "mean_rgb": [
+                27.24,
+                33.06,
+                40.98
+              ],
+              "warm_pixels_pct": 2.49
+            },
+            "regions": {
+              "floor": {
+                "mae": 43.619,
+                "rmse": 60.3262,
+                "target_mean_rgb": [
+                  51.53,
+                  55.86,
+                  55.49
+                ],
+                "render_mean_rgb": [
+                  25.87,
+                  28.68,
+                  34.04
+                ],
+                "error_share_pct": 33.57
+              },
+              "core": {
+                "mae": 51.3172,
+                "rmse": 64.9302,
+                "target_mean_rgb": [
+                  60.65,
+                  59.65,
+                  54.23
+                ],
+                "render_mean_rgb": [
+                  23.65,
+                  29.25,
+                  36.15
+                ],
+                "error_share_pct": 13.54
+              },
+              "sky": {
+                "mae": 49.5083,
+                "rmse": 65.4294,
+                "target_mean_rgb": [
+                  63.84,
+                  74.47,
+                  79.21
+                ],
+                "render_mean_rgb": [
+                  30.07,
+                  38.62,
+                  49.15
+                ],
+                "error_share_pct": 38.1
+              },
+              "left_colonnade": {
+                "mae": 38.5316,
+                "rmse": 51.5978,
+                "target_mean_rgb": [
+                  49.62,
+                  60.44,
+                  64.85
+                ],
+                "render_mean_rgb": [
+                  22.18,
+                  28.58,
+                  36.84
+                ],
+                "error_share_pct": 11.86
+              },
+              "right_colonnade": {
+                "mae": 42.26,
+                "rmse": 57.2536,
+                "target_mean_rgb": [
+                  53.35,
+                  64.19,
+                  68.77
+                ],
+                "render_mean_rgb": [
+                  28.03,
+                  34.47,
+                  42.8
+                ],
+                "error_share_pct": 13.01
+              }
+            }
+          }
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 24,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.12,
+            "fps": 895.5
+          },
+          "metrics": {
+            "overall": {
+              "mae": 54.3638,
+              "rmse": 74.8964,
+              "psnr": 10.64,
+              "ssim": 0.128,
+              "max_diff": 255.0,
+              "mean_lum": 42.87,
+              "mean_rgb": [
+                43.4,
+                42.55,
+                43.13
+              ],
+              "warm_pixels_pct": 22.25
+            },
+            "regions": {
+              "floor": {
+                "mae": 45.862,
+                "rmse": 66.1,
+                "target_mean_rgb": [
+                  68.68,
+                  53.63,
+                  43.02
+                ],
+                "render_mean_rgb": [
+                  35.88,
+                  31.51,
+                  28.94
+                ],
+                "error_share_pct": 29.53
+              },
+              "core": {
+                "mae": 69.934,
+                "rmse": 92.2457,
+                "target_mean_rgb": [
+                  100.14,
+                  96.43,
+                  94.26
+                ],
+                "render_mean_rgb": [
+                  34.44,
+                  38.61,
+                  42.8
+                ],
+                "error_share_pct": 15.44
+              },
+              "sky": {
+                "mae": 55.6143,
+                "rmse": 73.6218,
+                "target_mean_rgb": [
+                  86.8,
+                  90.34,
+                  93.8
+                ],
+                "render_mean_rgb": [
+                  49.64,
+                  52.69,
+                  57.63
+                ],
+                "error_share_pct": 35.81
+              },
+              "left_colonnade": {
+                "mae": 68.9714,
+                "rmse": 93.4434,
+                "target_mean_rgb": [
+                  96.17,
+                  78.78,
+                  67.78
+                ],
+                "render_mean_rgb": [
+                  19.36,
+                  21.17,
+                  24.53
+                ],
+                "error_share_pct": 17.76
+              },
+              "right_colonnade": {
+                "mae": 47.9086,
+                "rmse": 62.0614,
+                "target_mean_rgb": [
+                  98.36,
+                  99.18,
+                  100.06
+                ],
+                "render_mean_rgb": [
+                  88.14,
+                  80.46,
+                  73.0
+                ],
+                "error_share_pct": 12.34
+              }
+            }
+          }
+        }
+      }
+    },
+    "variant_f_highlight_rolloff": {
+      "id": "variant_f_highlight_rolloff",
+      "name": "Variant F: Highlight Rolloff & Tone Mapping",
+      "description": "Exposure calibrated to 0.98, restrained sun key to eliminate pillar hot streaks.",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 27,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.92,
+            "fps": 519.9
+          },
+          "metrics": {
+            "overall": {
+              "mae": 41.4248,
+              "rmse": 56.5216,
+              "psnr": 13.09,
+              "ssim": 0.1217,
+              "max_diff": 255.0,
+              "mean_lum": 42.8,
+              "mean_rgb": [
+                36.0,
+                44.09,
+                53.95
+              ],
+              "warm_pixels_pct": 1.7
+            },
+            "regions": {
+              "floor": {
+                "mae": 38.502,
+                "rmse": 54.5374,
+                "target_mean_rgb": [
+                  44.1,
+                  44.44,
+                  44.77
+                ],
+                "render_mean_rgb": [
+                  27.84,
+                  33.06,
+                  39.95
+                ],
+                "error_share_pct": 32.53
+              },
+              "core": {
+                "mae": 61.7587,
+                "rmse": 77.069,
+                "target_mean_rgb": [
+                  93.75,
+                  82.28,
+                  72.44
+                ],
+                "render_mean_rgb": [
+                  34.16,
+                  39.21,
+                  44.36
+                ],
+                "error_share_pct": 17.89
+              },
+              "sky": {
+                "mae": 41.0881,
+                "rmse": 56.4621,
+                "target_mean_rgb": [
+                  67.7,
+                  71.4,
+                  73.72
+                ],
+                "render_mean_rgb": [
+                  37.66,
+                  47.46,
+                  59.32
+                ],
+                "error_share_pct": 34.72
+              },
+              "left_colonnade": {
+                "mae": 41.2652,
+                "rmse": 52.9016,
+                "target_mean_rgb": [
+                  61.95,
+                  71.16,
+                  77.52
+                ],
+                "render_mean_rgb": [
+                  48.72,
+                  62.3,
+                  78.29
+                ],
+                "error_share_pct": 13.95
+              },
+              "right_colonnade": {
+                "mae": 30.5481,
+                "rmse": 40.2567,
+                "target_mean_rgb": [
+                  63.37,
+                  72.01,
+                  78.17
+                ],
+                "render_mean_rgb": [
+                  44.65,
+                  54.41,
+                  66.4
+                ],
+                "error_share_pct": 10.32
+              }
+            }
+          }
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 27,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.92,
+            "fps": 1087
+          },
+          "metrics": {
+            "overall": {
+              "mae": 45.4738,
+              "rmse": 61.3163,
+              "psnr": 12.38,
+              "ssim": 0.0275,
+              "max_diff": 255.0,
+              "mean_lum": 32.28,
+              "mean_rgb": [
+                27.3,
+                33.12,
+                41.01
+              ],
+              "warm_pixels_pct": 2.52
+            },
+            "regions": {
+              "floor": {
+                "mae": 43.6209,
+                "rmse": 60.3241,
+                "target_mean_rgb": [
+                  51.53,
+                  55.86,
+                  55.49
+                ],
+                "render_mean_rgb": [
+                  25.99,
+                  28.8,
+                  34.15
+                ],
+                "error_share_pct": 33.57
+              },
+              "core": {
+                "mae": 51.3112,
+                "rmse": 64.9225,
+                "target_mean_rgb": [
+                  60.65,
+                  59.65,
+                  54.23
+                ],
+                "render_mean_rgb": [
+                  23.71,
+                  29.29,
+                  36.14
+                ],
+                "error_share_pct": 13.54
+              },
+              "sky": {
+                "mae": 49.5027,
+                "rmse": 65.4249,
+                "target_mean_rgb": [
+                  63.84,
+                  74.47,
+                  79.21
+                ],
+                "render_mean_rgb": [
+                  30.08,
+                  38.64,
+                  49.15
+                ],
+                "error_share_pct": 38.1
+              },
+              "left_colonnade": {
+                "mae": 38.5078,
+                "rmse": 51.5755,
+                "target_mean_rgb": [
+                  49.62,
+                  60.44,
+                  64.85
+                ],
+                "render_mean_rgb": [
+                  22.23,
+                  28.61,
+                  36.87
+                ],
+                "error_share_pct": 11.86
+              },
+              "right_colonnade": {
+                "mae": 42.2606,
+                "rmse": 57.2614,
+                "target_mean_rgb": [
+                  53.35,
+                  64.19,
+                  68.77
+                ],
+                "render_mean_rgb": [
+                  28.1,
+                  34.52,
+                  42.76
+                ],
+                "error_share_pct": 13.01
+              }
+            }
+          }
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 27,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.23,
+            "fps": 810.8
+          },
+          "metrics": {
+            "overall": {
+              "mae": 54.3369,
+              "rmse": 74.8469,
+              "psnr": 10.65,
+              "ssim": 0.1276,
+              "max_diff": 255.0,
+              "mean_lum": 43.03,
+              "mean_rgb": [
+                43.55,
+                42.71,
+                43.31
+              ],
+              "warm_pixels_pct": 22.3
+            },
+            "regions": {
+              "floor": {
+                "mae": 45.87,
+                "rmse": 66.0414,
+                "target_mean_rgb": [
+                  68.68,
+                  53.63,
+                  43.02
+                ],
+                "render_mean_rgb": [
+                  36.18,
+                  31.81,
+                  29.25
+                ],
+                "error_share_pct": 29.55
+              },
+              "core": {
+                "mae": 69.8781,
+                "rmse": 92.1963,
+                "target_mean_rgb": [
+                  100.14,
+                  96.43,
+                  94.26
+                ],
+                "render_mean_rgb": [
+                  34.51,
+                  38.73,
+                  42.97
+                ],
+                "error_share_pct": 15.43
+              },
+              "sky": {
+                "mae": 55.5837,
+                "rmse": 73.5937,
+                "target_mean_rgb": [
+                  86.8,
+                  90.34,
+                  93.8
+                ],
+                "render_mean_rgb": [
+                  49.69,
+                  52.75,
+                  57.69
+                ],
+                "error_share_pct": 35.8
+              },
+              "left_colonnade": {
+                "mae": 68.8796,
+                "rmse": 93.3579,
+                "target_mean_rgb": [
+                  96.17,
+                  78.78,
+                  67.78
+                ],
+                "render_mean_rgb": [
+                  19.5,
+                  21.33,
+                  24.72
+                ],
+                "error_share_pct": 17.75
+              },
+              "right_colonnade": {
+                "mae": 47.8819,
+                "rmse": 62.0259,
+                "target_mean_rgb": [
+                  98.36,
+                  99.18,
+                  100.06
+                ],
+                "render_mean_rgb": [
+                  88.22,
+                  80.55,
+                  73.09
+                ],
+                "error_share_pct": 12.34
+              }
+            }
+          }
+        }
+      }
+    },
+    "variant_g_integrated": {
+      "id": "variant_g_integrated",
+      "name": "Variant G: Integrated Final Candidate",
+      "description": "Full spatial lighting convergence combining validated parameters from Variants A-F.",
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 30,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 2.07,
+            "fps": 483.9
+          },
+          "metrics": {
+            "overall": {
+              "mae": 41.9989,
+              "rmse": 56.7538,
+              "psnr": 13.05,
+              "ssim": 0.1179,
+              "max_diff": 255.0,
+              "mean_lum": 47.86,
+              "mean_rgb": [
+                41.94,
+                48.96,
+                57.71
+              ],
+              "warm_pixels_pct": 1.81
+            },
+            "regions": {
+              "floor": {
+                "mae": 40.4242,
+                "rmse": 56.1135,
+                "target_mean_rgb": [
+                  44.1,
+                  44.44,
+                  44.77
+                ],
+                "render_mean_rgb": [
+                  33.79,
+                  38.01,
+                  43.72
+                ],
+                "error_share_pct": 33.69
+              },
+              "core": {
+                "mae": 61.0559,
+                "rmse": 76.1445,
+                "target_mean_rgb": [
+                  93.75,
+                  82.28,
+                  72.44
+                ],
+                "render_mean_rgb": [
+                  38.08,
+                  42.37,
+                  46.84
+                ],
+                "error_share_pct": 17.44
+              },
+              "sky": {
+                "mae": 41.0459,
+                "rmse": 55.9134,
+                "target_mean_rgb": [
+                  67.7,
+                  71.4,
+                  73.72
+                ],
+                "render_mean_rgb": [
+                  43.62,
+                  52.47,
+                  63.39
+                ],
+                "error_share_pct": 34.21
+              },
+              "left_colonnade": {
+                "mae": 42.4704,
+                "rmse": 53.9227,
+                "target_mean_rgb": [
+                  61.95,
+                  71.16,
+                  77.52
+                ],
+                "render_mean_rgb": [
+                  55.98,
+                  68.66,
+                  83.65
+                ],
+                "error_share_pct": 14.16
+              },
+              "right_colonnade": {
+                "mae": 30.0604,
+                "rmse": 39.3395,
+                "target_mean_rgb": [
+                  63.37,
+                  72.01,
+                  78.17
+                ],
+                "render_mean_rgb": [
+                  51.07,
+                  58.63,
+                  68.7
+                ],
+                "error_share_pct": 10.02
+              }
+            }
+          }
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 30,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.35,
+            "fps": 738.9
+          },
+          "metrics": {
+            "overall": {
+              "mae": 45.4485,
+              "rmse": 60.8651,
+              "psnr": 12.44,
+              "ssim": 0.0258,
+              "max_diff": 255.0,
+              "mean_lum": 36.35,
+              "mean_rgb": [
+                31.7,
+                37.13,
+                44.58
+              ],
+              "warm_pixels_pct": 2.76
+            },
+            "regions": {
+              "floor": {
+                "mae": 43.6395,
+                "rmse": 60.3092,
+                "target_mean_rgb": [
+                  51.53,
+                  55.86,
+                  55.49
+                ],
+                "render_mean_rgb": [
+                  30.42,
+                  32.63,
+                  37.31
+                ],
+                "error_share_pct": 33.61
+              },
+              "core": {
+                "mae": 52.1361,
+                "rmse": 65.0678,
+                "target_mean_rgb": [
+                  60.65,
+                  59.65,
+                  54.23
+                ],
+                "render_mean_rgb": [
+                  26.93,
+                  32.33,
+                  39.07
+                ],
+                "error_share_pct": 13.77
+              },
+              "sky": {
+                "mae": 49.1644,
+                "rmse": 64.3427,
+                "target_mean_rgb": [
+                  63.84,
+                  74.47,
+                  79.21
+                ],
+                "render_mean_rgb": [
+                  34.83,
+                  43.18,
+                  53.43
+                ],
+                "error_share_pct": 37.86
+              },
+              "left_colonnade": {
+                "mae": 38.0543,
+                "rmse": 50.8435,
+                "target_mean_rgb": [
+                  49.62,
+                  60.44,
+                  64.85
+                ],
+                "render_mean_rgb": [
+                  25.87,
+                  32.24,
+                  40.52
+                ],
+                "error_share_pct": 11.72
+              },
+              "right_colonnade": {
+                "mae": 41.9567,
+                "rmse": 56.6833,
+                "target_mean_rgb": [
+                  53.35,
+                  64.19,
+                  68.77
+                ],
+                "render_mean_rgb": [
+                  32.58,
+                  38.37,
+                  45.94
+                ],
+                "error_share_pct": 12.92
+              }
+            }
+          }
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 30,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.17,
+            "fps": 854.7
+          },
+          "metrics": {
+            "overall": {
+              "mae": 54.8884,
+              "rmse": 74.6184,
+              "psnr": 10.67,
+              "ssim": 0.1208,
+              "max_diff": 255.0,
+              "mean_lum": 49.99,
+              "mean_rgb": [
+                53.27,
+                49.17,
+                45.61
+              ],
+              "warm_pixels_pct": 32.6
+            },
+            "regions": {
+              "floor": {
+                "mae": 48.8455,
+                "rmse": 67.7938,
+                "target_mean_rgb": [
+                  68.68,
+                  53.63,
+                  43.02
+                ],
+                "render_mean_rgb": [
+                  48.98,
+                  40.62,
+                  32.78
+                ],
+                "error_share_pct": 31.15
+              },
+              "core": {
+                "mae": 68.3663,
+                "rmse": 90.8286,
+                "target_mean_rgb": [
+                  100.14,
+                  96.43,
+                  94.26
+                ],
+                "render_mean_rgb": [
+                  38.77,
+                  42.39,
+                  46.1
+                ],
+                "error_share_pct": 14.95
+              },
+              "sky": {
+                "mae": 54.4503,
+                "rmse": 72.0195,
+                "target_mean_rgb": [
+                  86.8,
+                  90.34,
+                  93.8
+                ],
+                "render_mean_rgb": [
+                  57.94,
+                  58.03,
+                  59.54
+                ],
+                "error_share_pct": 34.72
+              },
+              "left_colonnade": {
+                "mae": 67.4912,
+                "rmse": 91.9836,
+                "target_mean_rgb": [
+                  96.17,
+                  78.78,
+                  67.78
+                ],
+                "render_mean_rgb": [
+                  22.69,
+                  24.41,
+                  27.28
+                ],
+                "error_share_pct": 17.21
+              },
+              "right_colonnade": {
+                "mae": 49.2459,
+                "rmse": 62.6344,
+                "target_mean_rgb": [
+                  98.36,
+                  99.18,
+                  100.06
+                ],
+                "render_mean_rgb": [
+                  104.31,
+                  89.03,
+                  71.68
+                ],
+                "error_share_pct": 12.56
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

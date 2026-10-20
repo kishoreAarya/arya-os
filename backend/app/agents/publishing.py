@@ -116,7 +116,7 @@ class PublishingAgent(BaseAgent):
 
         try:
             local_video_path = await ensure_local_asset(video_storage_path)
-        except RuntimeError as exc:
+        except (RuntimeError, ValueError) as exc:
             logger.error(
                 "publishing_agent_asset_error",
                 platform=platform,
@@ -150,9 +150,18 @@ class PublishingAgent(BaseAgent):
             )
 
         # Upload thumbnail if provided
-        thumbnail_path = await ensure_local_asset(
-            context.get("thumbnail_storage_path")
-        )
+        try:
+            thumbnail_path = await ensure_local_asset(
+                context.get("thumbnail_storage_path")
+            )
+        except (RuntimeError, ValueError) as exc:
+            logger.warning(
+                "publishing_agent_thumbnail_error",
+                platform=platform,
+                video_id=video_id,
+                error=str(exc),
+            )
+            thumbnail_path = None
 
         if thumbnail_path and upload_result.content_id:
             thumb_result = await adapter.upload_thumbnail(

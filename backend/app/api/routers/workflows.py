@@ -15,8 +15,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import AuthenticatedPrincipal, get_current_principal
 from app.database.session import get_db
 from app.models.enums import WorkflowMode
+from app.services.authorization_service import verify_project_access
 from app.workflows.models import WorkflowInput, WorkflowResult
 from app.workflows.runner import Runner
 
@@ -40,6 +42,7 @@ async def create_youtube_workflow(
     workflow_input: WorkflowInput,
     db: Annotated[AsyncSession, Depends(get_db)],
     project_id: Annotated[uuid.UUID, Query(..., description="Project UUID to associate this run with")],
+    principal: Annotated[AuthenticatedPrincipal, Depends(get_current_principal)],
     mode: WorkflowMode = WorkflowMode.AUTONOMOUS,
 ) -> WorkflowResult:
     """Execute a complete YouTube content workflow.
@@ -60,6 +63,8 @@ async def create_youtube_workflow(
     Raises:
         HTTPException: If workflow execution fails with an unhandled error.
     """
+    await verify_project_access(db, principal, project_id)
+
     runner = Runner(db=db)
 
     try:

@@ -1,0 +1,202 @@
+{
+  "stage": 22,
+  "subsystem": "causalTraceService & auditEvidenceService",
+  "generatedAt": "2026-10-03T07:57:45.059Z",
+  "graphAcyclicityVerified": true,
+  "maxDepthConstraint": 10,
+  "maxNodesConstraint": 100,
+  "primaryGraph": {
+    "operationId": "op-e2e-stage22-publish-001",
+    "nodeCount": 7,
+    "edgeCount": 6,
+    "graph": {
+      "operationId": "op-e2e-stage22-publish-001",
+      "rootNodeId": "node-request-received-evt-request-received-lish-001-1",
+      "nodes": [
+        {
+          "nodeId": "node-request-received-evt-request-received-lish-001-1",
+          "nodeType": "EXTERNAL_EVENT",
+          "label": "REQUEST_RECEIVED (RECEIVED)",
+          "timestamp": 1791014265050,
+          "stageSource": "GITHUB_WEBHOOK",
+          "status": "RECEIVED",
+          "epistemicStatus": "OBSERVED",
+          "metadata": {
+            "actor": {
+              "actorId": "actor-github-ci",
+              "actorType": "SYSTEM"
+            },
+            "reason": "Inbound event received from GITHUB_WEBHOOK"
+          }
+        },
+        {
+          "nodeId": "node-trigger-evaluated-evt-trigger-evaluated-lish-001-2",
+          "nodeType": "TRIGGER",
+          "label": "TRIGGER_EVALUATED (TRIGGERED)",
+          "timestamp": 1791014265051,
+          "stageSource": "Stage 19 Reaction Engine",
+          "status": "TRIGGERED",
+          "epistemicStatus": "INFERRED",
+          "metadata": {
+            "actor": {
+              "actorId": "system",
+              "actorType": "SYSTEM"
+            },
+            "reason": "Trigger 'trig-auto-deploy-prod' matched inbound event conditions"
+          }
+        },
+        {
+          "nodeId": "node-governance-decided-evt-governance-decided-lish-001-3",
+          "nodeType": "GOVERNANCE_DECISION",
+          "label": "GOVERNANCE_DECIDED (GOVERNED)",
+          "timestamp": 1791014265051,
+          "stageSource": "Stage 21 Governance Control Plane",
+          "status": "GOVERNED",
+          "epistemicStatus": "OBSERVED",
+          "metadata": {
+            "actor": {
+              "actorId": "system",
+              "actorType": "SYSTEM"
+            },
+            "reason": "Release deployment matches safety criteria under pol-prod-release-v2"
+          }
+        },
+        {
+          "nodeId": "node-authority-checked-evt-authority-checked-lish-001-4",
+          "nodeType": "AUTHORIZATION",
+          "label": "AUTHORITY_CHECKED (AUTHORIZED)",
+          "timestamp": 1791014265052,
+          "stageSource": "Stage 21 Authority Intersection",
+          "status": "AUTHORIZED",
+          "epistemicStatus": "OBSERVED",
+          "metadata": {
+            "actor": {
+              "actorId": "system",
+              "actorType": "SYSTEM"
+            },
+            "reason": "5-Tier authority intersection satisfied (Policy ∩ Connector ∩ Action ∩ Human Approval ∩ Mission Constraints)"
+          }
+        },
+        {
+          "nodeId": "node-action-dispatched-evt-action-dispatched-lish-001-5",
+          "nodeType": "ACTION",
+          "label": "ACTION_DISPATCHED (DISPATCHED)",
+          "timestamp": 1791014265054,
+          "stageSource": "Stage 15 Universal Action Bus",
+          "status": "DISPATCHED",
+          "epistemicStatus": "OBSERVED",
+          "metadata": {
+            "actor": {
+              "actorId": "system",
+              "actorType": "SYSTEM"
+            },
+            "reason": "Action 'act-disp-ecs-001' dispatched to ActionBus"
+          }
+        },
+        {
+          "nodeId": "node-action-executed-evt-action-executed-lish-001-6",
+          "nodeType": "ACTION",
+          "label": "ACTION_EXECUTED (SUCCEEDED)",
+          "timestamp": 1791014265055,
+          "stageSource": "Stage 15 Universal Action Bus",
+          "status": "SUCCEEDED",
+          "epistemicStatus": "OBSERVED",
+          "metadata": {
+            "actor": {
+              "actorId": "system",
+              "actorType": "SYSTEM"
+            },
+            "reason": "Action executed successfully"
+          }
+        },
+        {
+          "nodeId": "node-state-reconciled-evt-state-reconciled-lish-001-7",
+          "nodeType": "RESULT",
+          "label": "STATE_RECONCILED (RECONCILED)",
+          "timestamp": 1791014265056,
+          "stageSource": "Stage 22 Operational Truth Engine",
+          "status": "RECONCILED",
+          "epistemicStatus": "CONFIRMED",
+          "metadata": {
+            "actor": {
+              "actorId": "system",
+              "actorType": "SYSTEM"
+            },
+            "reason": "External cluster state reconciled and confirmed matching deployment intent"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "fromNodeId": "node-request-received-evt-request-received-lish-001-1",
+          "toNodeId": "node-trigger-evaluated-evt-trigger-evaluated-lish-001-2",
+          "edgeType": "CAUSED_BY",
+          "timestamp": 1791014265051
+        },
+        {
+          "fromNodeId": "node-trigger-evaluated-evt-trigger-evaluated-lish-001-2",
+          "toNodeId": "node-governance-decided-evt-governance-decided-lish-001-3",
+          "edgeType": "CAUSED_BY",
+          "timestamp": 1791014265051
+        },
+        {
+          "fromNodeId": "node-governance-decided-evt-governance-decided-lish-001-3",
+          "toNodeId": "node-authority-checked-evt-authority-checked-lish-001-4",
+          "edgeType": "CAUSED_BY",
+          "timestamp": 1791014265052
+        },
+        {
+          "fromNodeId": "node-authority-checked-evt-authority-checked-lish-001-4",
+          "toNodeId": "node-action-dispatched-evt-action-dispatched-lish-001-5",
+          "edgeType": "DISPATCHED_TO",
+          "timestamp": 1791014265054
+        },
+        {
+          "fromNodeId": "node-action-dispatched-evt-action-dispatched-lish-001-5",
+          "toNodeId": "node-action-executed-evt-action-executed-lish-001-6",
+          "edgeType": "CAUSED_BY",
+          "timestamp": 1791014265055
+        },
+        {
+          "fromNodeId": "node-action-executed-evt-action-executed-lish-001-6",
+          "toNodeId": "node-state-reconciled-evt-state-reconciled-lish-001-7",
+          "edgeType": "CAUSED_BY",
+          "timestamp": 1791014265056
+        }
+      ],
+      "maxDepthReached": 6,
+      "isTruncated": false,
+      "hasCycles": false
+    }
+  },
+  "missingEvidenceScenario": {
+    "operationId": "op-stage22-missing-evidence-002",
+    "description": "Action dispatched without preceding governance approval recorded in audit stream",
+    "graph": {
+      "operationId": "op-stage22-missing-evidence-002",
+      "rootNodeId": "node-action-dispatched-evt-action-dispatched-ence-002-8",
+      "nodes": [
+        {
+          "nodeId": "node-action-dispatched-evt-action-dispatched-ence-002-8",
+          "nodeType": "ACTION",
+          "label": "ACTION_DISPATCHED (DISPATCHED)",
+          "timestamp": 1791014265059,
+          "stageSource": "Stage 15 Universal Action Bus",
+          "status": "DISPATCHED",
+          "epistemicStatus": "OBSERVED",
+          "metadata": {
+            "actor": {
+              "actorId": "system",
+              "actorType": "SYSTEM"
+            },
+            "reason": "Action dispatched directly without prior governance audit event"
+          }
+        }
+      ],
+      "edges": [],
+      "maxDepthReached": 0,
+      "isTruncated": false,
+      "hasCycles": false
+    }
+  }
+}

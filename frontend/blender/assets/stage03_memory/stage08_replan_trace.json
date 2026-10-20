@@ -1,0 +1,78 @@
+{
+  "stage": "STAGE_08_AUTONOMOUS_TASK_ORCHESTRATION",
+  "goalId": "GOAL-REPLAN-001",
+  "objective": "Research a cinematic concept for AryaOS and prepare a production brief",
+  "replanScenario": {
+    "description": "Failure on intermediate reasoning node triggers plan versioning while preserving upstream research",
+    "initialPlanVersion": 1,
+    "finalPlanVersion": 2,
+    "maxReplansAllowed": 2,
+    "replansAttempted": 1
+  },
+  "planHistory": [
+    {
+      "planId": "PLAN-REPLAN-001-V1",
+      "version": 1,
+      "status": "SUPERSEDED",
+      "supersededAt": "2026-10-01T18:46:00.120Z",
+      "actions": [
+        {
+          "actionId": "ACT-GOAL-REPLAN-001-V1-1",
+          "title": "Architectural Research & Context Extraction",
+          "status": "SUCCEEDED",
+          "providerId": "gemini",
+          "preservedInNextPlan": true
+        },
+        {
+          "actionId": "ACT-GOAL-REPLAN-001-V1-2",
+          "title": "Concept Synthesis & Decision Framing",
+          "status": "FAILED",
+          "error": "Rate limit / cluster transient failure on synthesis",
+          "preservedInNextPlan": false
+        },
+        {
+          "actionId": "ACT-GOAL-REPLAN-001-V1-3",
+          "title": "Production Brief & Milestone Compilation",
+          "status": "WAITING_DEPENDENCY",
+          "preservedInNextPlan": true,
+          "dependencyRewiredTo": "ACT-GOAL-REPLAN-001-R2-1"
+        }
+      ]
+    },
+    {
+      "planId": "PLAN-REPLAN-001-V2",
+      "version": 2,
+      "status": "COMPLETED",
+      "replanReason": "Recovering from failure in Concept Synthesis & Decision Framing",
+      "actions": [
+        {
+          "actionId": "ACT-GOAL-REPLAN-001-V1-1",
+          "title": "Architectural Research & Context Extraction",
+          "status": "SUCCEEDED",
+          "provenance": { "reusedFromVersion": 1 }
+        },
+        {
+          "actionId": "ACT-GOAL-REPLAN-001-R2-1",
+          "title": "Concept Synthesis & Decision Framing (Replanned)",
+          "status": "SUCCEEDED",
+          "dependencies": ["ACT-GOAL-REPLAN-001-V1-1"],
+          "provenance": {
+            "originalActionId": "ACT-GOAL-REPLAN-001-V1-2",
+            "version": 2
+          }
+        },
+        {
+          "actionId": "ACT-GOAL-REPLAN-001-V1-3",
+          "title": "Production Brief & Milestone Compilation",
+          "status": "SUCCEEDED",
+          "dependencies": ["ACT-GOAL-REPLAN-001-R2-1"]
+        }
+      ]
+    }
+  ],
+  "verification": {
+    "goalStatus": "COMPLETED",
+    "recoveredWithoutRestartingFromZero": true,
+    "memoryEventEmitted": "INTELLIGENCE_ORCHESTRATOR_PLAN_REVISED"
+  }
+}

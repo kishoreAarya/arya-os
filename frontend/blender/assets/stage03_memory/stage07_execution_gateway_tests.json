@@ -1,0 +1,174 @@
+{
+  "stage": "STAGE_07",
+  "title": "AryaOS Execution Gateway Operational Validation Test Report",
+  "executedAt": "2026-10-01T23:52:53Z",
+  "framework": "Vitest v3.2.7",
+  "overallSummary": {
+    "totalTestSuites": 29,
+    "passedTestSuites": 29,
+    "failedTestSuites": 0,
+    "totalTests": 477,
+    "passedTests": 477,
+    "failedTests": 0,
+    "durationSeconds": 52.64,
+    "typescriptCompilation": "Clean (0 errors)",
+    "productionBuild": "Clean (built in 3.96s)"
+  },
+  "dedicatedSuite": {
+    "file": "src/tests/ExecutionGatewayStage07.test.tsx",
+    "totalTests": 23,
+    "passedTests": 23,
+    "failedTests": 0,
+    "durationMs": 179,
+    "categories": [
+      {
+        "category": "1. Explicit 12 Provider Execution States",
+        "tests": [
+          {
+            "name": "enforces all 12 explicit execution states deterministically",
+            "status": "PASSED"
+          },
+          {
+            "name": "tracks state progression via onStateChange callback during execution lifecycle",
+            "status": "PASSED"
+          }
+        ]
+      },
+      {
+        "category": "2. Single Controlled Boundary & Capability Negotiation",
+        "tests": [
+          {
+            "name": "executes provider-backed intelligence plans exclusively through ExecutionGateway",
+            "status": "PASSED"
+          },
+          {
+            "name": "rejects execution when requested capability is not supported by the selected provider",
+            "status": "PASSED"
+          },
+          {
+            "name": "returns UNAVAILABLE when dispatching to an unregistered provider ID",
+            "status": "PASSED"
+          }
+        ]
+      },
+      {
+        "category": "3. Honest Configuration Validation & Zero Simulated Success",
+        "tests": [
+          {
+            "name": "returns CONFIGURATION_REQUIRED honestly when provider API keys are missing",
+            "status": "PASSED"
+          },
+          {
+            "name": "returns UNAVAILABLE honestly when provider is decommissioned or offline",
+            "status": "PASSED"
+          }
+        ]
+      },
+      {
+        "category": "4. Controlled Timeout & Operator Cancellation",
+        "tests": [
+          {
+            "name": "aborts execution immediately when AbortSignal is cancelled prior to dispatch",
+            "status": "PASSED"
+          },
+          {
+            "name": "aborts running provider execution cleanly when signal is triggered mid-flight",
+            "status": "PASSED"
+          },
+          {
+            "name": "triggers timeout and records DEGRADED provider health on excessive latency",
+            "status": "PASSED"
+          }
+        ]
+      },
+      {
+        "category": "5. Automated Fallback Chain & Depth Control",
+        "tests": [
+          {
+            "name": "automatically transitions to secondary fallback when primary fails",
+            "status": "PASSED"
+          },
+          {
+            "name": "terminates with FALLBACK_FAILED when all fallback providers fail",
+            "status": "PASSED"
+          },
+          {
+            "name": "enforces maximum fallback depth and prevents infinite retry recursion",
+            "status": "PASSED"
+          }
+        ]
+      },
+      {
+        "category": "6. Gateway Idempotency & In-Flight Duplicate Prevention",
+        "tests": [
+          {
+            "name": "returns the same in-flight execution promise when duplicate command intent is submitted",
+            "status": "PASSED"
+          }
+        ]
+      },
+      {
+        "category": "7. Security Hardening & Zero Secret Leakage",
+        "tests": [
+          {
+            "name": "sanitizes Bearer tokens, AIza keys, and sk- tokens from output and errors",
+            "status": "PASSED"
+          },
+          {
+            "name": "ensures no sensitive credentials exist anywhere in ExecutionResult or memory events",
+            "status": "PASSED"
+          },
+          {
+            "name": "treats untrusted provider output as raw external text without executing dangerous scripts",
+            "status": "PASSED"
+          }
+        ]
+      },
+      {
+        "category": "8. Semantic Memory Loop & Provenance Tracking",
+        "tests": [
+          {
+            "name": "appends verified semantic memory event on successful gateway execution",
+            "status": "PASSED"
+          },
+          {
+            "name": "records failed executions as PLANNED memory events without fabricating success",
+            "status": "PASSED"
+          }
+        ]
+      },
+      {
+        "category": "9. Provider Health Tracking",
+        "tests": [
+          {
+            "name": "records RATE_LIMITED on HTTP 429 response",
+            "status": "PASSED"
+          },
+          {
+            "name": "records DEGRADED on HTTP 500 server error and AVAILABLE on recovery",
+            "status": "PASSED"
+          }
+        ]
+      },
+      {
+        "category": "10. Spatial Command Console UI Transparency & Cancellation Controls",
+        "tests": [
+          {
+            "name": "renders gateway execution telemetry block with provider, model, latency, and fallback",
+            "status": "PASSED"
+          },
+          {
+            "name": "renders cancellation control button during active gateway execution",
+            "status": "PASSED"
+          }
+        ]
+      }
+    ]
+  },
+  "lockIntegrity": {
+    "masterBlendSHA256": "c4577c47fa60f8beb1f77a1feb25ffb84b34ff9c38cfc6dbd4a8bc2628c8a13f",
+    "status": "VERIFIED_IDENTICAL",
+    "glbAssetCount": 14,
+    "glbIntegrity": "14/14 VERIFIED_IDENTICAL"
+  }
+}

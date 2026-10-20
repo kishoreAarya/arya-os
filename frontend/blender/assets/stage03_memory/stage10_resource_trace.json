@@ -1,0 +1,73 @@
+{
+  "scenario": "RESOURCE_GOVERNANCE_AND_COST_LIFECYCLE",
+  "goalId": "goal-stage10-res-01",
+  "budgetConfiguration": {
+    "maxCostUsd": 0.25,
+    "maxConcurrentActions": 3,
+    "maxConcurrentAgents": 4,
+    "maxRetries": 2
+  },
+  "lifecycleEvents": [
+    {
+      "timestamp": "2026-10-02T00:10:00.100Z",
+      "event": "PREFLIGHT_CHECK_SUCCESS",
+      "taskId": "TASK-001",
+      "estimatedUsd": 0.05,
+      "costSoFar": 0.0,
+      "allowed": true
+    },
+    {
+      "timestamp": "2026-10-02T00:10:00.120Z",
+      "event": "LEASE_ACQUIRED",
+      "leaseId": "LEASE-1727827800-01",
+      "taskId": "TASK-001",
+      "agentId": "agent-researcher",
+      "providerId": "gemini",
+      "concurrencySlot": 1
+    },
+    {
+      "timestamp": "2026-10-02T00:10:01.200Z",
+      "event": "LEASE_RELEASED",
+      "leaseId": "LEASE-1727827800-01",
+      "actualCostUsd": 0.012,
+      "cumulativeCostUsd": 0.012,
+      "costStatus": "KNOWN"
+    },
+    {
+      "timestamp": "2026-10-02T00:10:01.300Z",
+      "event": "LEASE_ACQUIRED",
+      "leaseId": "LEASE-1727827801-02",
+      "taskId": "TASK-002",
+      "agentId": "agent-analyst",
+      "providerId": "fal",
+      "concurrencySlot": 1
+    },
+    {
+      "timestamp": "2026-10-02T00:10:02.500Z",
+      "event": "LEASE_RELEASED",
+      "leaseId": "LEASE-1727827801-02",
+      "actualCostUsd": "UNKNOWN",
+      "cumulativeCostUsd": 0.012,
+      "costStatus": "PARTIALLY_KNOWN",
+      "note": "Provider omitted billing usage; tracked truthfully as UNKNOWN without simulated fabrication."
+    },
+    {
+      "timestamp": "2026-10-02T00:10:02.600Z",
+      "event": "CONCURRENCY_SATURATION_CHECK",
+      "activeLeases": 3,
+      "maxConcurrentActions": 3,
+      "incomingTaskId": "TASK-004",
+      "allowed": false,
+      "reason": "CONCURRENCY_LIMIT_REACHED",
+      "actionTaken": "Task TASK-004 enqueued until slot released."
+    }
+  ],
+  "finalTelemetry": {
+    "totalBudgetUsd": 0.25,
+    "committedCostUsd": 0.012,
+    "remainingBudgetUsd": 0.238,
+    "costStatus": "PARTIALLY_KNOWN",
+    "concurrencyPeak": 3,
+    "zeroLeakageVerified": true
+  }
+}

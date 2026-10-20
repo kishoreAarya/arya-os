@@ -1,0 +1,91 @@
+{
+  "scenario": "CRASH_RECOVERY_MULTI_NODE_DAG",
+  "goalId": "goal-stage09-rec-demo-01",
+  "preCrashState": {
+    "goalStatus": "RUNNING",
+    "timestamp": "2026-10-01T23:58:10.000Z",
+    "dag": [
+      {
+        "id": "act-1",
+        "title": "Analyze Archival Vitrines",
+        "type": "ANALYZE_CONTEXT",
+        "classification": "DETERMINISTIC_IDEMPOTENT_RESUME",
+        "status": "COMPLETED",
+        "dependencies": [],
+        "output": { "vitrinesCount": 24, "status": "VERIFIED" }
+      },
+      {
+        "id": "act-2",
+        "title": "Query Astrolabe Vector State",
+        "type": "SEARCH_MEMORY",
+        "classification": "DETERMINISTIC_IDEMPOTENT_RESUME",
+        "status": "COMPLETED",
+        "dependencies": ["act-1"],
+        "idempotencyKey": "idemp-astrolabe-query-77",
+        "output": { "rotationVector": [0, 0.5, 0] }
+      },
+      {
+        "id": "act-3",
+        "title": "Synthesize Vitrine Chronology",
+        "type": "REASONING",
+        "classification": "DETERMINISTIC_IDEMPOTENT_RESUME",
+        "status": "EXECUTING",
+        "dependencies": ["act-1"],
+        "idempotencyKey": "idemp-vitrine-chrono-88",
+        "output": null
+      },
+      {
+        "id": "act-4",
+        "title": "Mutate Vitrine Memory Node",
+        "type": "CONSEQUENTIAL",
+        "classification": "CONSEQUENTIAL_APPROVAL_GATE",
+        "status": "EXECUTING",
+        "dependencies": ["act-2", "act-3"],
+        "idempotencyKey": "idemp-vitrine-mutate-99",
+        "requiresApproval": true,
+        "output": null
+      }
+    ]
+  },
+  "crashEvent": {
+    "type": "BROWSER_CRASH_OR_UNLOAD",
+    "timestamp": "2026-10-01T23:58:12.450Z",
+    "lossOfTransientMemory": true,
+    "persistedStorageIntact": true
+  },
+  "recoveryEvaluation": {
+    "reconciledAt": "2026-10-01T23:58:15.100Z",
+    "reconciliationSteps": [
+      {
+        "actionId": "act-1",
+        "policyApplied": "TERMINAL_STATE_PRESERVE",
+        "preCrashStatus": "COMPLETED",
+        "postCrashStatus": "COMPLETED",
+        "rationale": "Already terminal; outputs and state strictly preserved."
+      },
+      {
+        "actionId": "act-2",
+        "policyApplied": "TERMINAL_STATE_PRESERVE",
+        "preCrashStatus": "COMPLETED",
+        "postCrashStatus": "COMPLETED",
+        "rationale": "Already terminal; outputs and state strictly preserved."
+      },
+      {
+        "actionId": "act-3",
+        "policyApplied": "DETERMINISTIC_IDEMPOTENT_RESUME",
+        "preCrashStatus": "EXECUTING",
+        "postCrashStatus": "COMPLETED",
+        "rationale": "Found verified completion in Stage 07 Execution Gateway idempotency cache; restored result without re-invoking provider."
+      },
+      {
+        "actionId": "act-4",
+        "policyApplied": "CONSEQUENTIAL_APPROVAL_GATE",
+        "preCrashStatus": "EXECUTING",
+        "postCrashStatus": "AWAITING_APPROVAL",
+        "rationale": "Consequential action with external side-effects in-flight during crash. Demoted to AWAITING_APPROVAL with approvedAt reset. Requires explicit operator re-approval."
+      }
+    ],
+    "postRecoveryFrontier": ["act-4"],
+    "goalStatus": "WAITING_APPROVAL"
+  }
+}

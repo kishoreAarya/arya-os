@@ -1,0 +1,288 @@
+{
+  "stage": "STAGE_07",
+  "title": "AryaOS Real Provider Execution Matrix",
+  "generatedAt": "2026-10-01T23:53:00Z",
+  "summary": {
+    "totalProviders": 9,
+    "registeredAdapters": 9,
+    "totalCapabilities": 10,
+    "executionBoundary": "ExecutionGateway Singleton"
+  },
+  "providers": [
+    {
+      "id": "gemini",
+      "name": "Google Gemini",
+      "category": "LLM",
+      "capabilities": [
+        "REASONING",
+        "RESEARCH",
+        "SUMMARIZATION",
+        "VISION",
+        "EMBEDDING",
+        "STRUCTURED_EXTRACTION"
+      ],
+      "defaultModel": "gemini-3.1-pro-preview",
+      "supportedModels": [
+        "gemini-3.1-pro-preview",
+        "gemini-3.1-flash-lite",
+        "gemini-3-flash-preview",
+        "gemini-3.5-flash"
+      ],
+      "costProfile": {
+        "tier": 1,
+        "inputTokenCostPerMillion": 0.15,
+        "outputTokenCostPerMillion": 0.60,
+        "description": "Ultra-low cost high-throughput multicontext reasoning."
+      },
+      "latencyProfile": {
+        "averageSeconds": 6.0,
+        "p95Seconds": 12.0
+      },
+      "secretReference": "GEMINI_API_KEY",
+      "operationalStatus": "AVAILABLE",
+      "healthState": "AVAILABLE",
+      "fallbackChain": ["openrouter", "anthropic"],
+      "truthfulExecutionPolicy": "Rejects execution with CONFIGURATION_REQUIRED when GEMINI_API_KEY is unset."
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "category": "LLM",
+      "capabilities": [
+        "REASONING",
+        "RESEARCH",
+        "CODE_GENERATION",
+        "SUMMARIZATION"
+      ],
+      "defaultModel": "anthropic/claude-3.7-sonnet",
+      "supportedModels": [
+        "anthropic/claude-3.7-sonnet",
+        "openai/o3-mini",
+        "deepseek/deepseek-r1",
+        "meta-llama/llama-3.3-70b-instruct"
+      ],
+      "costProfile": {
+        "tier": 2,
+        "inputTokenCostPerMillion": 3.0,
+        "outputTokenCostPerMillion": 15.0,
+        "description": "Universal fallback and open frontier gateway."
+      },
+      "latencyProfile": {
+        "averageSeconds": 4.5,
+        "p95Seconds": 9.0
+      },
+      "secretReference": "OPENROUTER_API_KEY",
+      "operationalStatus": "AVAILABLE",
+      "healthState": "AVAILABLE",
+      "fallbackChain": ["anthropic", "together"],
+      "truthfulExecutionPolicy": "Rejects execution with CONFIGURATION_REQUIRED when OPENROUTER_API_KEY is unset."
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic Claude",
+      "category": "LLM",
+      "capabilities": [
+        "REASONING",
+        "RESEARCH",
+        "CODE_GENERATION",
+        "VISION",
+        "STRUCTURED_EXTRACTION"
+      ],
+      "defaultModel": "claude-3-7-sonnet-20250219",
+      "supportedModels": [
+        "claude-3-7-sonnet-20250219",
+        "claude-3-5-haiku-20241022"
+      ],
+      "costProfile": {
+        "tier": 3,
+        "inputTokenCostPerMillion": 3.0,
+        "outputTokenCostPerMillion": 15.0,
+        "description": "High-assurance constitutional cognition."
+      },
+      "latencyProfile": {
+        "averageSeconds": 7.0,
+        "p95Seconds": 14.0
+      },
+      "secretReference": "ANTHROPIC_API_KEY",
+      "operationalStatus": "AVAILABLE",
+      "healthState": "AVAILABLE",
+      "fallbackChain": ["openrouter"],
+      "truthfulExecutionPolicy": "Rejects execution with CONFIGURATION_REQUIRED when ANTHROPIC_API_KEY is unset."
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "category": "LLM",
+      "capabilities": [
+        "REASONING",
+        "RESEARCH",
+        "VISION",
+        "EMBEDDING",
+        "STRUCTURED_EXTRACTION"
+      ],
+      "defaultModel": "gpt-4o",
+      "supportedModels": [
+        "gpt-4o",
+        "gpt-4o-mini",
+        "o3-mini",
+        "text-embedding-3-large"
+      ],
+      "costProfile": {
+        "tier": 3,
+        "inputTokenCostPerMillion": 2.5,
+        "outputTokenCostPerMillion": 10.0,
+        "description": "Frontier multimodal reasoning."
+      },
+      "latencyProfile": {
+        "averageSeconds": 5.0,
+        "p95Seconds": 10.0
+      },
+      "secretReference": "OPENAI_API_KEY",
+      "operationalStatus": "AVAILABLE",
+      "healthState": "AVAILABLE",
+      "fallbackChain": ["openrouter", "gemini"],
+      "truthfulExecutionPolicy": "Rejects execution with CONFIGURATION_REQUIRED when OPENAI_API_KEY is unset."
+    },
+    {
+      "id": "fal",
+      "name": "fal.ai Media Engine",
+      "category": "IMAGE_GEN",
+      "capabilities": [
+        "IMAGE_GENERATION",
+        "VIDEO_GENERATION",
+        "VISION"
+      ],
+      "defaultModel": "fal-ai/flux-pro/v1.1-ultra",
+      "supportedModels": [
+        "fal-ai/flux-pro/v1.1-ultra",
+        "fal-ai/flux/schnell",
+        "fal-ai/kling-video/v1.5/pro"
+      ],
+      "costProfile": {
+        "tier": 4,
+        "perUnitCostUsd": 0.05,
+        "description": "Ultra high-fidelity visual asset and keyframe generation."
+      },
+      "latencyProfile": {
+        "averageSeconds": 8.0,
+        "p95Seconds": 16.0
+      },
+      "secretReference": "FAL_KEY",
+      "operationalStatus": "AVAILABLE",
+      "healthState": "AVAILABLE",
+      "fallbackChain": ["replicate", "kling"],
+      "truthfulExecutionPolicy": "Rejects execution with CONFIGURATION_REQUIRED when FAL_KEY is unset."
+    },
+    {
+      "id": "kling",
+      "name": "Kling AI Video",
+      "category": "VIDEO_GEN",
+      "capabilities": [
+        "VIDEO_GENERATION"
+      ],
+      "defaultModel": "kling-v1.6-pro",
+      "supportedModels": [
+        "kling-v1.6-pro",
+        "kling-v1.5"
+      ],
+      "costProfile": {
+        "tier": 5,
+        "perUnitCostUsd": 0.12,
+        "description": "Cinematic shot production sequence generator."
+      },
+      "latencyProfile": {
+        "averageSeconds": 45.0,
+        "p95Seconds": 90.0
+      },
+      "secretReference": "KLING_API_KEY",
+      "operationalStatus": "AVAILABLE",
+      "healthState": "AVAILABLE",
+      "fallbackChain": ["fal"],
+      "truthfulExecutionPolicy": "Rejects non-video capabilities with CAPABILITY_MISMATCH."
+    },
+    {
+      "id": "together",
+      "name": "Together AI",
+      "category": "COMPUTE",
+      "capabilities": [
+        "IMAGE_GENERATION",
+        "VIDEO_GENERATION",
+        "REASONING"
+      ],
+      "defaultModel": "black-forest-labs/FLUX.1-schnell",
+      "supportedModels": [
+        "black-forest-labs/FLUX.1-schnell",
+        "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+      ],
+      "costProfile": {
+        "tier": 2,
+        "perUnitCostUsd": 0.02,
+        "description": "High-throughput open source inference."
+      },
+      "latencyProfile": {
+        "averageSeconds": 3.0,
+        "p95Seconds": 7.0
+      },
+      "secretReference": "TOGETHER_API_KEY",
+      "operationalStatus": "AVAILABLE",
+      "healthState": "AVAILABLE",
+      "fallbackChain": ["openrouter"],
+      "truthfulExecutionPolicy": "Rejects execution with CONFIGURATION_REQUIRED when TOGETHER_API_KEY is unset."
+    },
+    {
+      "id": "replicate",
+      "name": "Replicate",
+      "category": "IMAGE_GEN",
+      "capabilities": [
+        "IMAGE_GENERATION",
+        "VIDEO_GENERATION"
+      ],
+      "defaultModel": "black-forest-labs/flux-1.1-pro",
+      "supportedModels": [
+        "black-forest-labs/flux-1.1-pro",
+        "bytedance/animatediff-lightning-4-step"
+      ],
+      "costProfile": {
+        "tier": 4,
+        "perUnitCostUsd": 0.04,
+        "description": "Open containerized generative media inference."
+      },
+      "latencyProfile": {
+        "averageSeconds": 10.0,
+        "p95Seconds": 20.0
+      },
+      "secretReference": "REPLICATE_API_KEY",
+      "operationalStatus": "AVAILABLE",
+      "healthState": "AVAILABLE",
+      "fallbackChain": ["fal"],
+      "truthfulExecutionPolicy": "Rejects execution with CONFIGURATION_REQUIRED when REPLICATE_API_KEY is unset."
+    },
+    {
+      "id": "elevenlabs",
+      "name": "ElevenLabs Voice",
+      "category": "VOICE_GEN",
+      "capabilities": [
+        "REASONING"
+      ],
+      "defaultModel": "eleven_multilingual_v2",
+      "supportedModels": [
+        "eleven_multilingual_v2",
+        "eleven_turbo_v2"
+      ],
+      "costProfile": {
+        "tier": 3,
+        "perUnitCostUsd": 0.02,
+        "description": "High-fidelity spatial voice and character narration engine."
+      },
+      "latencyProfile": {
+        "averageSeconds": 2.5,
+        "p95Seconds": 5.0
+      },
+      "secretReference": "ELEVENLABS_API_KEY",
+      "operationalStatus": "AVAILABLE",
+      "healthState": "AVAILABLE",
+      "fallbackChain": [],
+      "truthfulExecutionPolicy": "Stages audio synthesis plans deterministically."
+    }
+  ]
+}

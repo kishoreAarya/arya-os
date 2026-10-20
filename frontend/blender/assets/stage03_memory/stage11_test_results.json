@@ -1,0 +1,64 @@
+{
+  "stage": "STAGE_11_VERIFICATION",
+  "timestamp": "2026-10-02T03:15:00.000Z",
+  "summary": {
+    "totalTestSuites": 33,
+    "passedTestSuites": 33,
+    "failedTestSuites": 0,
+    "totalTests": 558,
+    "passedTests": 558,
+    "failedTests": 0,
+    "durationMs": 58220
+  },
+  "stage11Suite": {
+    "file": "src/tests/AgentEvaluationStage11.test.tsx",
+    "testsCount": 27,
+    "passed": 27,
+    "failed": 0,
+    "verifications": [
+      "Multi-dimensional evaluation across all 11 dimensions",
+      "Truthful metric handling ('UNKNOWN' costs, zero fabrication)",
+      "Quality assessment checks (syntax, completeness, truncation flags)",
+      "Latency assessment and deadline compliance",
+      "Reliability assessment (retries, fallback usage)",
+      "Experience store 64-char hex fingerprinting and secret sanitization",
+      "Experience store persistence integration and reload survival",
+      "Experience store filtering (agentId, providerId, taskType)",
+      "Evidence graph entity linking",
+      "Evidence graph provenance tracing",
+      "Evidence graph human approval linkage",
+      "Agent performance profiling (taskType profiles)",
+      "Agent performance profiling (capability profiles and confidence bands)",
+      "Provider evaluation profiling (observed metrics and availability)",
+      "Provider evaluation availability degradation (DEGRADED / UNAVAILABLE)",
+      "Task performance service agent recommendations",
+      "Collective intelligence (SINGLE_RESULT and MERGE strategies)",
+      "Collective intelligence structured disagreement detection",
+      "Collective intelligence minority opinion preservation",
+      "Collective intelligence EVIDENCE_WEIGHTED_CONSENSUS selection",
+      "Collective intelligence HUMAN_REVIEW_REQUIRED escalation",
+      "Learning signal service AGENT_HIGH_QUALITY_FOR_TASK derivation",
+      "Learning signal service PROVIDER_HIGH_FAILURE_RATE derivation",
+      "Policy recommendation service human approval boundary",
+      "Adaptive routing advisor safe-mode recommendations",
+      "Comparative plan evaluation (Plan v1 vs Plan v2) and self-critique",
+      "Spatial Command Console Stage 11 HUD integration"
+    ]
+  },
+  "typeScript": {
+    "command": "npx tsc --noEmit",
+    "exitCode": 0,
+    "errors": 0
+  },
+  "productionBuild": {
+    "command": "npm run build",
+    "exitCode": 0,
+    "durationSeconds": 4.53
+  },
+  "immutableAssetVerification": {
+    "blenderMasterSha256": "c4577c47fa60f8beb1f77a1feb25ffb84b34ff9c38cfc6dbd4a8bc2628c8a13f",
+    "blenderStatus": "VERIFIED_MATCH",
+    "glbAssetsCount": 14,
+    "glbAssetsStatus": "ALL_14_MATCHED"
+  }
+}

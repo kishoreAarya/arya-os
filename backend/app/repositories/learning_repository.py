@@ -142,8 +142,9 @@ class SqlAlchemyLearningRepository(LearningRepository):
             old_count = existing.based_on_video_count
             new_count = old_count + based_on_video_count
             existing.based_on_video_count = new_count
+            existing_conf = float(existing.confidence) if existing.confidence is not None else 0.0
             existing.confidence = round(
-                (existing.confidence * old_count + confidence * based_on_video_count)
+                (existing_conf * old_count + float(confidence) * based_on_video_count)
                 / new_count,
                 3,
             )

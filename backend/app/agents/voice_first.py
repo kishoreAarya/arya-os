@@ -63,18 +63,20 @@ class VoiceFirstAgent(BaseAgent):
 
         segments = self._estimate_segments(script_content, duration)
 
-                # Download voice to local storage so URL doesn't expire
+        # Download voice to local storage so URL doesn't expire
         local_voice_path = voice_path
-        if voice_path and voice_path.startswith("http"):
+        if voice_path and voice_path.startswith(("http://", "https://")):
             try:
-                import httpx
-                import tempfile
-                local_file = Path(tempfile.gettempdir()) / f"arya_voice_{uuid.uuid4().hex}.wav"
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    resp = await client.get(voice_path)
-                    resp.raise_for_status()
-                local_file.write_bytes(resp.content)
-                local_voice_path = str(local_file)
+                from pathlib import Path
+                from app.utils.asset_manager import ensure_local_asset
+
+                downloaded = await ensure_local_asset(
+                    voice_path,
+                    timeout_seconds=60.0,
+                    max_bytes=50 * 1024 * 1024,
+                )
+                if downloaded and Path(downloaded).exists():
+                    local_voice_path = downloaded
             except Exception:
                 pass
 

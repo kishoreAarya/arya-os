@@ -338,6 +338,7 @@ class SoundAssetResolver:
         if not api_key:
             return None
 
+        out_path: Path | None = None
         try:
             import urllib.request
             url = "https://api.elevenlabs.io/v1/sound-effects"
@@ -359,11 +360,50 @@ class SoundAssetResolver:
             out_dir.mkdir(parents=True, exist_ok=True)
             _, norm_desc = normalize_sound_key(sound_type, description)
             out_path = out_dir / f"elevenlabs_{norm_desc}_{int(time.time())}.mp3"
+
+            MAX_SFX_RESPONSE_BYTES = 15 * 1024 * 1024  # 15MB limit for sound effects
+            CHUNK_SIZE = 64 * 1024
+            total_bytes = 0
+            exceeded_limit = False
+
             with urllib.request.urlopen(req, timeout=15) as resp, open(out_path, "wb") as f:
-                f.write(resp.read())
+                content_len = resp.headers.get("Content-Length")
+                if content_len:
+                    try:
+                        if int(content_len) > MAX_SFX_RESPONSE_BYTES:
+                            raise ValueError(
+                                f"SFX Content-Length ({content_len}) exceeds limit of {MAX_SFX_RESPONSE_BYTES} bytes"
+                            )
+                    except ValueError as ve:
+                        if "exceeds limit" in str(ve):
+                            raise
+
+                while True:
+                    chunk = resp.read(CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    total_bytes += len(chunk)
+                    if total_bytes > MAX_SFX_RESPONSE_BYTES:
+                        exceeded_limit = True
+                        break
+                    f.write(chunk)
+
+            if exceeded_limit:
+                if out_path.exists():
+                    try:
+                        out_path.unlink()
+                    except OSError:
+                        pass
+                raise ValueError(f"SFX response exceeded maximum limit of {MAX_SFX_RESPONSE_BYTES} bytes")
+
             if out_path.exists() and out_path.stat().st_size > 0:
                 return str(out_path)
         except Exception as exc:
+            if out_path is not None and out_path.exists():
+                try:
+                    out_path.unlink()
+                except OSError:
+                    pass
             logger.warning("external_sfx_provider_failed", error=str(exc))
         return None
 

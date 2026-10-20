@@ -1,0 +1,64 @@
+{
+  "stage": "STAGE_08_AUTONOMOUS_TASK_ORCHESTRATION",
+  "goalId": "GOAL-SAMPLE-001",
+  "objective": "Research a cinematic concept for AryaOS and prepare a production brief",
+  "planId": "PLAN-SAMPLE-001-V1",
+  "version": 1,
+  "status": "COMPLETED",
+  "topologicalLayers": [
+    ["ACT-GOAL-SAMPLE-001-V1-1"],
+    ["ACT-GOAL-SAMPLE-001-V1-2"],
+    ["ACT-GOAL-SAMPLE-001-V1-3"]
+  ],
+  "dependencies": {
+    "ACT-GOAL-SAMPLE-001-V1-1": [],
+    "ACT-GOAL-SAMPLE-001-V1-2": ["ACT-GOAL-SAMPLE-001-V1-1"],
+    "ACT-GOAL-SAMPLE-001-V1-3": ["ACT-GOAL-SAMPLE-001-V1-2"]
+  },
+  "nodes": [
+    {
+      "actionId": "ACT-GOAL-SAMPLE-001-V1-1",
+      "title": "Architectural Research & Context Extraction",
+      "type": "RESEARCH",
+      "requiredCapability": "RESEARCH",
+      "layer": 0,
+      "dependencies": [],
+      "riskLevel": "READ_ONLY",
+      "approvalRequired": false,
+      "status": "SUCCEEDED",
+      "estimatedCostUsd": { "min": 0.0005, "max": 0.002 },
+      "estimatedLatencyMs": 1200
+    },
+    {
+      "actionId": "ACT-GOAL-SAMPLE-001-V1-2",
+      "title": "Concept Synthesis & Decision Framing",
+      "type": "REASONING",
+      "requiredCapability": "REASONING",
+      "layer": 1,
+      "dependencies": ["ACT-GOAL-SAMPLE-001-V1-1"],
+      "riskLevel": "LOW_RISK",
+      "approvalRequired": false,
+      "status": "SUCCEEDED",
+      "estimatedCostUsd": { "min": 0.001, "max": 0.004 },
+      "estimatedLatencyMs": 1800
+    },
+    {
+      "actionId": "ACT-GOAL-SAMPLE-001-V1-3",
+      "title": "Production Brief & Milestone Compilation",
+      "type": "STRUCTURED_EXTRACTION",
+      "requiredCapability": "STRUCTURED_EXTRACTION",
+      "layer": 2,
+      "dependencies": ["ACT-GOAL-SAMPLE-001-V1-2"],
+      "riskLevel": "CONSEQUENTIAL",
+      "approvalRequired": true,
+      "status": "SUCCEEDED",
+      "estimatedCostUsd": { "min": 0.002, "max": 0.008 },
+      "estimatedLatencyMs": 2400
+    }
+  ],
+  "metrics": {
+    "totalEstimatedCostUsd": { "min": 0.0035, "max": 0.014 },
+    "criticalPathLatencyMs": 5400,
+    "concurrencyEligibleNodes": 0
+  }
+}

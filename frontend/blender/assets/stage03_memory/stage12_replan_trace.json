@@ -1,0 +1,57 @@
+{
+  "traceId": "trace-replan-scenario-001",
+  "missionId": "mission-cloud-migration-042",
+  "trigger": {
+    "type": "TERMINAL_GOAL_FAILURE",
+    "failedGoalId": "goal-deploy-primary-02",
+    "errorMessage": "Target deployment cluster capacity exhausted; 429 ResourceLimitExceeded",
+    "timestamp": "2026-10-02T08:15:30.000Z"
+  },
+  "initialPlan": {
+    "version": 1,
+    "goalIds": ["goal-build-01", "goal-deploy-primary-02", "goal-verify-health-03"],
+    "criticalPath": ["goal-build-01", "goal-deploy-primary-02", "goal-verify-health-03"]
+  },
+  "replanAction": {
+    "replannerVersion": "Stage12-AdaptiveReplanner-v1.0",
+    "timestamp": "2026-10-02T08:15:35.000Z",
+    "preservedGoalIds": ["goal-build-01"],
+    "prunedGoalIds": ["goal-deploy-primary-02"],
+    "addedGoals": [
+      {
+        "goalId": "goal-deploy-fallback-02B",
+        "title": "Deploy to Secondary Low-Latency Edge Cluster",
+        "dependencies": ["goal-build-01"],
+        "status": "READY",
+        "rationale": "Consulted Stage 11 Experience Store: secondary cluster has 99.4% historical availability"
+      }
+    ],
+    "rewiredEdges": [
+      {
+        "targetGoalId": "goal-verify-health-03",
+        "previousPrerequisite": "goal-deploy-primary-02",
+        "newPrerequisite": "goal-deploy-fallback-02B"
+      }
+    ]
+  },
+  "resultingPlan": {
+    "version": 2,
+    "supersededPlanId": "plan-m42-v1",
+    "replanReason": "Cluster resource exhaustion on primary deployment node; routed to edge fallback cluster",
+    "totalGoals": 3,
+    "goalStates": {
+      "goal-build-01": "COMPLETED",
+      "goal-deploy-fallback-02B": "READY",
+      "goal-verify-health-03": "BLOCKED"
+    },
+    "criticalPath": ["goal-build-01", "goal-deploy-fallback-02B", "goal-verify-health-03"],
+    "requiresApproval": false,
+    "approvalJustification": "Estimated cost delta +4.2% within autonomous threshold (<20%)"
+  },
+  "verification": {
+    "completedWorkOverwritten": false,
+    "cycleDetected": false,
+    "unresolvedDependencies": false,
+    "frontierRecalculated": ["goal-deploy-fallback-02B"]
+  }
+}

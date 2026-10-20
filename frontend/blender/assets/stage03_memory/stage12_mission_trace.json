@@ -1,0 +1,127 @@
+{
+  "traceId": "trace-mission-prod-launch-001",
+  "missionId": "mission-production-launch-001",
+  "name": "AryaOS Stage 12 Production Launch Mission",
+  "status": "COMPLETED",
+  "priority": "HIGH",
+  "startedAt": "2026-10-02T08:00:00.000Z",
+  "completedAt": "2026-10-02T08:45:00.000Z",
+  "plan": {
+    "version": 1,
+    "totalGoals": 5,
+    "criticalPathGoalIds": ["goal-audit-01", "goal-engine-02", "goal-verify-04", "goal-release-05"],
+    "criticalPathDurationMs": 24500,
+    "milestones": [
+      {
+        "id": "milestone-audit",
+        "title": "Architecture & Baseline Audit",
+        "order": 1,
+        "status": "COMPLETED",
+        "goalIds": ["goal-audit-01"]
+      },
+      {
+        "id": "milestone-implementation",
+        "title": "Engine Implementation & HUD Extension",
+        "order": 2,
+        "status": "COMPLETED",
+        "goalIds": ["goal-engine-02", "goal-hud-03"]
+      },
+      {
+        "id": "milestone-verification",
+        "title": "Comprehensive Verification & Gate",
+        "order": 3,
+        "status": "COMPLETED",
+        "goalIds": ["goal-verify-04", "goal-release-05"]
+      }
+    ],
+    "goals": [
+      {
+        "goalId": "goal-audit-01",
+        "title": "Stage 11 Baseline & Asset Audit",
+        "milestoneId": "milestone-audit",
+        "dependencies": [],
+        "status": "COMPLETED",
+        "durationMs": 3500,
+        "tokensConsumed": 4200,
+        "isCriticalPath": true
+      },
+      {
+        "goalId": "goal-engine-02",
+        "title": "Mission Control Services Assembly",
+        "milestoneId": "milestone-implementation",
+        "dependencies": ["goal-audit-01"],
+        "status": "COMPLETED",
+        "durationMs": 11000,
+        "tokensConsumed": 14500,
+        "isCriticalPath": true
+      },
+      {
+        "goalId": "goal-hud-03",
+        "title": "Spatial Command HUD Integration",
+        "milestoneId": "milestone-implementation",
+        "dependencies": ["goal-audit-01"],
+        "status": "COMPLETED",
+        "durationMs": 6200,
+        "tokensConsumed": 6800,
+        "isCriticalPath": false
+      },
+      {
+        "goalId": "goal-verify-04",
+        "title": "Mission Test Suite Execution",
+        "milestoneId": "milestone-verification",
+        "dependencies": ["goal-engine-02", "goal-hud-03"],
+        "status": "COMPLETED",
+        "durationMs": 7500,
+        "tokensConsumed": 9200,
+        "isCriticalPath": true
+      },
+      {
+        "goalId": "goal-release-05",
+        "title": "Asset Verification & Operational Signoff",
+        "milestoneId": "milestone-verification",
+        "dependencies": ["goal-verify-04"],
+        "status": "COMPLETED",
+        "durationMs": 2500,
+        "tokensConsumed": 3100,
+        "isCriticalPath": true
+      }
+    ]
+  },
+  "checkpoints": [
+    {
+      "checkpointId": "chk-m1-v1-001",
+      "timestamp": "2026-10-02T08:05:00.000Z",
+      "completedGoalIds": ["goal-audit-01"],
+      "inFlightGoalIds": ["goal-engine-02", "goal-hud-03"],
+      "tokensConsumed": 4200,
+      "stateHash": "0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b"
+    },
+    {
+      "checkpointId": "chk-m1-v1-002",
+      "timestamp": "2026-10-02T08:22:00.000Z",
+      "completedGoalIds": ["goal-audit-01", "goal-engine-02", "goal-hud-03"],
+      "inFlightGoalIds": ["goal-verify-04"],
+      "tokensConsumed": 25500,
+      "stateHash": "1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c"
+    },
+    {
+      "checkpointId": "chk-m1-v1-003",
+      "timestamp": "2026-10-02T08:45:00.000Z",
+      "completedGoalIds": ["goal-audit-01", "goal-engine-02", "goal-hud-03", "goal-verify-04", "goal-release-05"],
+      "inFlightGoalIds": [],
+      "tokensConsumed": 37800,
+      "stateHash": "2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d"
+    }
+  ],
+  "telemetry": {
+    "totalTokensConsumed": 37800,
+    "tokenBudget": 100000,
+    "budgetUtilizationPct": 37.8,
+    "peakConcurrency": 2,
+    "maxConcurrencyAllowed": 4,
+    "replanCount": 0,
+    "checkpointsSaved": 3,
+    "riskLevelAtCompletion": "LOW",
+    "compositeRiskScore": 12.4
+  }
+}

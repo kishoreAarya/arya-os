@@ -1,0 +1,190 @@
+{
+  "stage": 20,
+  "timestamp": "2026-10-02T21:50:00.000Z",
+  "totalPoliciesTracked": 8,
+  "activePolicies": 6,
+  "candidatePolicies": 1,
+  "revokedPolicies": 1,
+  "policyRegistryTraces": [
+    {
+      "id": "pol-sys-safety-root",
+      "name": "Root System Safety Constraint",
+      "version": 1,
+      "status": "ACTIVE",
+      "priority": "SYSTEM_SAFETY",
+      "priorityWeight": 100,
+      "scope": {
+        "scopeType": "SYSTEM"
+      },
+      "conditions": {
+        "conjunction": "AND",
+        "conditions": [
+          {
+            "field": "actionType",
+            "operator": "EQUALS",
+            "value": "SYSTEM_SHUTDOWN_UNAUTHORIZED"
+          }
+        ]
+      },
+      "effect": {
+        "type": "DENY",
+        "reason": "Unauthorized system shutdown blocked by safety invariant"
+      },
+      "enforcementMode": "ENFORCE",
+      "registeredAt": "2026-10-02T21:00:00.000Z",
+      "author": "user-operator-admin"
+    },
+    {
+      "id": "pol-sec-connector-guard",
+      "name": "External Connector Capability Restriction",
+      "version": 1,
+      "status": "ACTIVE",
+      "priority": "SECURITY",
+      "priorityWeight": 90,
+      "scope": {
+        "scopeType": "CONNECTOR",
+        "targetId": "conn-github-prod"
+      },
+      "conditions": {
+        "conjunction": "AND",
+        "conditions": []
+      },
+      "effect": {
+        "type": "LIMIT",
+        "constraint": {
+          "allowedCapabilities": ["issues.read", "issues.comment"],
+          "rateLimitPerHour": 150
+        },
+        "reason": "Constrain GitHub connector to non-destructive actions"
+      },
+      "enforcementMode": "ENFORCE",
+      "registeredAt": "2026-10-02T21:05:00.000Z",
+      "author": "user-sec-lead"
+    },
+    {
+      "id": "pol-res-concurrency-lease",
+      "name": "Resource Concurrency Governor Lease Cap",
+      "version": 2,
+      "status": "ACTIVE",
+      "priority": "RESOURCE_LIMITS",
+      "priorityWeight": 70,
+      "scope": {
+        "scopeType": "RESOURCE"
+      },
+      "conditions": {
+        "conjunction": "AND",
+        "conditions": [
+          {
+            "field": "activeConcurrentActions",
+            "operator": "GREATER_THAN",
+            "value": 4
+          }
+        ]
+      },
+      "effect": {
+        "type": "LIMIT",
+        "constraint": {
+          "maxConcurrentActions": 4
+        },
+        "reason": "Prevent compute saturation during high-volume spikes"
+      },
+      "enforcementMode": "ENFORCE",
+      "registeredAt": "2026-10-02T21:10:00.000Z",
+      "author": "user-res-admin"
+    },
+    {
+      "id": "pol-trigger-webhook-throttle",
+      "name": "Inbound Webhook Rate Limiter",
+      "version": 1,
+      "status": "ACTIVE",
+      "priority": "TRIGGER_POLICY",
+      "priorityWeight": 40,
+      "scope": {
+        "scopeType": "TRIGGER",
+        "targetId": "trig-github-push"
+      },
+      "conditions": {
+        "conjunction": "AND",
+        "conditions": []
+      },
+      "effect": {
+        "type": "LIMIT",
+        "constraint": {
+          "rateLimitPerHour": 100
+        },
+        "reason": "Throttle aggressive webhook bursts"
+      },
+      "enforcementMode": "ENFORCE",
+      "registeredAt": "2026-10-02T21:15:00.000Z",
+      "author": "user-operator-dev"
+    },
+    {
+      "id": "pol-opt-route-provider",
+      "name": "Adaptive Provider Failover Route",
+      "version": 1,
+      "status": "ACTIVE",
+      "priority": "OPTIMIZATION_POLICY",
+      "priorityWeight": 30,
+      "scope": {
+        "scopeType": "PROVIDER"
+      },
+      "conditions": {
+        "conjunction": "AND",
+        "conditions": [
+          {
+            "field": "taskType",
+            "operator": "EQUALS",
+            "value": "research_summary"
+          }
+        ]
+      },
+      "effect": {
+        "type": "ROUTE",
+        "routedProviderId": "mock-reliable-v1",
+        "reason": "Reroute research summarization to highly available model"
+      },
+      "enforcementMode": "ENFORCE",
+      "registeredAt": "2026-10-02T21:20:00.000Z",
+      "author": "user-routing-admin"
+    },
+    {
+      "id": "pol-candidate-agent-concurrency",
+      "name": "Specialist Agent Concurrency Cap",
+      "version": 1,
+      "status": "CANDIDATE",
+      "priority": "AGENT_POLICY",
+      "priorityWeight": 50,
+      "scope": {
+        "scopeType": "AGENT",
+        "targetId": "agent-researcher"
+      },
+      "conditions": {
+        "conjunction": "AND",
+        "conditions": []
+      },
+      "effect": {
+        "type": "LIMIT",
+        "constraint": {
+          "maxConcurrentActions": 2
+        }
+      },
+      "enforcementMode": "SHADOW",
+      "registeredAt": "2026-10-02T21:30:00.000Z",
+      "author": "PolicyProposalService",
+      "provenance": {
+        "sourceSignalIds": ["sig-eval-agent-throttle-01"],
+        "sourceObservation": "Agent 'agent-researcher' experienced degradation above 2 tasks.",
+        "confidence": 0.89,
+        "derivedAt": "2026-10-02T21:30:00.000Z",
+        "generatorService": "PolicyProposalService"
+      }
+    }
+  ],
+  "securityBoundaryEnforcement": {
+    "directActionBusBypassAttempts": 0,
+    "directConnectorTransportBypassAttempts": 0,
+    "llmInferenceCallsInStage20": 0,
+    "ambientPrivilegeEscalationRejected": true,
+    "secretScrubbingVerified": true
+  }
+}

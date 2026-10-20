@@ -17,6 +17,7 @@ from __future__ import annotations
 import time
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +26,12 @@ from app.core.logging import get_logger
 from app.events.log import EventType, log_event
 from app.models.enums import WorkflowMode, WorkflowStatus
 from app.schemas.workflow_run import WorkflowRunUpdateRequest
+from app.services.workflow_execution_service import (
+    WorkflowExecutionConflictError,
+    claim_execution_lease,
+    determine_next_stage,
+    get_current_worker_id,
+)
 from app.services.workflow_service import create_workflow_run, update_workflow_run
 from app.workflows.models import WorkflowInput, WorkflowResult
 from app.workflows.orchestrator import Orchestrator
@@ -76,6 +83,10 @@ class Runner:
         run = await self._create_run(workflow_input, project_id, mode)
         workflow_run_id = run.id
 
+        worker_id = get_current_worker_id()
+        await claim_execution_lease(self._db, workflow_run_id, worker_id=worker_id)
+        self._orchestrator._worker_id = worker_id
+
         await log_event(
             EventType.WORKFLOW_STARTED,
             message=f"Workflow started: {workflow_input.topic}",
@@ -89,6 +100,27 @@ class Runner:
             result = await self._orchestrator.run(
                 workflow_run_id=workflow_run_id,
                 workflow_input=workflow_input.model_dump(),
+            )
+        except WorkflowExecutionConflictError as exc:
+            logger.warning(
+                "workflow_execution_lease_lost",
+                workflow_run_id=str(workflow_run_id),
+                worker_id=worker_id,
+                error=str(exc),
+            )
+            return WorkflowResult(
+                workflow_id=str(workflow_run_id),
+                status=WorkflowStatus.FAILED.value,
+                success=False,
+                completed_stages=[],
+                failed_stage=None,
+                stage_results=[],
+                error=f"Execution lease lost: {exc}",
+                started_at=started_at,
+                completed_at=datetime.now(timezone.utc),
+                total_execution_time_ms=round((time.perf_counter() - start_perf) * 1000, 3),
+                total_cost_usd=0.0,
+                artifacts={},
             )
         except Exception as exc:
             logger.exception(
@@ -106,7 +138,108 @@ class Runner:
         total_time_ms = round((time.perf_counter() - start_perf) * 1000, 3)
         result.total_execution_time_ms = total_time_ms
 
-        await self._update_run_final_state(workflow_run_id, result)
+        if result.status != WorkflowStatus.AWAITING_APPROVAL.value:
+            await self._update_run_final_state(workflow_run_id, result, worker_id=worker_id)
+
+        logger.info(
+            "workflow_finished",
+            workflow_run_id=str(workflow_run_id),
+            status=result.status,
+            success=result.success,
+            total_time_ms=total_time_ms,
+            total_cost_usd=result.total_cost_usd,
+        )
+
+        return result
+
+    async def execute_existing_run(
+        self,
+        workflow_run_id: uuid.UUID,
+        workflow_input: WorkflowInput | dict[str, Any] | None = None,
+        resume_from_stage: str | None = None,
+        worker_id: str | None = None,
+        claim_lease: bool = True,
+    ) -> WorkflowResult:
+        """Execute an already created WorkflowRun row outside the HTTP loop."""
+        from app.services.workflow_service import get_workflow_run
+        run = await get_workflow_run(self._db, workflow_run_id)
+        if run is None:
+            raise ValueError(f"WorkflowRun {workflow_run_id} not found")
+
+        if claim_lease:
+            w_id = worker_id or get_current_worker_id()
+            await claim_execution_lease(self._db, workflow_run_id, worker_id=w_id)
+            run = await get_workflow_run(self._db, workflow_run_id)
+        else:
+            w_id = worker_id or get_current_worker_id()
+
+        self._orchestrator._worker_id = w_id
+
+        if workflow_input is None:
+            input_dict = {"topic": run.topic or "General", "platform": "youtube"}
+        elif hasattr(workflow_input, "model_dump"):
+            input_dict = workflow_input.model_dump()
+        else:
+            input_dict = dict(workflow_input)
+
+        if resume_from_stage is None and run.last_completed_stage:
+            resume_from_stage = determine_next_stage(run.last_completed_stage, run.current_stage)
+
+        topic_label = input_dict.get("topic") or run.topic or "General"
+        await log_event(
+            EventType.WORKFLOW_STARTED,
+            message=f"Workflow started: {topic_label}" if not resume_from_stage else f"Workflow resuming from stage {resume_from_stage}",
+            workflow_run_id=workflow_run_id,
+        )
+
+        started_at = datetime.now(timezone.utc)
+        start_perf = time.perf_counter()
+
+        try:
+            result = await self._orchestrator.run(
+                workflow_run_id=workflow_run_id,
+                workflow_input=input_dict,
+                resume_from_stage=resume_from_stage,
+            )
+        except WorkflowExecutionConflictError as exc:
+            logger.warning(
+                "workflow_execution_lease_lost",
+                workflow_run_id=str(workflow_run_id),
+                worker_id=w_id,
+                error=str(exc),
+            )
+            return WorkflowResult(
+                workflow_id=str(workflow_run_id),
+                status=WorkflowStatus.FAILED.value,
+                success=False,
+                completed_stages=[],
+                failed_stage=None,
+                stage_results=[],
+                error=f"Execution lease lost: {exc}",
+                started_at=started_at,
+                completed_at=datetime.now(timezone.utc),
+                total_execution_time_ms=round((time.perf_counter() - start_perf) * 1000, 3),
+                total_cost_usd=0.0,
+                artifacts={},
+            )
+        except Exception as exc:
+            logger.exception(
+                "orchestrator_unhandled_exception",
+                workflow_run_id=str(workflow_run_id),
+                error=str(exc),
+            )
+            result = await self._build_failure_result(
+                workflow_run_id=workflow_run_id,
+                error=f"Unhandled orchestrator exception: {exc}",
+                started_at=started_at,
+                start_perf=start_perf,
+            )
+
+        total_time_ms = round((time.perf_counter() - start_perf) * 1000, 3)
+        result.total_execution_time_ms = total_time_ms
+
+        if result.status != WorkflowStatus.AWAITING_APPROVAL.value:
+            await self._update_run_final_state(workflow_run_id, result, worker_id=w_id)
 
         logger.info(
             "workflow_finished",
@@ -196,19 +329,51 @@ class Runner:
         self,
         workflow_run_id: uuid.UUID,
         result: WorkflowResult,
+        worker_id: str | None = None,
     ) -> None:
-        """Write the final result back to the persistent WorkflowRun.
+        """Write the final result back to the persistent WorkflowRun with lease fencing.
 
         Args:
             workflow_run_id: The WorkflowRun UUID.
             result: The final WorkflowResult.
+            worker_id: The worker ID holding the lease.
         """
+        if result.status == WorkflowStatus.AWAITING_APPROVAL.value:
+            return
+
         try:
-            update = WorkflowRunUpdateRequest(
-                status=WorkflowStatus(result.status),
-                total_cost_usd=result.total_cost_usd,
+            if worker_id:
+                from app.services.workflow_execution_service import finalize_workflow_execution
+                await finalize_workflow_execution(
+                    db=self._db,
+                    run_id=workflow_run_id,
+                    worker_id=worker_id,
+                    status=WorkflowStatus(result.status),
+                    total_cost_usd=result.total_cost_usd,
+                    failure_reason=result.error if not result.success else None,
+                    completed_at=result.completed_at,
+                )
+            else:
+                cost_decimal = (
+                    Decimal(str(round(result.total_cost_usd, 4)))
+                    if result.total_cost_usd is not None
+                    else Decimal("0")
+                )
+                update = WorkflowRunUpdateRequest(
+                    status=WorkflowStatus(result.status),
+                    total_cost_usd=cost_decimal,
+                    completed_at=result.completed_at,
+                    failure_reason=result.error if not result.success else None,
+                    worker_id=None,
+                )
+                await update_workflow_run(self._db, workflow_run_id, update)
+        except WorkflowExecutionConflictError as exc:
+            logger.warning(
+                "stale_worker_final_state_update_rejected",
+                workflow_run_id=str(workflow_run_id),
+                worker_id=worker_id,
+                error=str(exc),
             )
-            await update_workflow_run(self._db, workflow_run_id, update)
         except Exception as exc:
             logger.error(
                 "workflow_run_update_failed",

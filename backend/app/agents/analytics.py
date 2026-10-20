@@ -111,8 +111,14 @@ class AnalyticsAgent(BaseAgent):
                 error=f"Failed to fetch analytics from \'{platform}\': {exc}",
             )
 
-        # Store the snapshot
-        snapshot = await self._store_snapshot(video_id, data)
+        # Store the snapshot with complete lineage and idempotency
+        snapshot = await self._store_snapshot(
+            video_id=video_id,
+            data=data,
+            platform=platform,
+            workflow_run_id=context.get("workflow_run_id"),
+            external_post_id=published_content_id,
+        )
 
         analytics_result = AnalyticsResult(
             video_id=video_id,
@@ -144,7 +150,14 @@ class AnalyticsAgent(BaseAgent):
             output=result_output,
         )
 
-    async def _store_snapshot(self, video_id: str, data: dict) -> Analytics:
+    async def _store_snapshot(
+        self,
+        video_id: str,
+        data: dict,
+        platform: str | None = None,
+        workflow_run_id: str | None = None,
+        external_post_id: str | None = None,
+    ) -> Analytics:
         """Real persistence against the Analytics model."""
         import datetime
         import uuid
@@ -156,6 +169,13 @@ class AnalyticsAgent(BaseAgent):
             except (ValueError, AttributeError):
                 vid = video_id
 
+        wf_id = None
+        if workflow_run_id:
+            try:
+                wf_id = uuid.UUID(str(workflow_run_id))
+            except (ValueError, AttributeError):
+                wf_id = None
+
         raw_snapshot_at = data.get("snapshot_at")
         if isinstance(raw_snapshot_at, datetime.datetime):
             if raw_snapshot_at.tzinfo is not None:
@@ -165,8 +185,16 @@ class AnalyticsAgent(BaseAgent):
         else:
             now_utc_naive = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
+        plat = (platform or "youtube").lower()
+        target_id = str(external_post_id or video_id or wf_id or "unknown")
+        idempotency_key = f"{plat}:{target_id}:{now_utc_naive.isoformat()}:direct"
+
         snapshot = Analytics(
-            video_id=vid,
+            video_id=vid if isinstance(vid, uuid.UUID) else None,
+            workflow_run_id=wf_id,
+            platform=plat,
+            external_post_id=str(external_post_id) if external_post_id else None,
+            idempotency_key=idempotency_key,
             snapshot_at=now_utc_naive,
             views=data.get("views", 0),
             likes=data.get("likes", 0),

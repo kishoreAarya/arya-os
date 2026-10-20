@@ -43,8 +43,12 @@ def unauth_client():
 
 @pytest.fixture
 def temp_media_file():
-    """Create a temporary deterministic test media file."""
-    temp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+    """Create a temporary deterministic test media file inside storage root."""
+    from pathlib import Path
+    settings = get_settings()
+    storage_root = Path(settings.storage_local_path).resolve()
+    storage_root.mkdir(parents=True, exist_ok=True)
+    temp = tempfile.NamedTemporaryFile(dir=storage_root, suffix=".mp4", delete=False)
     temp.write(b"AryaOS Deterministic Video Binary Content")
     temp.close()
     yield temp.name
@@ -342,6 +346,48 @@ def test_publishing_publish_path_traversal_blocked(auth_client):
     )
     assert res.status_code == 403
     assert "path traversal detected" in res.json()["detail"]
+
+
+def test_publishing_publish_absolute_path_outside_storage_blocked(auth_client):
+    """Verify absolute paths outside storage root are rejected with HTTP 403."""
+    target = os.path.abspath("pyproject.toml")
+    res = auth_client.post(
+        "/publishing/publish",
+        json={
+            "asset_storage_path": target,
+            "title": "Exfiltration Attempt",
+            "caption": "Arbitrary file disclosure",
+            "dry_run": True,
+        },
+    )
+    assert res.status_code == 403
+    assert "path traversal detected" in res.json()["detail"]
+
+
+def test_publishing_publish_symlink_escape_blocked(auth_client):
+    """Verify symlinks within storage pointing outside storage root are rejected with HTTP 403."""
+    from pathlib import Path
+    settings = get_settings()
+    storage_root = Path(settings.storage_local_path).resolve()
+    storage_root.mkdir(parents=True, exist_ok=True)
+    symlink_path = storage_root / f"symlink_escape_{uuid.uuid4().hex[:8]}.mp4"
+    target_file = Path(os.path.abspath("pyproject.toml"))
+    try:
+        os.symlink(target_file, symlink_path)
+        res = auth_client.post(
+            "/publishing/publish",
+            json={
+                "asset_storage_path": str(symlink_path),
+                "title": "Symlink Attack",
+                "caption": "Symlink traversal",
+                "dry_run": True,
+            },
+        )
+        assert res.status_code == 403
+        assert "path traversal detected" in res.json()["detail"]
+    finally:
+        if symlink_path.is_symlink() or symlink_path.exists():
+            symlink_path.unlink(missing_ok=True)
 
 
 def test_publishing_requires_auth(unauth_client, temp_media_file):

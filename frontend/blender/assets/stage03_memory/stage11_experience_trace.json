@@ -1,0 +1,53 @@
+{
+  "stage": "STAGE_11_EXPERIENCE_STORE",
+  "generatedAt": "2026-10-02T03:13:30.000Z",
+  "experiencesCount": 2,
+  "experiences": [
+    {
+      "experienceId": "exp-1790910504101-9a8b7c",
+      "goalId": "goal-stage11-eval",
+      "actionId": "act-memory-synth",
+      "agentId": "specialist-analyst",
+      "providerId": "gemini",
+      "capability": "SUMMARIZATION",
+      "taskType": "MEMORY_SYNTHESIS",
+      "executionId": "exec-101",
+      "planVersion": 1,
+      "inputFingerprint": "9a8f4c21e5b3d7a0491823bcdef012349a8f4c21e5b3d7a0491823bcdef01234",
+      "outputFingerprint": "7b6e5d4c3b2a1f0e897a6b5c4d3e2f1a7b6e5d4c3b2a1f0e897a6b5c4d3e2f1a",
+      "cost": 0.0042,
+      "latencyMs": 1240,
+      "status": "SUCCEEDED",
+      "humanDecision": "APPROVED",
+      "timestamp": "2026-10-02T03:12:10.000Z",
+      "provenance": {
+        "sourceMemoryId": "mem-vitrine-01",
+        "authorization": "[REDACTED_SECRET]",
+        "api_key": "[REDACTED_SECRET]",
+        "operator": "LeadArchitect"
+      }
+    },
+    {
+      "experienceId": "exp-1790910504102-1a2b3c",
+      "goalId": "goal-stage11-eval",
+      "actionId": "act-sec-audit",
+      "agentId": "specialist-coder",
+      "providerId": "ollama",
+      "capability": "CODE_GENERATION",
+      "taskType": "SECURITY_AUDIT",
+      "executionId": "exec-102",
+      "planVersion": 1,
+      "inputFingerprint": "5c4d3e2f1a0b9a8f4c21e5b3d7a049185c4d3e2f1a0b9a8f4c21e5b3d7a04918",
+      "outputFingerprint": "1f2e3d4c5b6a7980897a6b5c4d3e2f1a1f2e3d4c5b6a7980897a6b5c4d3e2f1a",
+      "cost": "UNKNOWN",
+      "latencyMs": 850,
+      "status": "SUCCEEDED",
+      "timestamp": "2026-10-02T03:12:15.000Z",
+      "provenance": {
+        "sourceMemoryId": "mem-vitrine-07",
+        "bearer_token": "Bearer [REDACTED_TOKEN]",
+        "operator": "AutomatedScheduler"
+      }
+    }
+  ]
+}

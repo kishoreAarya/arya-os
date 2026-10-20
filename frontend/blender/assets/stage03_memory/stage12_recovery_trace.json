@@ -1,0 +1,62 @@
+{
+  "traceId": "trace-recovery-simulation-001",
+  "missionId": "mission-enterprise-sync-088",
+  "incident": {
+    "type": "SIMULATED_PROCESS_CRASH",
+    "timestamp": "2026-10-02T08:30:12.000Z",
+    "lastKnownActiveGoal": "goal-sync-records-03"
+  },
+  "preCrashCheckpoint": {
+    "checkpointId": "chk-m88-v1-step2",
+    "timestamp": "2026-10-02T08:28:00.000Z",
+    "planVersion": 1,
+    "completedGoalIds": ["goal-fetch-schema-01", "goal-validate-keys-02"],
+    "inFlightGoalIds": ["goal-sync-records-03"],
+    "pendingGoalIds": ["goal-generate-report-04"],
+    "totalTokensConsumed": 18200,
+    "stateHash": "9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e"
+  },
+  "recoveryExecution": {
+    "engine": "missionCheckpointService",
+    "reconciliationTimestamp": "2026-10-02T08:32:00.000Z",
+    "inspectedGoals": [
+      {
+        "goalId": "goal-fetch-schema-01",
+        "checkpointState": "COMPLETED",
+        "action": "PRESERVE_IMMUTABLE",
+        "finalState": "COMPLETED"
+      },
+      {
+        "goalId": "goal-validate-keys-02",
+        "checkpointState": "COMPLETED",
+        "action": "PRESERVE_IMMUTABLE",
+        "finalState": "COMPLETED"
+      },
+      {
+        "goalId": "goal-sync-records-03",
+        "checkpointState": "RUNNING",
+        "action": "RECONCILE_ORPHANED_TO_PENDING",
+        "justification": "Task was in-flight at crash; incomplete outputs purged from memory buffer; rolled back to PENDING for safe atomic re-dispatch",
+        "finalState": "PENDING"
+      },
+      {
+        "goalId": "goal-generate-report-04",
+        "checkpointState": "PENDING",
+        "action": "PRESERVE_PENDING",
+        "finalState": "PENDING"
+      }
+    ],
+    "reconciledFrontier": ["goal-sync-records-03"],
+    "postRecoveryMissionStatus": "ACTIVE",
+    "dataLossDetected": false,
+    "duplicateExecutionAvoided": ["goal-fetch-schema-01", "goal-validate-keys-02"]
+  },
+  "verification": {
+    "reconciliationSuccess": true,
+    "invariantsUpheld": [
+      "Completed goals remained strictly unmodified",
+      "In-flight orphaned goal safely reset to frontier",
+      "Execution resumed without duplicate side effects"
+    ]
+  }
+}

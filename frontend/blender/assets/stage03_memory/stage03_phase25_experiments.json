@@ -1,0 +1,1382 @@
+{
+  "metadata": {
+    "phase": "2.5",
+    "date": "2026-10-01",
+    "status": "complete",
+    "benchmark_target": "memory_hero.jpg"
+  },
+  "experiments": {
+    "exp_baseline_p24": {
+      "id": "exp_baseline_p24",
+      "name": "Phase 2.4 Baseline (Variant E starting point)",
+      "config": {
+        "variant": "E",
+        "toneMapping": "ACESFilmic",
+        "exposure": 0.8122,
+        "planarReflection": true,
+        "planarIntensity": 0.38,
+        "fogColor": "#38485c",
+        "fogDensity": 0.004,
+        "ambientIntensity": 0.3,
+        "daisBounceIntensity": 3.5
+      },
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp_baseline_p24_hero.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 9,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.37,
+            "fps": 731.7
+          },
+          "vs_target_reference": {
+            "mae": 48.77,
+            "rmse": 64.09,
+            "psnr": 11.99,
+            "ssim": 0.074,
+            "floor_mae": 39.07,
+            "core_mae": 68.55,
+            "sky_mae": 51.17,
+            "mean_rgb": [
+              20.3,
+              25.11,
+              31.55
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 17.34,
+            "rmse": 27.51,
+            "psnr": 19.34,
+            "ssim": 0.5506,
+            "floor_mae": 17.55,
+            "core_mae": 22.11,
+            "sky_mae": 13.23,
+            "mean_rgb": [
+              20.29,
+              25.1,
+              31.54
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 0.0,
+            "rmse": 0.14,
+            "psnr": 65.03,
+            "ssim": 1.0,
+            "floor_mae": 0.0,
+            "core_mae": 0.0,
+            "sky_mae": 0.0,
+            "mean_rgb": [
+              20.29,
+              25.1,
+              31.54
+            ]
+          }
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp_baseline_p24_monumental.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 9,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.92,
+            "fps": 1090.9
+          },
+          "vs_target_reference": {
+            "mae": 51.78,
+            "rmse": 68.75,
+            "psnr": 11.39,
+            "ssim": 0.0111,
+            "floor_mae": 47.88,
+            "core_mae": 50.17,
+            "sky_mae": 58.27,
+            "mean_rgb": [
+              13.03,
+              16.07,
+              20.6
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 16.08,
+            "rmse": 30.7,
+            "psnr": 18.39,
+            "ssim": 0.4243,
+            "floor_mae": 18.41,
+            "core_mae": 11.32,
+            "sky_mae": 11.32,
+            "mean_rgb": [
+              13.02,
+              16.06,
+              20.59
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 0.0,
+            "rmse": 0.17,
+            "psnr": 63.41,
+            "ssim": 1.0,
+            "floor_mae": 0.0,
+            "core_mae": 0.0,
+            "sky_mae": 0.0,
+            "mean_rgb": [
+              13.02,
+              16.06,
+              20.59
+            ]
+          }
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp_baseline_p24_detail.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 9,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.07,
+            "fps": 937.5
+          },
+          "vs_target_reference": {
+            "mae": 60.93,
+            "rmse": 82.67,
+            "psnr": 9.78,
+            "ssim": 0.0752,
+            "floor_mae": 46.12,
+            "core_mae": 86.49,
+            "sky_mae": 67.91,
+            "mean_rgb": [
+              28.48,
+              27.16,
+              27.11
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 25.51,
+            "rmse": 42.65,
+            "psnr": 15.53,
+            "ssim": 0.196,
+            "floor_mae": 30.35,
+            "core_mae": 17.55,
+            "sky_mae": 23.46,
+            "mean_rgb": [
+              28.46,
+              27.15,
+              27.1
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 0.0,
+            "rmse": 0.16,
+            "psnr": 63.85,
+            "ssim": 1.0,
+            "floor_mae": 0.0,
+            "core_mae": 0.0,
+            "sky_mae": 0.0,
+            "mean_rgb": [
+              28.46,
+              27.15,
+              27.1
+            ]
+          }
+        }
+      }
+    },
+    "exp1_fog_linear": {
+      "id": "exp1_fog_linear",
+      "name": "Exp 1: Linear Atmospheric Fog (Near: 22m, Far: 190m)",
+      "config": {
+        "variant": "E",
+        "fogType": "linear",
+        "fogNear": 22.0,
+        "fogFar": 190.0,
+        "fogColor": "#38485c",
+        "ambientIntensity": 0.3,
+        "planarIntensity": 0.38
+      },
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp1_fog_linear_hero.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 12,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.7,
+            "fps": 588.2
+          },
+          "vs_target_reference": {
+            "mae": 43.54,
+            "rmse": 59.46,
+            "psnr": 12.65,
+            "ssim": 0.1062,
+            "floor_mae": 37.45,
+            "core_mae": 64.44,
+            "sky_mae": 44.36,
+            "mean_rgb": [
+              25.03,
+              31.16,
+              39.18
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 23.27,
+            "rmse": 32.11,
+            "psnr": 18.0,
+            "ssim": 0.4258,
+            "floor_mae": 19.46,
+            "core_mae": 27.94,
+            "sky_mae": 21.49,
+            "mean_rgb": [
+              25.01,
+              31.15,
+              39.17
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 6.32,
+            "rmse": 11.89,
+            "psnr": 26.63,
+            "ssim": 0.9241,
+            "floor_mae": 2.23,
+            "core_mae": 6.68,
+            "sky_mae": 8.61,
+            "mean_rgb": [
+              25.01,
+              31.15,
+              39.17
+            ]
+          }
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp1_fog_linear_monumental.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 12,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.48,
+            "fps": 675.7
+          },
+          "vs_target_reference": {
+            "mae": 47.4,
+            "rmse": 64.31,
+            "psnr": 11.96,
+            "ssim": 0.0252,
+            "floor_mae": 45.31,
+            "core_mae": 49.23,
+            "sky_mae": 51.81,
+            "mean_rgb": [
+              18.63,
+              23.22,
+              29.66
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 23.18,
+            "rmse": 35.62,
+            "psnr": 17.1,
+            "ssim": 0.2786,
+            "floor_mae": 22.27,
+            "core_mae": 19.93,
+            "sky_mae": 22.17,
+            "mean_rgb": [
+              18.62,
+              23.21,
+              29.65
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 7.55,
+            "rmse": 13.19,
+            "psnr": 25.73,
+            "ssim": 0.8479,
+            "floor_mae": 4.17,
+            "core_mae": 8.98,
+            "sky_mae": 11.07,
+            "mean_rgb": [
+              18.62,
+              23.21,
+              29.65
+            ]
+          }
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp1_fog_linear_detail.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 12,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.51,
+            "fps": 660.8
+          },
+          "vs_target_reference": {
+            "mae": 57.86,
+            "rmse": 79.54,
+            "psnr": 10.12,
+            "ssim": 0.0975,
+            "floor_mae": 46.14,
+            "core_mae": 77.16,
+            "sky_mae": 61.44,
+            "mean_rgb": [
+              31.13,
+              30.59,
+              31.45
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 28.64,
+            "rmse": 44.14,
+            "psnr": 15.23,
+            "ssim": 0.1545,
+            "floor_mae": 30.35,
+            "core_mae": 26.26,
+            "sky_mae": 30.37,
+            "mean_rgb": [
+              31.11,
+              30.58,
+              31.44
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 3.66,
+            "rmse": 8.58,
+            "psnr": 29.46,
+            "ssim": 0.969,
+            "floor_mae": 0.14,
+            "core_mae": 10.24,
+            "sky_mae": 7.58,
+            "mean_rgb": [
+              31.11,
+              30.58,
+              31.44
+            ]
+          }
+        }
+      }
+    },
+    "exp2_ambient_fill": {
+      "id": "exp2_ambient_fill",
+      "name": "Exp 2: Indirect Ambient Fill Calibration (DARK != PURE BLACK)",
+      "config": {
+        "variant": "E",
+        "fogType": "linear",
+        "fogNear": 22.0,
+        "fogFar": 190.0,
+        "fogColor": "#38485c",
+        "ambientIntensity": 0.34,
+        "ambientColor": "#1a2636",
+        "daisBounceIntensity": 4.0,
+        "daisBounceRange": 30.0,
+        "planarIntensity": 0.38
+      },
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp2_ambient_fill_hero.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 15,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.45,
+            "fps": 688.1
+          },
+          "vs_target_reference": {
+            "mae": 43.55,
+            "rmse": 59.47,
+            "psnr": 12.65,
+            "ssim": 0.106,
+            "floor_mae": 37.47,
+            "core_mae": 64.44,
+            "sky_mae": 44.36,
+            "mean_rgb": [
+              25.06,
+              31.18,
+              39.19
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 23.29,
+            "rmse": 32.16,
+            "psnr": 17.98,
+            "ssim": 0.4247,
+            "floor_mae": 19.51,
+            "core_mae": 27.94,
+            "sky_mae": 21.49,
+            "mean_rgb": [
+              25.05,
+              31.17,
+              39.18
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 6.34,
+            "rmse": 11.91,
+            "psnr": 26.61,
+            "ssim": 0.9238,
+            "floor_mae": 2.28,
+            "core_mae": 6.69,
+            "sky_mae": 8.61,
+            "mean_rgb": [
+              25.05,
+              31.17,
+              39.18
+            ]
+          }
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp2_ambient_fill_monumental.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 15,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.78,
+            "fps": 1282.1
+          },
+          "vs_target_reference": {
+            "mae": 47.39,
+            "rmse": 64.31,
+            "psnr": 11.97,
+            "ssim": 0.0248,
+            "floor_mae": 45.3,
+            "core_mae": 49.23,
+            "sky_mae": 51.8,
+            "mean_rgb": [
+              18.68,
+              23.24,
+              29.66
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 23.19,
+            "rmse": 35.63,
+            "psnr": 17.1,
+            "ssim": 0.2783,
+            "floor_mae": 22.29,
+            "core_mae": 19.93,
+            "sky_mae": 22.17,
+            "mean_rgb": [
+              18.67,
+              23.23,
+              29.65
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 7.57,
+            "rmse": 13.19,
+            "psnr": 25.72,
+            "ssim": 0.8477,
+            "floor_mae": 4.22,
+            "core_mae": 8.98,
+            "sky_mae": 11.07,
+            "mean_rgb": [
+              18.67,
+              23.23,
+              29.65
+            ]
+          }
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp2_ambient_fill_detail.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 15,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.94,
+            "fps": 1063.8
+          },
+          "vs_target_reference": {
+            "mae": 57.87,
+            "rmse": 79.54,
+            "psnr": 10.12,
+            "ssim": 0.0975,
+            "floor_mae": 46.16,
+            "core_mae": 77.16,
+            "sky_mae": 61.44,
+            "mean_rgb": [
+              31.19,
+              30.64,
+              31.47
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 28.68,
+            "rmse": 44.22,
+            "psnr": 15.22,
+            "ssim": 0.1534,
+            "floor_mae": 30.47,
+            "core_mae": 26.26,
+            "sky_mae": 30.37,
+            "mean_rgb": [
+              31.17,
+              30.62,
+              31.46
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 3.7,
+            "rmse": 8.63,
+            "psnr": 29.41,
+            "ssim": 0.9686,
+            "floor_mae": 0.25,
+            "core_mae": 10.24,
+            "sky_mae": 7.59,
+            "mean_rgb": [
+              31.17,
+              30.62,
+              31.46
+            ]
+          }
+        }
+      }
+    },
+    "exp3_wet_floor_pbr": {
+      "id": "exp3_wet_floor_pbr",
+      "name": "Exp 3: Wet Obsidian Floor PBR & Planar Tint Refinement",
+      "config": {
+        "variant": "E",
+        "fogType": "linear",
+        "fogNear": 22.0,
+        "fogFar": 190.0,
+        "fogColor": "#38485c",
+        "ambientIntensity": 0.34,
+        "ambientColor": "#1a2636",
+        "planarIntensity": 0.34,
+        "planarTint": "#0a1420",
+        "floorRoughness": 0.24,
+        "floorClearcoat": 0.58,
+        "floorClearcoatRoughness": 0.12,
+        "daisBounceIntensity": 4.0,
+        "daisBounceRange": 30.0
+      },
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp3_wet_floor_pbr_hero.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 18,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.94,
+            "fps": 1060.1
+          },
+          "vs_target_reference": {
+            "mae": 43.53,
+            "rmse": 59.47,
+            "psnr": 12.65,
+            "ssim": 0.1069,
+            "floor_mae": 37.4,
+            "core_mae": 64.44,
+            "sky_mae": 44.36,
+            "mean_rgb": [
+              25.03,
+              31.11,
+              39.08
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 23.23,
+            "rmse": 32.12,
+            "psnr": 18.0,
+            "ssim": 0.4253,
+            "floor_mae": 19.34,
+            "core_mae": 27.94,
+            "sky_mae": 21.49,
+            "mean_rgb": [
+              25.01,
+              31.1,
+              39.07
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 6.42,
+            "rmse": 11.93,
+            "psnr": 26.6,
+            "ssim": 0.9236,
+            "floor_mae": 2.5,
+            "core_mae": 6.7,
+            "sky_mae": 8.61,
+            "mean_rgb": [
+              25.01,
+              31.1,
+              39.07
+            ]
+          }
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp3_wet_floor_pbr_monumental.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 18,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.91,
+            "fps": 1102.9
+          },
+          "vs_target_reference": {
+            "mae": 47.39,
+            "rmse": 64.31,
+            "psnr": 11.97,
+            "ssim": 0.0248,
+            "floor_mae": 45.3,
+            "core_mae": 49.23,
+            "sky_mae": 51.8,
+            "mean_rgb": [
+              18.68,
+              23.24,
+              29.66
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 23.19,
+            "rmse": 35.63,
+            "psnr": 17.1,
+            "ssim": 0.2782,
+            "floor_mae": 22.29,
+            "core_mae": 19.93,
+            "sky_mae": 22.17,
+            "mean_rgb": [
+              18.67,
+              23.23,
+              29.65
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 7.57,
+            "rmse": 13.2,
+            "psnr": 25.72,
+            "ssim": 0.8477,
+            "floor_mae": 4.22,
+            "core_mae": 8.98,
+            "sky_mae": 11.07,
+            "mean_rgb": [
+              18.67,
+              23.23,
+              29.65
+            ]
+          }
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp3_wet_floor_pbr_detail.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 18,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.18,
+            "fps": 845.1
+          },
+          "vs_target_reference": {
+            "mae": 57.92,
+            "rmse": 79.6,
+            "psnr": 10.11,
+            "ssim": 0.0982,
+            "floor_mae": 46.28,
+            "core_mae": 77.18,
+            "sky_mae": 61.44,
+            "mean_rgb": [
+              31.04,
+              30.45,
+              31.25
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 28.61,
+            "rmse": 44.27,
+            "psnr": 15.21,
+            "ssim": 0.1509,
+            "floor_mae": 30.31,
+            "core_mae": 26.26,
+            "sky_mae": 30.37,
+            "mean_rgb": [
+              31.03,
+              30.44,
+              31.24
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 3.9,
+            "rmse": 8.67,
+            "psnr": 29.37,
+            "ssim": 0.9684,
+            "floor_mae": 0.78,
+            "core_mae": 10.26,
+            "sky_mae": 7.59,
+            "mean_rgb": [
+              31.03,
+              30.44,
+              31.24
+            ]
+          }
+        }
+      }
+    },
+    "exp4_reactor_radiance": {
+      "id": "exp4_reactor_radiance",
+      "name": "Exp 4: Astrolabe Reactor Radiance & Dais Secondary GI",
+      "config": {
+        "variant": "E",
+        "fogType": "linear",
+        "fogNear": 22.0,
+        "fogFar": 190.0,
+        "fogColor": "#38485c",
+        "ambientIntensity": 0.34,
+        "ambientColor": "#1a2636",
+        "planarIntensity": 0.34,
+        "planarTint": "#0a1420",
+        "floorRoughness": 0.24,
+        "floorClearcoat": 0.58,
+        "floorClearcoatRoughness": 0.12,
+        "coreIntensity": 6.8,
+        "coreColor": "#ff9428",
+        "daisBounceIntensity": 4.2,
+        "daisBounceRange": 32.0,
+        "daisBounceColor": "#ff9024"
+      },
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp4_reactor_radiance_hero.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 21,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.32,
+            "fps": 759.5
+          },
+          "vs_target_reference": {
+            "mae": 43.53,
+            "rmse": 59.48,
+            "psnr": 12.64,
+            "ssim": 0.1067,
+            "floor_mae": 37.42,
+            "core_mae": 64.43,
+            "sky_mae": 44.36,
+            "mean_rgb": [
+              25.06,
+              31.14,
+              39.09
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 23.25,
+            "rmse": 32.18,
+            "psnr": 17.98,
+            "ssim": 0.4241,
+            "floor_mae": 19.4,
+            "core_mae": 27.95,
+            "sky_mae": 21.49,
+            "mean_rgb": [
+              25.05,
+              31.13,
+              39.08
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 6.44,
+            "rmse": 11.98,
+            "psnr": 26.56,
+            "ssim": 0.923,
+            "floor_mae": 2.55,
+            "core_mae": 6.7,
+            "sky_mae": 8.61,
+            "mean_rgb": [
+              25.05,
+              31.13,
+              39.08
+            ]
+          }
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp4_reactor_radiance_monumental.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 21,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.82,
+            "fps": 1219.5
+          },
+          "vs_target_reference": {
+            "mae": 47.39,
+            "rmse": 64.31,
+            "psnr": 11.97,
+            "ssim": 0.0246,
+            "floor_mae": 45.3,
+            "core_mae": 49.23,
+            "sky_mae": 51.8,
+            "mean_rgb": [
+              18.71,
+              23.25,
+              29.66
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 23.19,
+            "rmse": 35.63,
+            "psnr": 17.09,
+            "ssim": 0.2781,
+            "floor_mae": 22.31,
+            "core_mae": 19.93,
+            "sky_mae": 22.17,
+            "mean_rgb": [
+              18.7,
+              23.23,
+              29.66
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 7.58,
+            "rmse": 13.2,
+            "psnr": 25.72,
+            "ssim": 0.8476,
+            "floor_mae": 4.25,
+            "core_mae": 8.98,
+            "sky_mae": 11.07,
+            "mean_rgb": [
+              18.7,
+              23.23,
+              29.66
+            ]
+          }
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp4_reactor_radiance_detail.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 21,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.95,
+            "fps": 1049
+          },
+          "vs_target_reference": {
+            "mae": 57.92,
+            "rmse": 79.6,
+            "psnr": 10.11,
+            "ssim": 0.0982,
+            "floor_mae": 46.3,
+            "core_mae": 77.17,
+            "sky_mae": 61.44,
+            "mean_rgb": [
+              31.1,
+              30.5,
+              31.27
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 28.65,
+            "rmse": 44.34,
+            "psnr": 15.2,
+            "ssim": 0.1501,
+            "floor_mae": 30.41,
+            "core_mae": 26.26,
+            "sky_mae": 30.37,
+            "mean_rgb": [
+              31.09,
+              30.49,
+              31.26
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 3.94,
+            "rmse": 8.77,
+            "psnr": 29.27,
+            "ssim": 0.9677,
+            "floor_mae": 0.89,
+            "core_mae": 10.26,
+            "sky_mae": 7.59,
+            "mean_rgb": [
+              31.09,
+              30.49,
+              31.26
+            ]
+          }
+        }
+      }
+    },
+    "exp5_museum_vitrines": {
+      "id": "exp5_museum_vitrines",
+      "name": "Exp 5: Museum Vitrine Smoked Glass & Internal Voxel Archetypes",
+      "config": {
+        "variant": "E",
+        "fogType": "linear",
+        "fogNear": 22.0,
+        "fogFar": 190.0,
+        "fogColor": "#38485c",
+        "ambientIntensity": 0.34,
+        "ambientColor": "#1a2636",
+        "planarIntensity": 0.34,
+        "planarTint": "#0a1420",
+        "floorRoughness": 0.24,
+        "floorClearcoat": 0.58,
+        "floorClearcoatRoughness": 0.12,
+        "coreIntensity": 6.8,
+        "coreColor": "#ff9428",
+        "daisBounceIntensity": 4.2,
+        "daisBounceRange": 32.0,
+        "glassColor": "#141e2a",
+        "glassOpacity": 0.2
+      },
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp5_museum_vitrines_hero.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 24,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.94,
+            "fps": 1060.1
+          },
+          "vs_target_reference": {
+            "mae": 43.56,
+            "rmse": 59.52,
+            "psnr": 12.64,
+            "ssim": 0.106,
+            "floor_mae": 37.5,
+            "core_mae": 64.43,
+            "sky_mae": 44.36,
+            "mean_rgb": [
+              25.13,
+              31.21,
+              39.16
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 23.31,
+            "rmse": 32.3,
+            "psnr": 17.95,
+            "ssim": 0.422,
+            "floor_mae": 19.54,
+            "core_mae": 27.95,
+            "sky_mae": 21.49,
+            "mean_rgb": [
+              25.11,
+              31.19,
+              39.15
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 6.51,
+            "rmse": 12.0,
+            "psnr": 26.55,
+            "ssim": 0.923,
+            "floor_mae": 2.73,
+            "core_mae": 6.71,
+            "sky_mae": 8.61,
+            "mean_rgb": [
+              25.11,
+              31.19,
+              39.15
+            ]
+          }
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp5_museum_vitrines_monumental.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 24,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.77,
+            "fps": 565
+          },
+          "vs_target_reference": {
+            "mae": 47.38,
+            "rmse": 64.3,
+            "psnr": 11.97,
+            "ssim": 0.0246,
+            "floor_mae": 45.26,
+            "core_mae": 49.23,
+            "sky_mae": 51.81,
+            "mean_rgb": [
+              18.78,
+              23.33,
+              29.76
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 23.26,
+            "rmse": 35.71,
+            "psnr": 17.08,
+            "ssim": 0.2773,
+            "floor_mae": 22.41,
+            "core_mae": 19.93,
+            "sky_mae": 22.17,
+            "mean_rgb": [
+              18.77,
+              23.32,
+              29.76
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 7.67,
+            "rmse": 13.23,
+            "psnr": 25.7,
+            "ssim": 0.8473,
+            "floor_mae": 4.37,
+            "core_mae": 8.98,
+            "sky_mae": 11.07,
+            "mean_rgb": [
+              18.77,
+              23.32,
+              29.76
+            ]
+          }
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_exp5_museum_vitrines_detail.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 24,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.11,
+            "fps": 898.2
+          },
+          "vs_target_reference": {
+            "mae": 57.93,
+            "rmse": 79.61,
+            "psnr": 10.11,
+            "ssim": 0.0986,
+            "floor_mae": 46.31,
+            "core_mae": 77.13,
+            "sky_mae": 61.45,
+            "mean_rgb": [
+              31.27,
+              30.64,
+              31.36
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 28.79,
+            "rmse": 44.58,
+            "psnr": 15.15,
+            "ssim": 0.1481,
+            "floor_mae": 30.46,
+            "core_mae": 26.57,
+            "sky_mae": 30.49,
+            "mean_rgb": [
+              31.25,
+              30.62,
+              31.35
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 4.09,
+            "rmse": 8.86,
+            "psnr": 29.18,
+            "ssim": 0.9671,
+            "floor_mae": 0.92,
+            "core_mae": 10.59,
+            "sky_mae": 7.73,
+            "mean_rgb": [
+              31.25,
+              30.62,
+              31.35
+            ]
+          }
+        }
+      }
+    },
+    "variant_p25_final": {
+      "id": "variant_p25_final",
+      "name": "Phase 2.5 Converged Cinematic Fidelity Profile",
+      "config": {
+        "variant": "E",
+        "toneMapping": "ACESFilmic",
+        "exposure": 0.8122,
+        "fogType": "linear",
+        "fogNear": 22.0,
+        "fogFar": 190.0,
+        "fogColor": "#38485c",
+        "ambientIntensity": 0.34,
+        "ambientColor": "#1a2636",
+        "planarReflection": true,
+        "planarIntensity": 0.34,
+        "planarTint": "#0a1420",
+        "floorRoughness": 0.24,
+        "floorClearcoat": 0.58,
+        "floorClearcoatRoughness": 0.12,
+        "coreIntensity": 6.8,
+        "coreColor": "#ff9428",
+        "daisBounceIntensity": 4.2,
+        "daisBounceRange": 32.0,
+        "daisBounceColor": "#ff9024",
+        "glassColor": "#141e2a",
+        "glassOpacity": 0.2,
+        "renderMode": "standard"
+      },
+      "views": {
+        "hero": {
+          "camera": "CAM_CinematicHero",
+          "title": "Cinematic Hero Establishing",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_variant_p25_final_hero.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 27,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.64,
+            "fps": 611
+          },
+          "vs_target_reference": {
+            "mae": 43.56,
+            "rmse": 59.52,
+            "psnr": 12.64,
+            "ssim": 0.106,
+            "floor_mae": 37.5,
+            "core_mae": 64.43,
+            "sky_mae": 44.36,
+            "mean_rgb": [
+              25.13,
+              31.21,
+              39.16
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 23.31,
+            "rmse": 32.3,
+            "psnr": 17.95,
+            "ssim": 0.4219,
+            "floor_mae": 19.54,
+            "core_mae": 27.96,
+            "sky_mae": 21.49,
+            "mean_rgb": [
+              25.11,
+              31.19,
+              39.15
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 6.51,
+            "rmse": 12.0,
+            "psnr": 26.55,
+            "ssim": 0.923,
+            "floor_mae": 2.73,
+            "core_mae": 6.71,
+            "sky_mae": 8.61,
+            "mean_rgb": [
+              25.11,
+              31.19,
+              39.15
+            ]
+          }
+        },
+        "monumental": {
+          "camera": "CAM_MonumentalLowAngle",
+          "title": "Monumental Rotunda Colonnade",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_variant_p25_final_monumental.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 27,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 0.99,
+            "fps": 1010.1
+          },
+          "vs_target_reference": {
+            "mae": 47.38,
+            "rmse": 64.3,
+            "psnr": 11.97,
+            "ssim": 0.0246,
+            "floor_mae": 45.25,
+            "core_mae": 49.23,
+            "sky_mae": 51.81,
+            "mean_rgb": [
+              18.78,
+              23.33,
+              29.76
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 23.26,
+            "rmse": 35.71,
+            "psnr": 17.07,
+            "ssim": 0.2773,
+            "floor_mae": 22.41,
+            "core_mae": 19.93,
+            "sky_mae": 22.17,
+            "mean_rgb": [
+              18.77,
+              23.31,
+              29.76
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 7.67,
+            "rmse": 13.23,
+            "psnr": 25.7,
+            "ssim": 0.8472,
+            "floor_mae": 4.37,
+            "core_mae": 8.98,
+            "sky_mae": 11.07,
+            "mean_rgb": [
+              18.77,
+              23.31,
+              29.76
+            ]
+          }
+        },
+        "detail": {
+          "camera": "CAM_ArchiveDetail",
+          "title": "Archival Vitrine Detail",
+          "render_file": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/exp_p25_variant_p25_final_detail.png",
+          "performance": {
+            "drawCalls": 53,
+            "triangles": 86842,
+            "points": 0,
+            "lines": 0,
+            "geometries": 63,
+            "textures": 27,
+            "gpuMemoryMb": 4.57,
+            "frameTimeMs": 1.4,
+            "fps": 714.3
+          },
+          "vs_target_reference": {
+            "mae": 57.93,
+            "rmse": 79.61,
+            "psnr": 10.11,
+            "ssim": 0.0986,
+            "floor_mae": 46.31,
+            "core_mae": 77.13,
+            "sky_mae": 61.45,
+            "mean_rgb": [
+              31.27,
+              30.64,
+              31.36
+            ]
+          },
+          "vs_clean_benchmark": {
+            "mae": 28.79,
+            "rmse": 44.58,
+            "psnr": 15.15,
+            "ssim": 0.1481,
+            "floor_mae": 30.46,
+            "core_mae": 26.57,
+            "sky_mae": 30.49,
+            "mean_rgb": [
+              31.25,
+              30.62,
+              31.35
+            ]
+          },
+          "vs_phase24_baseline": {
+            "mae": 4.09,
+            "rmse": 8.86,
+            "psnr": 29.18,
+            "ssim": 0.9671,
+            "floor_mae": 0.92,
+            "core_mae": 10.59,
+            "sky_mae": 7.73,
+            "mean_rgb": [
+              31.25,
+              30.62,
+              31.35
+            ]
+          }
+        }
+      }
+    }
+  }
+}

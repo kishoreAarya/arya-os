@@ -1,0 +1,86 @@
+{
+  "stage": 16,
+  "title": "Connector Fabric Lifecycle Trace",
+  "timestamp": "2026-10-02T05:55:00.000Z",
+  "connectors": [
+    {
+      "id": "connector_filesystem",
+      "name": "Local Filesystem Connector",
+      "type": "FILESYSTEM",
+      "status": "ACTIVE",
+      "health": "HEALTHY",
+      "version": "1.0.0",
+      "credentialRef": {
+        "credentialId": "cred_ref_fs_local",
+        "credentialType": "LOCAL_CREDENTIAL",
+        "status": "VALID"
+      },
+      "capabilities": ["filesystem.read", "filesystem.write"],
+      "permissionVersion": 1
+    },
+    {
+      "id": "connector_github",
+      "name": "GitHub VCS Connector",
+      "type": "GITHUB",
+      "status": "CONFIGURING",
+      "health": "AUTH_REQUIRED",
+      "version": "1.0.0",
+      "credentialRef": {
+        "credentialId": "cred_ref_gh_default",
+        "credentialType": "OAUTH2",
+        "status": "CONFIGURATION_REQUIRED"
+      },
+      "capabilities": ["github.issue_read", "github.issue_write"],
+      "permissionVersion": 1
+    },
+    {
+      "id": "connector_web",
+      "name": "Web Query Connector",
+      "type": "WEB",
+      "status": "ACTIVE",
+      "health": "HEALTHY",
+      "version": "1.0.0",
+      "credentialRef": {
+        "credentialId": "cred_ref_web_public",
+        "credentialType": "NONE",
+        "status": "VALID"
+      },
+      "capabilities": ["web.search"],
+      "permissionVersion": 1
+    }
+  ],
+  "lifecycleEvents": [
+    {
+      "eventId": "cle_conn_lifecycle_01",
+      "connectorId": "conn_lifecycle_test",
+      "fromState": "DISCOVERED",
+      "toState": "CONFIGURING",
+      "actor": "OPERATOR",
+      "reason": "Configure settings"
+    },
+    {
+      "eventId": "cle_conn_lifecycle_02",
+      "connectorId": "conn_lifecycle_test",
+      "fromState": "CONFIGURING",
+      "toState": "AUTHENTICATING",
+      "actor": "OPERATOR",
+      "reason": "Start auth"
+    },
+    {
+      "eventId": "cle_conn_lifecycle_03",
+      "connectorId": "conn_lifecycle_test",
+      "fromState": "AUTHENTICATING",
+      "toState": "CONNECTED",
+      "actor": "OPERATOR",
+      "reason": "Handshake ok"
+    },
+    {
+      "eventId": "cle_conn_lifecycle_04",
+      "connectorId": "conn_lifecycle_test",
+      "fromState": "CONNECTED",
+      "toState": "ACTIVE",
+      "actor": "OPERATOR",
+      "reason": "Activate"
+    }
+  ]
+}

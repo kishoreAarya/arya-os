@@ -1,0 +1,534 @@
+{
+  "stage": 23,
+  "phase": 3,
+  "subsystem": "recoveryPlanService",
+  "generatedAt": "2026-10-03T08:31:24.724Z",
+  "architecturalAxioms": [
+    "RECOVERY PLAN ≠ EXECUTION. Pure deterministic safe-next-state generation.",
+    "Zero execution logic, zero direct API calls, zero Action Bus dispatches.",
+    "Plans default strictly to PROPOSED lifecycle state with governanceDecisionId undefined.",
+    "UNKNOWN external state implies Reconciliation-First (never blind retry).",
+    "Confirmed successful operations strictly forbid duplicate side-effects (routes to WAIT)."
+  ],
+  "traces": [
+    {
+      "scenario": "PRE_DISPATCH_TRANSIENT_NETWORK_RETRY",
+      "input": {
+        "originalOperationId": "op-plan-transient-01",
+        "causationId": "cause-plan-01",
+        "correlationId": "corr-plan-01",
+        "classificationResult": {
+          "classification": "TRANSIENT",
+          "reasonCode": "TRANSIENT_NETWORK_FAILURE",
+          "epistemicStatus": "OBSERVED",
+          "explanation": "Transient connection timeout prior to dispatch.",
+          "evidenceReferences": [],
+          "causationId": "cause-plan-01",
+          "correlationId": "corr-plan-01",
+          "classifiedAt": 1791016200000
+        },
+        "dispatchState": "NOT_DISPATCHED",
+        "idempotency": "IDEMPOTENT",
+        "riskLevel": "LOW",
+        "confirmedSuccess": false
+      },
+      "generatedPlan": {
+        "recoveryPlanId": "rec_plan_op-plan-transient-01_1791016284722_x4s08",
+        "originalOperationId": "op-plan-transient-01",
+        "failureClassification": "TRANSIENT",
+        "currentTruthState": "TRANSIENT_AT_NOT_DISPATCHED",
+        "proposedRecoveryAction": "RETRY",
+        "riskLevel": "LOW",
+        "idempotencyAssessment": "IDEMPOTENT",
+        "requiredAuthority": [
+          "ACTION_BUS_DISPATCH"
+        ],
+        "approvalRequirement": {
+          "required": false
+        },
+        "reconciliationRequirement": {
+          "required": false
+        },
+        "compensationPlan": {
+          "availability": "NO_COMPENSATION_AVAILABLE"
+        },
+        "expectedOutcome": "Transient network failure occurred strictly before dispatch on idempotent operation. Eligible for safe retry.",
+        "expiry": 1791016584722,
+        "causationId": "cause-plan-01",
+        "correlationId": "corr-plan-01",
+        "createdAt": 1791016284722,
+        "lifecycleState": "PROPOSED",
+        "evidenceReferences": []
+      }
+    },
+    {
+      "scenario": "POST_DISPATCH_TIMEOUT_UNKNOWN_EXTERNAL_STATE_RECONCILE",
+      "input": {
+        "originalOperationId": "op-plan-timeout-02",
+        "causationId": "cause-plan-02",
+        "correlationId": "corr-plan-02",
+        "classificationResult": {
+          "classification": "UNKNOWN_EXTERNAL_STATE",
+          "reasonCode": "TIMEOUT_AFTER_DISPATCH",
+          "epistemicStatus": "UNKNOWN",
+          "explanation": "Operation timed out post-dispatch with no external confirmation.",
+          "evidenceReferences": [],
+          "causationId": "cause-plan-02",
+          "correlationId": "corr-plan-02",
+          "classifiedAt": 1791016200000
+        },
+        "dispatchState": "TIMEOUT",
+        "idempotency": "IDEMPOTENT",
+        "riskLevel": "MEDIUM",
+        "confirmedSuccess": false
+      },
+      "generatedPlan": {
+        "recoveryPlanId": "rec_plan_op-plan-timeout-02_1791016284723_0gwv8",
+        "originalOperationId": "op-plan-timeout-02",
+        "failureClassification": "UNKNOWN_EXTERNAL_STATE",
+        "currentTruthState": "UNKNOWN_EXTERNAL_STATE_AT_TIMEOUT",
+        "proposedRecoveryAction": "RECONCILE",
+        "riskLevel": "MEDIUM",
+        "idempotencyAssessment": "IDEMPOTENT",
+        "requiredAuthority": [
+          "CONNECTOR_PROBE",
+          "ACTION_RECONCILIATION"
+        ],
+        "approvalRequirement": {
+          "required": false
+        },
+        "reconciliationRequirement": {
+          "required": true,
+          "probeType": "STATUS_POLL",
+          "timeoutMs": 10000
+        },
+        "compensationPlan": {
+          "availability": "NO_COMPENSATION_AVAILABLE"
+        },
+        "expectedOutcome": "Action dispatched but external state unconfirmed. Bounded reconciliation probe scheduled before progression.",
+        "expiry": 1791016584723,
+        "causationId": "cause-plan-02",
+        "correlationId": "corr-plan-02",
+        "createdAt": 1791016284723,
+        "lifecycleState": "PROPOSED",
+        "evidenceReferences": []
+      }
+    },
+    {
+      "scenario": "POST_DISPATCH_HTTP_500_NON_IDEMPOTENT_RECONCILE_APPROVAL",
+      "input": {
+        "originalOperationId": "op-plan-500-nonidemp-03",
+        "causationId": "cause-plan-03",
+        "correlationId": "corr-plan-03",
+        "classificationResult": {
+          "classification": "UNKNOWN_EXTERNAL_STATE",
+          "reasonCode": "UNCONFIRMED_POST_DISPATCH",
+          "epistemicStatus": "UNKNOWN",
+          "explanation": "HTTP 500 received post-dispatch on non-idempotent operation.",
+          "evidenceReferences": [],
+          "causationId": "cause-plan-03",
+          "correlationId": "corr-plan-03",
+          "classifiedAt": 1791016200000
+        },
+        "dispatchState": "DISPATCHED",
+        "idempotency": "NON_IDEMPOTENT",
+        "riskLevel": "HIGH",
+        "confirmedSuccess": false
+      },
+      "generatedPlan": {
+        "recoveryPlanId": "rec_plan_op-plan-500-nonidemp-03_1791016284723_a8d1k",
+        "originalOperationId": "op-plan-500-nonidemp-03",
+        "failureClassification": "UNKNOWN_EXTERNAL_STATE",
+        "currentTruthState": "UNKNOWN_EXTERNAL_STATE_AT_DISPATCHED",
+        "proposedRecoveryAction": "RECONCILE",
+        "riskLevel": "HIGH",
+        "idempotencyAssessment": "NON_IDEMPOTENT",
+        "requiredAuthority": [
+          "CONNECTOR_PROBE",
+          "ACTION_RECONCILIATION"
+        ],
+        "approvalRequirement": {
+          "required": false
+        },
+        "reconciliationRequirement": {
+          "required": true,
+          "probeType": "STATUS_POLL",
+          "timeoutMs": 10000
+        },
+        "compensationPlan": {
+          "availability": "NO_COMPENSATION_AVAILABLE"
+        },
+        "expectedOutcome": "Action dispatched but external state unconfirmed. Bounded reconciliation probe scheduled before progression.",
+        "expiry": 1791016584723,
+        "causationId": "cause-plan-03",
+        "correlationId": "corr-plan-03",
+        "createdAt": 1791016284723,
+        "lifecycleState": "PROPOSED",
+        "evidenceReferences": []
+      }
+    },
+    {
+      "scenario": "CONFIRMED_SUCCESS_MISREPORTED_WAIT_NO_DUPLICATE",
+      "input": {
+        "originalOperationId": "op-plan-confirmed-04",
+        "causationId": "cause-plan-04",
+        "correlationId": "corr-plan-04",
+        "classificationResult": {
+          "classification": "TRANSIENT",
+          "reasonCode": "UNKNOWN_EVIDENCE",
+          "epistemicStatus": "OBSERVED",
+          "explanation": "Late error reported after side-effect successfully verified.",
+          "evidenceReferences": [],
+          "causationId": "cause-plan-04",
+          "correlationId": "corr-plan-04",
+          "classifiedAt": 1791016200000
+        },
+        "dispatchState": "DISPATCHED",
+        "idempotency": "NON_IDEMPOTENT",
+        "riskLevel": "LOW",
+        "confirmedSuccess": true
+      },
+      "generatedPlan": {
+        "recoveryPlanId": "rec_plan_op-plan-confirmed-04_1791016284723_11be7",
+        "originalOperationId": "op-plan-confirmed-04",
+        "failureClassification": "TRANSIENT",
+        "currentTruthState": "TRANSIENT_AT_DISPATCHED",
+        "proposedRecoveryAction": "WAIT",
+        "riskLevel": "LOW",
+        "idempotencyAssessment": "NON_IDEMPOTENT",
+        "requiredAuthority": [],
+        "approvalRequirement": {
+          "required": false
+        },
+        "reconciliationRequirement": {
+          "required": false
+        },
+        "compensationPlan": {
+          "availability": "NO_COMPENSATION_AVAILABLE"
+        },
+        "expectedOutcome": "Original operation already confirmed successful. No recovery action needed; retry prohibited.",
+        "expiry": 1791016584723,
+        "causationId": "cause-plan-04",
+        "correlationId": "corr-plan-04",
+        "createdAt": 1791016284723,
+        "lifecycleState": "PROPOSED",
+        "evidenceReferences": []
+      }
+    },
+    {
+      "scenario": "MULTI_STEP_FAILURE_COMPLETED_STEPS_RESUME",
+      "input": {
+        "originalOperationId": "op-plan-partial-05",
+        "causationId": "cause-plan-05",
+        "correlationId": "corr-plan-05",
+        "classificationResult": {
+          "classification": "PARTIAL_EXECUTION",
+          "reasonCode": "WORKFLOW_STEP_FAILURE",
+          "epistemicStatus": "OBSERVED",
+          "explanation": "Workflow failed at step 4 of 6. Steps 1-3 succeeded.",
+          "evidenceReferences": [],
+          "causationId": "cause-plan-05",
+          "correlationId": "corr-plan-05",
+          "classifiedAt": 1791016200000
+        },
+        "dispatchState": "PARTIALLY_DISPATCHED",
+        "idempotency": "UNKNOWN",
+        "riskLevel": "LOW",
+        "partialExecution": {
+          "completedStepCount": 3,
+          "totalStepCount": 6,
+          "lastSuccessfulStepId": "step-03",
+          "completedStepIds": [
+            "step-01",
+            "step-02",
+            "step-03"
+          ],
+          "resumeTargetStepId": "step-04"
+        }
+      },
+      "generatedPlan": {
+        "recoveryPlanId": "rec_plan_op-plan-partial-05_1791016284723_z8e2d",
+        "originalOperationId": "op-plan-partial-05",
+        "failureClassification": "PARTIAL_EXECUTION",
+        "currentTruthState": "PARTIAL_EXECUTION_AT_PARTIALLY_DISPATCHED",
+        "proposedRecoveryAction": "RESUME",
+        "riskLevel": "LOW",
+        "idempotencyAssessment": "UNKNOWN",
+        "requiredAuthority": [
+          "WORKFLOW_RESUME"
+        ],
+        "approvalRequirement": {
+          "required": false
+        },
+        "reconciliationRequirement": {
+          "required": false
+        },
+        "compensationPlan": {
+          "availability": "NO_COMPENSATION_AVAILABLE"
+        },
+        "expectedOutcome": "Partial execution detected. Completed steps preserved without replay; resuming from failed milestone.",
+        "expiry": 1791016584723,
+        "causationId": "cause-plan-05",
+        "correlationId": "corr-plan-05",
+        "createdAt": 1791016284723,
+        "lifecycleState": "PROPOSED",
+        "evidenceReferences": []
+      }
+    },
+    {
+      "scenario": "REVOKED_CONNECTOR_REQUIRE_APPROVAL_ESCALATE",
+      "input": {
+        "originalOperationId": "op-plan-revoked-06",
+        "causationId": "cause-plan-06",
+        "correlationId": "corr-plan-06",
+        "classificationResult": {
+          "classification": "PERMISSION",
+          "reasonCode": "CONNECTOR_REVOKED",
+          "epistemicStatus": "OBSERVED",
+          "explanation": "Third-party OAuth connector permissions revoked.",
+          "evidenceReferences": [],
+          "causationId": "cause-plan-06",
+          "correlationId": "corr-plan-06",
+          "classifiedAt": 1791016200000
+        },
+        "dispatchState": "PRE_DISPATCH_REJECTED",
+        "idempotency": "IDEMPOTENT",
+        "riskLevel": "HIGH"
+      },
+      "generatedPlan": {
+        "recoveryPlanId": "rec_plan_op-plan-revoked-06_1791016284723_30hrr",
+        "originalOperationId": "op-plan-revoked-06",
+        "failureClassification": "PERMISSION",
+        "currentTruthState": "PERMISSION_AT_PRE_DISPATCH_REJECTED",
+        "proposedRecoveryAction": "REQUIRE_APPROVAL",
+        "riskLevel": "HIGH",
+        "idempotencyAssessment": "IDEMPOTENT",
+        "requiredAuthority": [
+          "CONNECTOR_CREDENTIAL_REAUTHORIZATION",
+          "HUMAN_APPROVAL"
+        ],
+        "approvalRequirement": {
+          "required": true,
+          "approvalType": "CONNECTOR_REAUTHORIZATION_REQUIRED"
+        },
+        "reconciliationRequirement": {
+          "required": false
+        },
+        "compensationPlan": {
+          "availability": "NO_COMPENSATION_AVAILABLE"
+        },
+        "expectedOutcome": "Connector permission revoked or missing. Operator must refresh credential authorization through Stage 16.",
+        "expiry": 1791016584723,
+        "causationId": "cause-plan-06",
+        "correlationId": "corr-plan-06",
+        "createdAt": 1791016284723,
+        "lifecycleState": "PROPOSED",
+        "evidenceReferences": []
+      }
+    },
+    {
+      "scenario": "POLICY_DENY_ABORT",
+      "input": {
+        "originalOperationId": "op-plan-policy-07",
+        "causationId": "cause-plan-07",
+        "correlationId": "corr-plan-07",
+        "classificationResult": {
+          "classification": "POLICY",
+          "reasonCode": "GOVERNANCE_POLICY_DENIAL",
+          "epistemicStatus": "OBSERVED",
+          "explanation": "Execution rejected by Stage 21 Governance Control Plane.",
+          "evidenceReferences": [],
+          "causationId": "cause-plan-07",
+          "correlationId": "corr-plan-07",
+          "classifiedAt": 1791016200000
+        },
+        "dispatchState": "PRE_DISPATCH_REJECTED",
+        "idempotency": "IDEMPOTENT",
+        "riskLevel": "HIGH"
+      },
+      "generatedPlan": {
+        "recoveryPlanId": "rec_plan_op-plan-policy-07_1791016284723_oqe0r",
+        "originalOperationId": "op-plan-policy-07",
+        "failureClassification": "POLICY",
+        "currentTruthState": "POLICY_AT_PRE_DISPATCH_REJECTED",
+        "proposedRecoveryAction": "ABORT",
+        "riskLevel": "HIGH",
+        "idempotencyAssessment": "IDEMPOTENT",
+        "requiredAuthority": [],
+        "approvalRequirement": {
+          "required": false
+        },
+        "reconciliationRequirement": {
+          "required": false
+        },
+        "compensationPlan": {
+          "availability": "NO_COMPENSATION_AVAILABLE"
+        },
+        "expectedOutcome": "Operation denied by active governance policy. Aborting execution; policy bypass strictly forbidden.",
+        "expiry": 1791016584723,
+        "causationId": "cause-plan-07",
+        "correlationId": "corr-plan-07",
+        "createdAt": 1791016284723,
+        "lifecycleState": "PROPOSED",
+        "evidenceReferences": []
+      }
+    },
+    {
+      "scenario": "STALE_APPROVAL_STATE_RECONCILE",
+      "input": {
+        "originalOperationId": "op-plan-stale-08",
+        "causationId": "cause-plan-08",
+        "correlationId": "corr-plan-08",
+        "classificationResult": {
+          "classification": "STALE_STATE",
+          "reasonCode": "EXPIRED_APPROVAL_OR_TTL",
+          "epistemicStatus": "OBSERVED",
+          "explanation": "Approval expired prior to dispatch; requires fresh policy evaluation.",
+          "evidenceReferences": [],
+          "causationId": "cause-plan-08",
+          "correlationId": "corr-plan-08",
+          "classifiedAt": 1791016200000
+        },
+        "dispatchState": "NOT_DISPATCHED",
+        "idempotency": "IDEMPOTENT",
+        "riskLevel": "MEDIUM"
+      },
+      "generatedPlan": {
+        "recoveryPlanId": "rec_plan_op-plan-stale-08_1791016284723_klq2m",
+        "originalOperationId": "op-plan-stale-08",
+        "failureClassification": "STALE_STATE",
+        "currentTruthState": "STALE_STATE_AT_NOT_DISPATCHED",
+        "proposedRecoveryAction": "RECONCILE",
+        "riskLevel": "MEDIUM",
+        "idempotencyAssessment": "IDEMPOTENT",
+        "requiredAuthority": [
+          "GOVERNANCE_SNAPSHOT_REFRESH"
+        ],
+        "approvalRequirement": {
+          "required": false
+        },
+        "reconciliationRequirement": {
+          "required": true,
+          "probeType": "GOVERNANCE_SNAPSHOT_REFRESH",
+          "timeoutMs": 10000
+        },
+        "compensationPlan": {
+          "availability": "NO_COMPENSATION_AVAILABLE"
+        },
+        "expectedOutcome": "Stale governance snapshot or expired approval detected. Revalidation required before proceeding.",
+        "expiry": 1791016584723,
+        "causationId": "cause-plan-08",
+        "correlationId": "corr-plan-08",
+        "createdAt": 1791016284723,
+        "lifecycleState": "PROPOSED",
+        "evidenceReferences": []
+      }
+    },
+    {
+      "scenario": "RECONCILIATION_MISMATCH_RECONCILE",
+      "input": {
+        "originalOperationId": "op-plan-reconcile-09",
+        "causationId": "cause-plan-09",
+        "correlationId": "corr-plan-09",
+        "classificationResult": {
+          "classification": "RECONCILIATION",
+          "reasonCode": "RECONCILIATION_DIVERGENCE",
+          "epistemicStatus": "OBSERVED",
+          "explanation": "External provider state divergent from internal state.",
+          "evidenceReferences": [],
+          "causationId": "cause-plan-09",
+          "correlationId": "corr-plan-09",
+          "classifiedAt": 1791016200000
+        },
+        "dispatchState": "DISPATCHED",
+        "idempotency": "UNKNOWN",
+        "riskLevel": "MEDIUM"
+      },
+      "generatedPlan": {
+        "recoveryPlanId": "rec_plan_op-plan-reconcile-09_1791016284723_gy7uf",
+        "originalOperationId": "op-plan-reconcile-09",
+        "failureClassification": "RECONCILIATION",
+        "currentTruthState": "RECONCILIATION_AT_DISPATCHED",
+        "proposedRecoveryAction": "RECONCILE",
+        "riskLevel": "MEDIUM",
+        "idempotencyAssessment": "UNKNOWN",
+        "requiredAuthority": [
+          "CONNECTOR_PROBE",
+          "ACTION_RECONCILIATION"
+        ],
+        "approvalRequirement": {
+          "required": false
+        },
+        "reconciliationRequirement": {
+          "required": true,
+          "probeType": "STATUS_POLL",
+          "timeoutMs": 10000
+        },
+        "compensationPlan": {
+          "availability": "NO_COMPENSATION_AVAILABLE"
+        },
+        "expectedOutcome": "Action dispatched but external state unconfirmed. Bounded reconciliation probe scheduled before progression.",
+        "expiry": 1791016584723,
+        "causationId": "cause-plan-09",
+        "correlationId": "corr-plan-09",
+        "createdAt": 1791016284723,
+        "lifecycleState": "PROPOSED",
+        "evidenceReferences": []
+      }
+    },
+    {
+      "scenario": "HIGH_RISK_RECOVERY_ACTION_REQUIRE_APPROVAL",
+      "input": {
+        "originalOperationId": "op-plan-critical-10",
+        "causationId": "cause-plan-10",
+        "correlationId": "corr-plan-10",
+        "classificationResult": {
+          "classification": "UNKNOWN_EXTERNAL_STATE",
+          "reasonCode": "TIMEOUT_AFTER_DISPATCH",
+          "epistemicStatus": "UNKNOWN",
+          "explanation": "Critical risk financial transaction timed out post-dispatch.",
+          "evidenceReferences": [],
+          "causationId": "cause-plan-10",
+          "correlationId": "corr-plan-10",
+          "classifiedAt": 1791016200000
+        },
+        "dispatchState": "TIMEOUT",
+        "idempotency": "NON_IDEMPOTENT",
+        "riskLevel": "CRITICAL",
+        "confirmedSuccess": false
+      },
+      "generatedPlan": {
+        "recoveryPlanId": "rec_plan_op-plan-critical-10_1791016284723_ad5ve",
+        "originalOperationId": "op-plan-critical-10",
+        "failureClassification": "UNKNOWN_EXTERNAL_STATE",
+        "currentTruthState": "UNKNOWN_EXTERNAL_STATE_AT_TIMEOUT",
+        "proposedRecoveryAction": "REQUIRE_APPROVAL",
+        "riskLevel": "CRITICAL",
+        "idempotencyAssessment": "NON_IDEMPOTENT",
+        "requiredAuthority": [
+          "CONNECTOR_PROBE",
+          "HUMAN_APPROVAL"
+        ],
+        "approvalRequirement": {
+          "required": true,
+          "approvalType": "CRITICAL_RISK_UNKNOWN_STATE_OPERATOR_GATE"
+        },
+        "reconciliationRequirement": {
+          "required": true,
+          "probeType": "STATUS_POLL",
+          "timeoutMs": 10000
+        },
+        "compensationPlan": {
+          "availability": "NO_COMPENSATION_AVAILABLE"
+        },
+        "expectedOutcome": "Action dispatched but external state unconfirmed for critical operation. Mandatory operator signoff required.",
+        "expiry": 1791016584723,
+        "causationId": "cause-plan-10",
+        "correlationId": "corr-plan-10",
+        "createdAt": 1791016284723,
+        "lifecycleState": "PROPOSED",
+        "evidenceReferences": []
+      }
+    }
+  ]
+}

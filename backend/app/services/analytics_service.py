@@ -17,6 +17,7 @@ from typing import Any
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
@@ -182,8 +183,8 @@ class AnalyticsIngestionService:
         target_id = clean_post_id or str(video_id or clean_workflow_run_id or "unknown")
         idempotency_key = f"{platform.lower()}:{target_id}:{normalized['snapshot_at'].isoformat()}:{source.lower()}"
 
-        # Check existing for idempotency
-        stmt = select(Analytics).where(Analytics.idempotency_key == idempotency_key)
+        # Check existing for idempotency with row lock
+        stmt = select(Analytics).where(Analytics.idempotency_key == idempotency_key).with_for_update()
         existing = (await self._db.execute(stmt)).scalars().first()
 
         raw_meta_json = json.dumps(raw_metrics, default=str)
@@ -202,7 +203,7 @@ class AnalyticsIngestionService:
             await self._db.refresh(existing)
             return existing
 
-        # Create fresh snapshot
+        # Create fresh snapshot with race-safe IntegrityError fallback
         record = Analytics(
             video_id=clean_video_id,
             workflow_run_id=clean_workflow_run_id,
@@ -215,19 +216,38 @@ class AnalyticsIngestionService:
             **normalized,
         )
 
-        self._db.add(record)
-        await self._db.commit()
-        await self._db.refresh(record)
+        try:
+            self._db.add(record)
+            await self._db.commit()
+            await self._db.refresh(record)
 
-        logger.info(
-            "analytics_snapshot_persisted",
-            analytics_id=str(record.id),
-            platform=record.platform,
-            views=record.views,
-            likes=record.likes,
-            idempotency_key=idempotency_key,
-        )
-        return record
+            logger.info(
+                "analytics_snapshot_persisted",
+                analytics_id=str(record.id),
+                platform=record.platform,
+                views=record.views,
+                likes=record.likes,
+                idempotency_key=idempotency_key,
+            )
+            return record
+        except IntegrityError:
+            await self._db.rollback()
+            # Fetch the winning concurrent record and update in-place
+            stmt = select(Analytics).where(Analytics.idempotency_key == idempotency_key).with_for_update()
+            existing = (await self._db.execute(stmt)).scalars().first()
+            if existing:
+                logger.info("analytics_snapshot_idempotent_update_post_race", idempotency_key=idempotency_key)
+                for field, val in normalized.items():
+                    setattr(existing, field, val)
+                existing.raw_metadata = raw_meta_json
+                if clean_workflow_run_id:
+                    existing.workflow_run_id = clean_workflow_run_id
+                if clean_asset_id:
+                    existing.asset_id = clean_asset_id
+                await self._db.commit()
+                await self._db.refresh(existing)
+                return existing
+            raise
 
     async def get_snapshots(
         self,
@@ -236,10 +256,17 @@ class AnalyticsIngestionService:
         video_id: str | uuid.UUID | None = None,
         external_post_id: str | None = None,
         platform: str | None = None,
+        project_ids: set[uuid.UUID] | list[uuid.UUID] | None = None,
         limit: int = 50,
     ) -> list[Analytics]:
         """Query historical analytics snapshots ordered by snapshot_at DESC."""
         stmt = select(Analytics).order_by(Analytics.snapshot_at.desc()).limit(limit)
+
+        if project_ids is not None:
+            from app.models.core import WorkflowRun
+            stmt = stmt.join(WorkflowRun, Analytics.workflow_run_id == WorkflowRun.id).where(
+                WorkflowRun.project_id.in_(list(project_ids))
+            )
 
         if workflow_run_id:
             try:

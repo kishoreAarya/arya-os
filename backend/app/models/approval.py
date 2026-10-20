@@ -29,8 +29,9 @@ class ApprovalCheckpoint(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "approval_checkpoints"
 
     workflow_run_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workflow_runs.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("workflow_runs.id"), index=True, nullable=False
     )
+
     stage: Mapped[ApprovalStage] = mapped_column(
         Enum(ApprovalStage, name="approval_stage"), nullable=False
     )
@@ -43,6 +44,11 @@ class ApprovalCheckpoint(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     reviewer_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    decided_by_principal_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("api_keys.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    decided_by_actor_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    decided_by_principal_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class GenerationAttempt(Base, UUIDPrimaryKeyMixin, TimestampMixin):

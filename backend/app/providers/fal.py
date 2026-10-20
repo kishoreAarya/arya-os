@@ -290,6 +290,16 @@ async def generate_image(
 ) -> tuple[dict, float]:
     """Raises RuntimeError on any failure (auth, rate limit, timeout,
     network, malformed response) — same taxonomy as the LLM adapters."""
+    from app.services.dispatcher import verify_live_execution_gate
+
+    verify_live_execution_gate(is_local_only=False)
+
+    raise RuntimeError(
+        "Direct app.providers.fal execution is permanently quarantined. "
+        "All external provider execution must proceed through Stage 21 Governance and "
+        "Stage 25 AutonomousExecutionRunner with cryptographic capabilities."
+    )
+
     model_id = _normalize_model_id(model)
     payload = {"prompt": prompt}
     if aspect_ratio:
@@ -358,6 +368,16 @@ async def generate_video(
     generate_image above. `image_url` is optional: some fal.ai video
     models are text-to-video only, others (image-to-video) require it;
     passing None omits it from the payload rather than sending a null."""
+    from app.services.dispatcher import verify_live_execution_gate
+
+    verify_live_execution_gate(is_local_only=False)
+
+    raise RuntimeError(
+        "Direct app.providers.fal execution is permanently quarantined. "
+        "All external provider execution must proceed through Stage 21 Governance and "
+        "Stage 25 AutonomousExecutionRunner with cryptographic capabilities."
+    )
+
     model_id = _normalize_model_id(model)
     payload = {"prompt": prompt}
     if image_url:

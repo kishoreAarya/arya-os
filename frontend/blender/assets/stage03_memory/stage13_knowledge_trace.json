@@ -1,0 +1,89 @@
+{
+  "traceId": "trace-knowledge-ingest-001",
+  "timestamp": "2026-10-02T09:15:00.000Z",
+  "ingestedNodes": [
+    {
+      "id": "agent:deep-researcher",
+      "type": "AGENT",
+      "label": "Deep Research Specialist",
+      "confidence": "HIGH",
+      "status": "VERIFIED",
+      "provenance": {
+        "source": {
+          "sourceType": "STAGE11_EVALUATION",
+          "sourceId": "eval-researcher-401",
+          "timestamp": "2026-10-02T08:50:00.000Z"
+        },
+        "extractedAt": "2026-10-02T09:15:00.000Z",
+        "derivedBy": "KnowledgeIngestionService"
+      }
+    },
+    {
+      "id": "capability:literature_survey",
+      "type": "CAPABILITY",
+      "label": "Academic & Patent Literature Survey",
+      "confidence": "HIGH",
+      "status": "VERIFIED",
+      "provenance": {
+        "source": {
+          "sourceType": "STAGE11_EXPERIENCE",
+          "sourceId": "exp-lit-survey-102",
+          "timestamp": "2026-10-02T08:55:00.000Z"
+        },
+        "extractedAt": "2026-10-02T09:15:00.000Z",
+        "derivedBy": "KnowledgeIngestionService"
+      }
+    }
+  ],
+  "extractedEdges": [
+    {
+      "id": "edge:agent:deep-researcher--PERFORMS_WELL_FOR-->capability:literature_survey",
+      "source": "agent:deep-researcher",
+      "target": "capability:literature_survey",
+      "relation": "PERFORMS_WELL_FOR",
+      "confidence": "HIGH",
+      "weight": 1.0,
+      "provenance": {
+        "source": {
+          "sourceType": "STAGE11_EXPERIENCE",
+          "sourceId": "exp-lit-survey-102",
+          "timestamp": "2026-10-02T08:55:00.000Z"
+        },
+        "extractedAt": "2026-10-02T09:15:00.000Z",
+        "derivedBy": "KnowledgeRelationExtractor"
+      }
+    }
+  ],
+  "formedFacts": [
+    {
+      "id": "fact:agent:deep-researcher::PERFORMS_WELL_FOR::capability:literature_survey",
+      "subject": "agent:deep-researcher",
+      "predicate": "PERFORMS_WELL_FOR",
+      "object": "capability:literature_survey",
+      "evidence": [
+        "ev:exp:exp-lit-survey-101",
+        "ev:exp:exp-lit-survey-102",
+        "ev:eval:eval-researcher-401",
+        "ev:eval:eval-researcher-402"
+      ],
+      "confidence": "HIGH",
+      "validity": "ACTIVE",
+      "status": "VERIFIED",
+      "validFrom": "2026-10-02T08:50:00.000Z",
+      "observedAt": "2026-10-02T08:55:00.000Z",
+      "confidenceBreakdown": {
+        "evidenceCount": 4,
+        "averageQuality": 0.92,
+        "recencyFactor": 1.0,
+        "consistencyFactor": 1.0,
+        "numericalScore": 0.91
+      }
+    }
+  ],
+  "graphMetrics": {
+    "totalNodes": 2,
+    "totalEdges": 1,
+    "totalFacts": 1,
+    "stateHash": "8f3b2a1c0e9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b"
+  }
+}

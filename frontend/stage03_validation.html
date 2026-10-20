@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=1920, height=1080, initial-scale=1.0" />
+  <title>AryaOS V1 — Stage 03 Three.js Production Validation</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      background-color: #020408;
+    }
+    #webgl-canvas {
+      width: 1920px;
+      height: 1080px;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="webgl-canvas" width="1920" height="1080"></canvas>
+  <script type="module" src="/src/stage03_validation.ts"></script>
+</body>
+</html>

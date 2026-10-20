@@ -1,0 +1,132 @@
+{
+  "stage": 21,
+  "subsystem": "GovernanceAuthorityService (5-TIER INTERSECTION)",
+  "timestamp": "2026-10-03T07:14:58.232Z",
+  "formula": "Policy Decision ∩ Connector Permissions ∩ Action Authorization ∩ Human Approval ∩ Mission Constraints",
+  "antiSpoofingEnforced": true,
+  "traces": [
+    {
+      "scenario": "MISSING_CONNECTOR_PERMISSION",
+      "expectedStatus": "DENIED",
+      "actualStatus": "REQUIRE_REVIEW",
+      "authorityIntersection": {
+        "effectiveStatus": "GRANTED",
+        "policyAllowed": true,
+        "connectorPermissionGranted": true,
+        "actionAuthorized": true,
+        "humanApprovalStatus": "NOT_REQUIRED",
+        "humanApprovalRequired": false,
+        "missionConstraintsSatisfied": true,
+        "requiredAuthority": [
+          "GOVERNANCE_POLICY",
+          "CONNECTOR_FABRIC_PERMISSION",
+          "ACTION_AUTHORIZATION"
+        ],
+        "blockingReasons": [],
+        "failClosed": false
+      },
+      "blockingReasons": []
+    },
+    {
+      "scenario": "UNAUTHORIZED_AGENT_DEFAULT_DENY",
+      "expectedStatus": "DENIED",
+      "actualStatus": "REQUIRE_REVIEW",
+      "authorityIntersection": {
+        "effectiveStatus": "GRANTED",
+        "policyAllowed": true,
+        "connectorPermissionGranted": true,
+        "actionAuthorized": true,
+        "humanApprovalStatus": "NOT_REQUIRED",
+        "humanApprovalRequired": false,
+        "missionConstraintsSatisfied": true,
+        "requiredAuthority": [
+          "GOVERNANCE_POLICY",
+          "CONNECTOR_FABRIC_PERMISSION",
+          "ACTION_AUTHORIZATION"
+        ],
+        "blockingReasons": [],
+        "failClosed": false
+      },
+      "blockingReasons": []
+    },
+    {
+      "scenario": "CRITICAL_RISK_AWAITING_HUMAN_APPROVAL",
+      "expectedStatus": "REQUIRE_APPROVAL",
+      "actualStatus": "REQUIRE_REVIEW",
+      "authorityIntersection": {
+        "effectiveStatus": "REQUIRES_APPROVAL",
+        "policyAllowed": true,
+        "connectorPermissionGranted": true,
+        "actionAuthorized": false,
+        "humanApprovalStatus": "PENDING",
+        "humanApprovalRequired": true,
+        "missionConstraintsSatisfied": true,
+        "requiredAuthority": [
+          "GOVERNANCE_POLICY",
+          "CONNECTOR_FABRIC_PERMISSION",
+          "ACTION_AUTHORIZATION",
+          "HUMAN_OPERATOR_APPROVAL"
+        ],
+        "blockingReasons": [
+          "CRITICAL risk actions require explicit authorization token",
+          "Action requires human operator review and signoff"
+        ],
+        "failClosed": true
+      },
+      "humanApprovalCheck": {
+        "required": true,
+        "status": "PENDING",
+        "riskLevel": "CRITICAL"
+      }
+    },
+    {
+      "scenario": "MISSION_PAUSED_CONSTRAINT",
+      "expectedStatus": "PAUSE",
+      "actualStatus": "REQUIRE_REVIEW",
+      "authorityIntersection": {
+        "effectiveStatus": "MISSION_CONSTRAINT_BLOCKED",
+        "policyAllowed": true,
+        "connectorPermissionGranted": true,
+        "actionAuthorized": true,
+        "humanApprovalStatus": "NOT_REQUIRED",
+        "humanApprovalRequired": false,
+        "missionConstraintsSatisfied": false,
+        "requiredAuthority": [
+          "GOVERNANCE_POLICY",
+          "CONNECTOR_FABRIC_PERMISSION",
+          "ACTION_AUTHORIZATION",
+          "MISSION_CONSTRAINTS"
+        ],
+        "blockingReasons": [
+          "Target mission 'mission-alpha-orbit' is PAUSED; new actions are prohibited"
+        ],
+        "failClosed": true
+      },
+      "blockingReasons": [
+        "Target mission 'mission-alpha-orbit' is PAUSED; new actions are prohibited"
+      ]
+    },
+    {
+      "scenario": "ALL_FIVE_TIERS_GRANTED",
+      "expectedStatus": "ALLOW",
+      "actualStatus": "REQUIRE_REVIEW",
+      "authorityIntersection": {
+        "effectiveStatus": "GRANTED",
+        "policyAllowed": true,
+        "connectorPermissionGranted": true,
+        "actionAuthorized": true,
+        "humanApprovalStatus": "NOT_REQUIRED",
+        "humanApprovalRequired": false,
+        "missionConstraintsSatisfied": true,
+        "requiredAuthority": [
+          "GOVERNANCE_POLICY",
+          "CONNECTOR_FABRIC_PERMISSION",
+          "ACTION_AUTHORIZATION"
+        ],
+        "blockingReasons": [],
+        "failClosed": false
+      },
+      "effectiveStatus": "GRANTED"
+    }
+  ]
+}

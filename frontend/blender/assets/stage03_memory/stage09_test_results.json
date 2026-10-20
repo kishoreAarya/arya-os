@@ -1,0 +1,77 @@
+{
+  "testRunTimestamp": "2026-10-01T23:57:00Z",
+  "summary": {
+    "totalSuites": 31,
+    "passedSuites": 31,
+    "failedSuites": 0,
+    "totalTests": 509,
+    "passedTests": 509,
+    "failedTests": 0,
+    "skippedTests": 0,
+    "durationSeconds": 55.23
+  },
+  "stage09Suite": {
+    "name": "src/tests/GoalOrchestrationPersistenceStage09.test.tsx",
+    "total": 16,
+    "passed": 16,
+    "failed": 0,
+    "categories": [
+      {
+        "category": "1. Persistence Architecture & Envelope Integrity",
+        "tests": [
+          "saves and retrieves goals in versioned envelopes (v1)",
+          "sanitizes and scrubs sensitive credentials and API keys recursively",
+          "falls back to in-memory store when storage quota is exceeded"
+        ]
+      },
+      {
+        "category": "2. Append-Only Execution Journal",
+        "tests": [
+          "maintains monotonic sequencing across multiple recorded events",
+          "notifies active subscribers synchronously upon new events",
+          "records all 22 distinct journal event types without truncation"
+        ]
+      },
+      {
+        "category": "3. Deterministic Recovery Policies",
+        "tests": [
+          "restores completed idempotent actions using Gateway cache without re-invoking providers",
+          "demotes interrupted consequential actions to AWAITING_APPROVAL and resets approval timestamp",
+          "strictly preserves terminal states (COMPLETED, FAILED, CANCELLED)"
+        ]
+      },
+      {
+        "category": "4. DAG Frontier Resolution",
+        "tests": [
+          "identifies executable frontier where all dependencies are satisfied",
+          "blocks downstream nodes when dependencies are pending or failed"
+        ]
+      },
+      {
+        "category": "5. Single-Runtime Execution Scheduler",
+        "tests": [
+          "prioritizes HIGH priority approval jobs over NORMAL action jobs",
+          "executes delayed jobs and handles retry backoff with jitter",
+          "automatically unblocks dependent jobs upon predecessor completion"
+        ]
+      },
+      {
+        "category": "6. End-to-End Orchestrator Recovery Lifecycle",
+        "tests": [
+          "reconciles active goals on boot recovery and persists status update",
+          "resumes execution flow when human approval is granted after recovery"
+        ]
+      }
+    ]
+  },
+  "regressionVerification": {
+    "stage08GoalOrchestration": "16/16 PASSED",
+    "stage07ExecutionGateway": "24/24 PASSED",
+    "stage06ProviderRouter": "18/18 PASSED",
+    "stage05SpatialCommand": "18/18 PASSED",
+    "stage04MemoryInteraction": "21/21 PASSED",
+    "stage03ProductionSuites": "396/396 PASSED across 25 suites",
+    "typescriptCompilation": "0 errors (npx tsc --noEmit)",
+    "productionBuild": "Clean (vite v6.4.3 build in 4.52s)"
+  }
+}

@@ -1,0 +1,1946 @@
+{
+  "version": "1.0.0",
+  "stage": "STAGE_03_MEMORY",
+  "description": "Instance transform registry for Stage 03 Memory Archive real-time WebGL reassembly",
+  "coordinate_system": {
+    "source": "Blender Z-up right-handed (+X right, +Y forward, +Z up)",
+    "target_threejs": "Three.js Y-up right-handed (+X right, +Y up, +Z back) [x, z, -y]"
+  },
+  "vitrine_housing_model": "07_memory_vitrine_housing.glb",
+  "vitrines": [
+    {
+      "id": "Dais_Flank_Crystal_01",
+      "archetype": "mountain",
+      "archetype_glb": "08_memory_world_mountain.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          -9.174503,
+          -6.424056,
+          2.2
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          -0.959931
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          -0.461749,
+          0.887011
+        ],
+        "matrix_4x4": [
+          [
+            0.573576,
+            0.819152,
+            0.0,
+            -9.174503
+          ],
+          [
+            -0.819152,
+            0.573576,
+            0.0,
+            -6.424056
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            2.2
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          -9.174503,
+          2.2,
+          6.424056
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          -0.959931,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Dais_Flank_Crystal_02",
+      "archetype": "neural",
+      "archetype_glb": "09_memory_world_neural.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          -5.6,
+          -9.699485,
+          2.2
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          -0.523599
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          -0.258819,
+          0.965926
+        ],
+        "matrix_4x4": [
+          [
+            0.866025,
+            0.5,
+            0.0,
+            -5.6
+          ],
+          [
+            -0.5,
+            0.866025,
+            0.0,
+            -9.699485
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            2.2
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          -5.6,
+          2.2,
+          9.699485
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          -0.523599,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Dais_Flank_Crystal_03",
+      "archetype": "city",
+      "archetype_glb": "010_memory_world_city.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          5.6,
+          -9.699485,
+          2.2
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          0.523599
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.258819,
+          0.965926
+        ],
+        "matrix_4x4": [
+          [
+            0.866025,
+            -0.5,
+            0.0,
+            5.6
+          ],
+          [
+            0.5,
+            0.866025,
+            0.0,
+            -9.699485
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            2.2
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          5.6,
+          2.2,
+          9.699485
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.523599,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Dais_Flank_Crystal_04",
+      "archetype": "matrix",
+      "archetype_glb": "011_memory_world_matrix.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          9.174503,
+          -6.424056,
+          2.2
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          0.959931
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.461749,
+          0.887011
+        ],
+        "matrix_4x4": [
+          [
+            0.573576,
+            -0.819152,
+            0.0,
+            9.174503
+          ],
+          [
+            0.819152,
+            0.573576,
+            0.0,
+            -6.424056
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            2.2
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          9.174503,
+          2.2,
+          6.424056
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.959931,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Dais_Flank_Crystal_05",
+      "archetype": "chrono",
+      "archetype_glb": "012_memory_world_chrono.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          11.2,
+          0.0,
+          2.2
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          1.570796
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.707107,
+          0.707107
+        ],
+        "matrix_4x4": [
+          [
+            0.0,
+            -1.0,
+            0.0,
+            11.2
+          ],
+          [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            2.2
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          11.2,
+          2.2,
+          -0.0
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          1.570796,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Dais_Flank_Crystal_06",
+      "archetype": "mountain",
+      "archetype_glb": "08_memory_world_mountain.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          7.919596,
+          7.919596,
+          2.2
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          2.356194
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.92388,
+          0.382683
+        ],
+        "matrix_4x4": [
+          [
+            -0.707107,
+            -0.707107,
+            0.0,
+            7.919596
+          ],
+          [
+            0.707107,
+            -0.707107,
+            0.0,
+            7.919596
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            2.2
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          7.919596,
+          2.2,
+          -7.919596
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          2.356194,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Dais_Flank_Crystal_07",
+      "archetype": "neural",
+      "archetype_glb": "09_memory_world_neural.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          -7.919596,
+          7.919596,
+          2.2
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          3.926991
+        ],
+        "quaternion_xyzw": [
+          -0.0,
+          -0.0,
+          -0.92388,
+          0.382683
+        ],
+        "matrix_4x4": [
+          [
+            -0.707107,
+            0.707107,
+            0.0,
+            -7.919596
+          ],
+          [
+            -0.707107,
+            -0.707107,
+            0.0,
+            7.919596
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            2.2
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          -7.919596,
+          2.2,
+          -7.919596
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          3.926991,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Dais_Flank_Crystal_08",
+      "archetype": "city",
+      "archetype_glb": "010_memory_world_city.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          -11.2,
+          0.0,
+          2.2
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          4.712389
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          -0.707107,
+          0.707107
+        ],
+        "matrix_4x4": [
+          [
+            0.0,
+            1.0,
+            0.0,
+            -11.2
+          ],
+          [
+            -1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            2.2
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          -11.2,
+          2.2,
+          -0.0
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          4.712389,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Pathway_Memory_Crystal_01",
+      "archetype": "mountain",
+      "archetype_glb": "08_memory_world_mountain.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          -16.799999,
+          -31.200001,
+          0.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          -0.558505
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          -0.275637,
+          0.961262
+        ],
+        "matrix_4x4": [
+          [
+            0.848048,
+            0.529919,
+            0.0,
+            -16.799999
+          ],
+          [
+            -0.529919,
+            0.848048,
+            0.0,
+            -31.200001
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.5
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          -16.799999,
+          0.5,
+          31.200001
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          -0.558505,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Pathway_Memory_Crystal_02",
+      "archetype": "neural",
+      "archetype_glb": "09_memory_world_neural.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          -13.8,
+          -28.4,
+          0.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          -0.453786
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          -0.224951,
+          0.97437
+        ],
+        "matrix_4x4": [
+          [
+            0.898794,
+            0.438371,
+            0.0,
+            -13.8
+          ],
+          [
+            -0.438371,
+            0.898794,
+            0.0,
+            -28.4
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.5
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          -13.8,
+          0.5,
+          28.4
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          -0.453786,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Pathway_Memory_Crystal_03",
+      "archetype": "city",
+      "archetype_glb": "010_memory_world_city.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          -11.0,
+          -26.200001,
+          0.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          -0.349066
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          -0.173648,
+          0.984808
+        ],
+        "matrix_4x4": [
+          [
+            0.939693,
+            0.34202,
+            0.0,
+            -11.0
+          ],
+          [
+            -0.34202,
+            0.939693,
+            0.0,
+            -26.200001
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.5
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          -11.0,
+          0.5,
+          26.200001
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          -0.349066,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Pathway_Memory_Crystal_04",
+      "archetype": "matrix",
+      "archetype_glb": "011_memory_world_matrix.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          -8.2,
+          -24.6,
+          0.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          -0.244346
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          -0.121869,
+          0.992546
+        ],
+        "matrix_4x4": [
+          [
+            0.970296,
+            0.241922,
+            0.0,
+            -8.2
+          ],
+          [
+            -0.241922,
+            0.970296,
+            0.0,
+            -24.6
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.5
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          -8.2,
+          0.5,
+          24.6
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          -0.244346,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Pathway_Memory_Crystal_05",
+      "archetype": "chrono",
+      "archetype_glb": "012_memory_world_chrono.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          -5.5,
+          -23.5,
+          0.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          -0.122173
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          -0.061049,
+          0.998135
+        ],
+        "matrix_4x4": [
+          [
+            0.992546,
+            0.121869,
+            0.0,
+            -5.5
+          ],
+          [
+            -0.121869,
+            0.992546,
+            0.0,
+            -23.5
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.5
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          -5.5,
+          0.5,
+          23.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          -0.122173,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Pathway_Memory_Crystal_06",
+      "archetype": "mountain",
+      "archetype_glb": "08_memory_world_mountain.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          -2.8,
+          -22.799999,
+          0.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "matrix_4x4": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            -2.8
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            -22.799999
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.5
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          -2.8,
+          0.5,
+          22.799999
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Pathway_Memory_Crystal_07",
+      "archetype": "neural",
+      "archetype_glb": "09_memory_world_neural.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          2.8,
+          -22.799999,
+          0.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "matrix_4x4": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            2.8
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            -22.799999
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.5
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          2.8,
+          0.5,
+          22.799999
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Pathway_Memory_Crystal_08",
+      "archetype": "city",
+      "archetype_glb": "010_memory_world_city.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          5.5,
+          -23.5,
+          0.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          0.122173
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.061049,
+          0.998135
+        ],
+        "matrix_4x4": [
+          [
+            0.992546,
+            -0.121869,
+            0.0,
+            5.5
+          ],
+          [
+            0.121869,
+            0.992546,
+            0.0,
+            -23.5
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.5
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          5.5,
+          0.5,
+          23.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.122173,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Pathway_Memory_Crystal_09",
+      "archetype": "matrix",
+      "archetype_glb": "011_memory_world_matrix.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          8.2,
+          -24.6,
+          0.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          0.244346
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.121869,
+          0.992546
+        ],
+        "matrix_4x4": [
+          [
+            0.970296,
+            -0.241922,
+            0.0,
+            8.2
+          ],
+          [
+            0.241922,
+            0.970296,
+            0.0,
+            -24.6
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.5
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          8.2,
+          0.5,
+          24.6
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.244346,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Pathway_Memory_Crystal_10",
+      "archetype": "chrono",
+      "archetype_glb": "012_memory_world_chrono.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          11.0,
+          -26.200001,
+          0.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          0.349066
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.173648,
+          0.984808
+        ],
+        "matrix_4x4": [
+          [
+            0.939693,
+            -0.34202,
+            0.0,
+            11.0
+          ],
+          [
+            0.34202,
+            0.939693,
+            0.0,
+            -26.200001
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.5
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          11.0,
+          0.5,
+          26.200001
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.349066,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Pathway_Memory_Crystal_11",
+      "archetype": "mountain",
+      "archetype_glb": "08_memory_world_mountain.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          13.8,
+          -28.4,
+          0.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          0.453786
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.224951,
+          0.97437
+        ],
+        "matrix_4x4": [
+          [
+            0.898794,
+            -0.438371,
+            0.0,
+            13.8
+          ],
+          [
+            0.438371,
+            0.898794,
+            0.0,
+            -28.4
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.5
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          13.8,
+          0.5,
+          28.4
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.453786,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Pathway_Memory_Crystal_12",
+      "archetype": "neural",
+      "archetype_glb": "09_memory_world_neural.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          16.799999,
+          -31.200001,
+          0.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          0.558505
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.275637,
+          0.961262
+        ],
+        "matrix_4x4": [
+          [
+            0.848048,
+            -0.529919,
+            0.0,
+            16.799999
+          ],
+          [
+            0.529919,
+            0.848048,
+            0.0,
+            -31.200001
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.5
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          16.799999,
+          0.5,
+          31.200001
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.558505,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Rotunda_Inner_Crystal_01",
+      "archetype": "city",
+      "archetype_glb": "010_memory_world_city.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          4.24264,
+          4.24264,
+          3.3
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          3.926991
+        ],
+        "quaternion_xyzw": [
+          -0.0,
+          -0.0,
+          -0.92388,
+          0.382683
+        ],
+        "matrix_4x4": [
+          [
+            -0.707107,
+            0.707107,
+            0.0,
+            4.24264
+          ],
+          [
+            -0.707107,
+            -0.707107,
+            0.0,
+            4.24264
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            3.3
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          4.24264,
+          3.3,
+          -4.24264
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          3.926991,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Rotunda_Inner_Crystal_02",
+      "archetype": "matrix",
+      "archetype_glb": "011_memory_world_matrix.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          -4.24264,
+          4.24264,
+          3.3
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          5.497787
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          -0.382684,
+          0.923879
+        ],
+        "matrix_4x4": [
+          [
+            0.707106,
+            0.707107,
+            0.0,
+            -4.24264
+          ],
+          [
+            -0.707107,
+            0.707106,
+            0.0,
+            4.24264
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            3.3
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          -4.24264,
+          3.3,
+          -4.24264
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          5.497787,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Rotunda_Inner_Crystal_03",
+      "archetype": "chrono",
+      "archetype_glb": "012_memory_world_chrono.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          -4.24264,
+          -4.24264,
+          3.3
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          7.068583
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.382683,
+          0.92388
+        ],
+        "matrix_4x4": [
+          [
+            0.707107,
+            -0.707107,
+            0.0,
+            -4.24264
+          ],
+          [
+            0.707107,
+            0.707107,
+            0.0,
+            -4.24264
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            3.3
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          -4.24264,
+          3.3,
+          4.24264
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          7.068583,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Rotunda_Inner_Crystal_04",
+      "archetype": "mountain",
+      "archetype_glb": "08_memory_world_mountain.glb",
+      "housing_glb": "07_memory_vitrine_housing.glb",
+      "blender_transform": {
+        "position": [
+          4.24264,
+          -4.24264,
+          3.3
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          8.63938
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.92388,
+          0.382684
+        ],
+        "matrix_4x4": [
+          [
+            -0.707107,
+            -0.707107,
+            0.0,
+            4.24264
+          ],
+          [
+            0.707107,
+            -0.707107,
+            0.0,
+            -4.24264
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            3.3
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          4.24264,
+          3.3,
+          4.24264
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          8.63938,
+          0.0
+        ]
+      }
+    }
+  ],
+  "scale_anchors": [
+    {
+      "id": "Hero_Scale_Anchor",
+      "glb": "14_scale_anchor_figure.glb",
+      "blender_transform": {
+        "position": [
+          -7.5,
+          -31.5,
+          0.51
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          -0.4363
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          -0.216424,
+          0.9763
+        ],
+        "matrix_4x4": [
+          [
+            0.906321,
+            0.422589,
+            0.0,
+            -7.5
+          ],
+          [
+            -0.422589,
+            0.906321,
+            0.0,
+            -31.5
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.51
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          -7.5,
+          0.51,
+          31.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          -0.4363,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Stairs_Scale_Anchor",
+      "glb": "14_scale_anchor_figure.glb",
+      "blender_transform": {
+        "position": [
+          0.0,
+          -17.5,
+          1.46
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "matrix_4x4": [
+          [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            1.0,
+            0.0,
+            -17.5
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            1.46
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          0.0,
+          1.46,
+          17.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    {
+      "id": "Pathway_Scale_Anchor",
+      "glb": "14_scale_anchor_figure.glb",
+      "blender_transform": {
+        "position": [
+          -10.5,
+          -26.5,
+          0.51
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          0.0,
+          -0.3142
+        ],
+        "quaternion_xyzw": [
+          0.0,
+          0.0,
+          -0.156455,
+          0.987685
+        ],
+        "matrix_4x4": [
+          [
+            0.951044,
+            0.309056,
+            0.0,
+            -10.5
+          ],
+          [
+            -0.309056,
+            0.951044,
+            0.0,
+            -26.5
+          ],
+          [
+            0.0,
+            0.0,
+            1.0,
+            0.51
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            1.0
+          ]
+        ]
+      },
+      "threejs_transform": {
+        "position": [
+          -10.5,
+          0.51,
+          26.5
+        ],
+        "rotation_euler_xyz": [
+          0.0,
+          -0.3142,
+          0.0
+        ]
+      }
+    }
+  ],
+  "static_assets": [
+    {
+      "id": "01_astrolabe_hero_core",
+      "file": "01_astrolabe_hero_core.glb",
+      "strategy": "functional_hierarchy",
+      "objects": 25
+    },
+    {
+      "id": "02_architecture_dais_stairs",
+      "file": "02_architecture_dais_stairs.glb",
+      "strategy": "world_merged_by_material",
+      "submeshes": 4
+    },
+    {
+      "id": "03_architecture_columns_canopy",
+      "file": "03_architecture_columns_canopy.glb",
+      "strategy": "world_merged_by_material",
+      "submeshes": 3
+    },
+    {
+      "id": "04_conduits_viaduct",
+      "file": "04_conduits_viaduct.glb",
+      "strategy": "world_merged_by_material",
+      "submeshes": 6
+    },
+    {
+      "id": "05_orbital_viaducts",
+      "file": "05_orbital_viaducts.glb",
+      "strategy": "world_merged_by_material",
+      "submeshes": 4
+    },
+    {
+      "id": "06_distant_towers",
+      "file": "06_distant_towers.glb",
+      "strategy": "world_merged_by_material",
+      "submeshes": 3
+    },
+    {
+      "id": "13_floating_slabs",
+      "file": "13_floating_slabs.glb",
+      "strategy": "world_merged_by_material",
+      "submeshes": 2
+    }
+  ],
+  "cameras": [
+    {
+      "name": "CAM_CinematicHero",
+      "position": [
+        -12.0,
+        -38.5,
+        2.3
+      ],
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "focal_length_mm": 28.0,
+      "sensor_width_mm": 36.0,
+      "dof_focus_object": "Astrolabe_Central_Reactor_Core",
+      "fstop": 6.3
+    },
+    {
+      "name": "CAM_MonumentalLowAngle",
+      "position": [
+        0.0,
+        -26.0,
+        0.65
+      ],
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "focal_length_mm": 22.0,
+      "sensor_width_mm": 36.0,
+      "dof_focus_object": "Astrolabe_Central_Reactor_Core",
+      "fstop": 8.0
+    },
+    {
+      "name": "CAM_ArchiveDetail",
+      "position": [
+        -16.200001,
+        -32.799999,
+        1.85
+      ],
+      "rotation_euler": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "focal_length_mm": 32.0,
+      "sensor_width_mm": 36.0,
+      "dof_focus_object": "Pathway_Memory_Crystal_02_CrystalPrism",
+      "fstop": 7.1
+    }
+  ],
+  "lights": [
+    {
+      "name": "Light_Atmospheric_Sun",
+      "type": "SUN",
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "color_rgb": [
+        0.34,
+        0.46,
+        0.64
+      ],
+      "energy_watts": 28.0
+    },
+    {
+      "name": "Light_Astrolabe_Core",
+      "type": "POINT",
+      "position": [
+        0.0,
+        0.0,
+        9.0
+      ],
+      "color_rgb": [
+        1.0,
+        0.55,
+        0.12
+      ],
+      "energy_watts": 380.0
+    },
+    {
+      "name": "Light_Canopy_Downlight",
+      "type": "SPOT",
+      "position": [
+        0.0,
+        0.0,
+        23.0
+      ],
+      "color_rgb": [
+        1.0,
+        0.64,
+        0.22
+      ],
+      "energy_watts": 380.0
+    },
+    {
+      "name": "Light_Staircase_Wash",
+      "type": "AREA",
+      "position": [
+        0.0,
+        -16.0,
+        6.0
+      ],
+      "color_rgb": [
+        1.0,
+        0.58,
+        0.16
+      ],
+      "energy_watts": 0.0
+    },
+    {
+      "name": "PathLight_Left",
+      "type": "POINT",
+      "position": [
+        -14.0,
+        -34.0,
+        3.8
+      ],
+      "color_rgb": [
+        1.0,
+        0.54,
+        0.14
+      ],
+      "energy_watts": 80.0
+    },
+    {
+      "name": "PathLight_Center",
+      "type": "POINT",
+      "position": [
+        0.0,
+        -28.0,
+        3.8
+      ],
+      "color_rgb": [
+        1.0,
+        0.54,
+        0.14
+      ],
+      "energy_watts": 80.0
+    },
+    {
+      "name": "PathLight_Right",
+      "type": "POINT",
+      "position": [
+        14.0,
+        -34.0,
+        3.8
+      ],
+      "color_rgb": [
+        1.0,
+        0.54,
+        0.14
+      ],
+      "energy_watts": 80.0
+    },
+    {
+      "name": "Light_Detail_Crystal_Key",
+      "type": "POINT",
+      "position": [
+        -15.5,
+        -29.0,
+        2.8
+      ],
+      "color_rgb": [
+        1.0,
+        0.65,
+        0.24
+      ],
+      "energy_watts": 0.0
+    },
+    {
+      "name": "Light_Astrolabe_Rim_Back",
+      "type": "POINT",
+      "position": [
+        0.0,
+        9.5,
+        15.0
+      ],
+      "color_rgb": [
+        0.36,
+        0.5,
+        0.82
+      ],
+      "energy_watts": 480.0
+    },
+    {
+      "name": "Light_Astrolabe_Pedestal_Up",
+      "type": "POINT",
+      "position": [
+        0.0,
+        0.0,
+        4.3
+      ],
+      "color_rgb": [
+        1.0,
+        0.52,
+        0.12
+      ],
+      "energy_watts": 160.0
+    },
+    {
+      "name": "Light_Rotunda_Front_Key",
+      "type": "POINT",
+      "position": [
+        0.0,
+        -22.0,
+        10.0
+      ],
+      "color_rgb": [
+        0.38,
+        0.5,
+        0.72
+      ],
+      "energy_watts": 12000.0
+    }
+  ]
+}

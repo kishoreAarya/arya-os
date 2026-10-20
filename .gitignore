@@ -58,3 +58,19 @@ data/storage/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+
+# Root JavaScript dependencies
+/node_modules/
+
+# Generated backend execution artifacts
+/backend/storage/artifacts/
+
+# Blender generated renders and backup files
+/frontend/blender/renders/
+/frontend/blender/scenes/*.blend1
+/frontend/blender/scenes/*backup*.blend
+
+# Python and test caches
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/

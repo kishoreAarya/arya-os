@@ -1,0 +1,54 @@
+{
+  "stage": 15,
+  "timestamp": "2026-10-02T10:35:10.000Z",
+  "authorizations": [
+    {
+      "actionId": "act_low_risk_01",
+      "capabilityId": "filesystem.read",
+      "riskLevel": "LOW",
+      "authorized": true,
+      "status": "AUTHORIZED",
+      "requiresHumanApproval": false,
+      "grantedPermissions": ["FILES_READ"]
+    },
+    {
+      "actionId": "act_high_risk_02",
+      "capabilityId": "filesystem.write",
+      "riskLevel": "HIGH",
+      "authorized": false,
+      "status": "REQUIRES_APPROVAL",
+      "requiresHumanApproval": true,
+      "reason": "Action requires explicit operator review (Risk: HIGH)"
+    },
+    {
+      "actionId": "act_crit_delete_03",
+      "capabilityId": "filesystem.write",
+      "operation": "delete_file",
+      "riskLevel": "CRITICAL",
+      "attemptedBy": "SYSTEM",
+      "authorized": false,
+      "status": "DENIED",
+      "reason": "Autonomous approval is prohibited for CRITICAL risk actions"
+    },
+    {
+      "actionId": "act_crit_delete_04",
+      "capabilityId": "filesystem.write",
+      "operation": "delete_file",
+      "riskLevel": "CRITICAL",
+      "operatorApproval": {
+        "approvedBy": "OPERATOR_BOB"
+      },
+      "authorized": true,
+      "status": "AUTHORIZED",
+      "requiresHumanApproval": true
+    },
+    {
+      "actionId": "act_traversal_05",
+      "capabilityId": "filesystem.read",
+      "path": "/workspace/../../etc/passwd",
+      "authorized": false,
+      "status": "DENIED",
+      "reason": "Sandbox violation: Path traversal (..) is strictly prohibited"
+    }
+  ]
+}

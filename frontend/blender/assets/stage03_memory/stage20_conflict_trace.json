@@ -1,0 +1,256 @@
+{
+  "stage": 20,
+  "subsystem": "PolicyConflictService & PolicyEvaluationService",
+  "timestamp": "2026-10-03T06:08:15.017Z",
+  "precedenceHierarchy": [
+    {
+      "rank": 1,
+      "tier": "SYSTEM_SAFETY",
+      "weight": 100
+    },
+    {
+      "rank": 2,
+      "tier": "SECURITY",
+      "weight": 90
+    },
+    {
+      "rank": 3,
+      "tier": "HUMAN_GOVERNANCE",
+      "weight": 80
+    },
+    {
+      "rank": 4,
+      "tier": "RESOURCE_LIMITS",
+      "weight": 70
+    },
+    {
+      "rank": 5,
+      "tier": "MISSION_POLICY",
+      "weight": 60
+    },
+    {
+      "rank": 6,
+      "tier": "AGENT_POLICY",
+      "weight": 50
+    },
+    {
+      "rank": 7,
+      "tier": "TRIGGER_POLICY",
+      "weight": 40
+    },
+    {
+      "rank": 8,
+      "tier": "OPTIMIZATION_POLICY",
+      "weight": 30
+    }
+  ],
+  "effectRestrictivenessHierarchy": [
+    {
+      "effect": "DENY",
+      "rank": 10
+    },
+    {
+      "effect": "PAUSE",
+      "rank": 8
+    },
+    {
+      "effect": "REQUIRE_APPROVAL",
+      "rank": 6
+    },
+    {
+      "effect": "REQUIRE_REVIEW",
+      "rank": 5
+    },
+    {
+      "effect": "LIMIT",
+      "rank": 4
+    },
+    {
+      "effect": "DEFER",
+      "rank": 3
+    },
+    {
+      "effect": "ROUTE",
+      "rank": 2
+    },
+    {
+      "effect": "ALLOW",
+      "rank": 1
+    }
+  ],
+  "totalConflictsEvaluated": 4,
+  "losslessPreservationVerified": true,
+  "silentDroppingProhibited": true,
+  "conflicts": [
+    {
+      "conflictRecordId": "conflict-pol-safety-interlock-pol-opt-routing-speed-1791007695014-9irf",
+      "conflictType": "CONTRADICTORY_POLICY",
+      "competingPolicies": {
+        "policyA": {
+          "id": "pol-safety-interlock",
+          "version": 1,
+          "priority": "SYSTEM_SAFETY",
+          "priorityWeight": 100,
+          "effect": {
+            "type": "DENY",
+            "reason": "System safety invariant triggered: halt execution"
+          }
+        },
+        "policyB": {
+          "id": "pol-opt-routing-speed",
+          "version": 1,
+          "priority": "OPTIMIZATION_POLICY",
+          "priorityWeight": 30,
+          "effect": {
+            "type": "ALLOW",
+            "reason": "High throughput fast path route"
+          }
+        }
+      },
+      "deterministicResolution": {
+        "winningPolicyId": "pol-safety-interlock",
+        "winningVersion": 1,
+        "effectiveEffect": {
+          "type": "DENY",
+          "reason": "System safety invariant triggered: halt execution"
+        },
+        "supersededPolicyId": "pol-opt-routing-speed",
+        "precedenceReason": "Policy 'pol-safety-interlock' (Priority: SYSTEM_SAFETY, Weight: 100) takes precedence over Policy 'pol-opt-routing-speed' (Priority: OPTIMIZATION_POLICY, Weight: 30) due to hierarchical precedence rules.",
+        "bothPoliciesRetainedInRegistry": true
+      },
+      "provenance": {
+        "detectedAt": 1791007695014,
+        "persistedToAuditPersistence": true
+      }
+    },
+    {
+      "conflictRecordId": "conflict-pol-sec-data-boundary-pol-agent-auto-dispatch-1791007695015-i98t",
+      "conflictType": "CONTRADICTORY_POLICY",
+      "competingPolicies": {
+        "policyA": {
+          "id": "pol-sec-data-boundary",
+          "version": 2,
+          "priority": "SECURITY",
+          "priorityWeight": 90,
+          "effect": {
+            "type": "DENY",
+            "reason": "Security boundary: network transmission blocked"
+          }
+        },
+        "policyB": {
+          "id": "pol-agent-auto-dispatch",
+          "version": 1,
+          "priority": "AGENT_POLICY",
+          "priorityWeight": 50,
+          "effect": {
+            "type": "ALLOW",
+            "reason": "Agent permitted to query external endpoints"
+          }
+        }
+      },
+      "deterministicResolution": {
+        "winningPolicyId": "pol-sec-data-boundary",
+        "winningVersion": 2,
+        "effectiveEffect": {
+          "type": "DENY",
+          "reason": "Security boundary: network transmission blocked"
+        },
+        "supersededPolicyId": "pol-agent-auto-dispatch",
+        "precedenceReason": "Policy 'pol-sec-data-boundary' (Priority: SECURITY, Weight: 90) takes precedence over Policy 'pol-agent-auto-dispatch' (Priority: AGENT_POLICY, Weight: 50) due to hierarchical precedence rules.",
+        "bothPoliciesRetainedInRegistry": true
+      },
+      "provenance": {
+        "detectedAt": 1791007695015,
+        "persistedToAuditPersistence": true
+      }
+    },
+    {
+      "conflictRecordId": "conflict-pol-res-concurrency-cap-pol-trig-burst-permit-1791007695016-4ycf",
+      "conflictType": "PRIORITY_CONFLICT",
+      "competingPolicies": {
+        "policyA": {
+          "id": "pol-res-concurrency-cap",
+          "version": 1,
+          "priority": "RESOURCE_LIMITS",
+          "priorityWeight": 70,
+          "effect": {
+            "type": "LIMIT",
+            "constraint": {
+              "maxConcurrentActions": 2
+            },
+            "reason": "Compute memory envelope limitation"
+          }
+        },
+        "policyB": {
+          "id": "pol-trig-burst-permit",
+          "version": 1,
+          "priority": "TRIGGER_POLICY",
+          "priorityWeight": 40,
+          "effect": {
+            "type": "ALLOW",
+            "reason": "Immediate processing permitted"
+          }
+        }
+      },
+      "deterministicResolution": {
+        "winningPolicyId": "pol-res-concurrency-cap",
+        "winningVersion": 1,
+        "effectiveEffect": {
+          "type": "LIMIT",
+          "constraint": {
+            "maxConcurrentActions": 2
+          },
+          "reason": "Compute memory envelope limitation"
+        },
+        "supersededPolicyId": "pol-trig-burst-permit",
+        "precedenceReason": "Policy 'pol-res-concurrency-cap' (Priority: RESOURCE_LIMITS, Weight: 70) takes precedence over Policy 'pol-trig-burst-permit' (Priority: TRIGGER_POLICY, Weight: 40) due to hierarchical precedence rules.",
+        "bothPoliciesRetainedInRegistry": true
+      },
+      "provenance": {
+        "detectedAt": 1791007695016,
+        "persistedToAuditPersistence": true
+      }
+    },
+    {
+      "conflictRecordId": "conflict-pol-sec-deny-export-pol-sec-approval-export-1791007695017-kqgd",
+      "conflictType": "CONTRADICTORY_POLICY",
+      "competingPolicies": {
+        "policyA": {
+          "id": "pol-sec-deny-export",
+          "version": 1,
+          "priority": "SECURITY",
+          "priorityWeight": 90,
+          "effect": {
+            "type": "DENY",
+            "reason": "Total export moratorium"
+          }
+        },
+        "policyB": {
+          "id": "pol-sec-approval-export",
+          "version": 1,
+          "priority": "SECURITY",
+          "priorityWeight": 90,
+          "effect": {
+            "type": "REQUIRE_APPROVAL",
+            "reason": "Human operator signoff required"
+          }
+        }
+      },
+      "deterministicResolution": {
+        "winningPolicyId": "pol-sec-deny-export",
+        "winningVersion": 1,
+        "effectiveEffect": {
+          "type": "DENY",
+          "reason": "Total export moratorium"
+        },
+        "supersededPolicyId": "pol-sec-approval-export",
+        "precedenceReason": "Policy 'pol-sec-deny-export' (Priority: SECURITY, Weight: 90) takes precedence over Policy 'pol-sec-approval-export' (Priority: SECURITY, Weight: 90) due to hierarchical precedence rules.",
+        "bothPoliciesRetainedInRegistry": true
+      },
+      "provenance": {
+        "detectedAt": 1791007695017,
+        "persistedToAuditPersistence": true
+      }
+    }
+  ]
+}

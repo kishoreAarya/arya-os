@@ -8,6 +8,7 @@ establishes: DI'd `db`, `ExecutionEngine`, and the shared
 
 from sqlalchemy.ext.asyncio import AsyncSession  
 from dataclasses import dataclass
+from typing import Any
 
 from app.agents.base import AgentResult, BaseAgent
 from app.providers.capabilities import Capability
@@ -21,9 +22,10 @@ class ScriptResult:
 
 def _build_script_prompt(
     topic: str,
-    research_data: list[dict] | None,
+    research_data: list[Any] | None = None,
     target_duration: int | None = None,
     is_cinematic: bool = False,
+    research_brief: str | None = None,
 ) -> str:
     if is_cinematic:
         lines = [
@@ -68,13 +70,57 @@ def _build_script_prompt(
         "Do not include camera directions.",
     ])
 
+    if research_brief and str(research_brief).strip():
+        lines.append("")
+        lines.append("Research brief:")
+        lines.append(str(research_brief).strip())
+
+    researched_bullets: list[str] = []
     if research_data:
+        items = research_data if isinstance(research_data, (list, tuple)) else [research_data]
+        for raw_item in items[:5]:
+            item = (
+                raw_item.to_dict()
+                if hasattr(raw_item, "to_dict") and callable(raw_item.to_dict)
+                else raw_item
+            )
+            if isinstance(item, dict):
+                metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+                title = (
+                    item.get("topic")
+                    or item.get("title")
+                    or metadata.get("title")
+                    or ""
+                )
+                if not isinstance(title, str):
+                    title = str(title)
+                title = title.strip()
+
+                summary = (
+                    item.get("search_volume_or_signal")
+                    or item.get("signal")
+                    or item.get("summary")
+                    or metadata.get("snippet")
+                    or metadata.get("content")
+                    or ""
+                )
+                if not isinstance(summary, str):
+                    summary = str(summary)
+                summary = summary.strip()
+
+                if title and summary:
+                    researched_bullets.append(f"- {title}: {summary}")
+                elif title:
+                    researched_bullets.append(f"- {title}")
+                elif summary:
+                    researched_bullets.append(f"- {summary}")
+            elif isinstance(item, str) and item.strip():
+                researched_bullets.append(f"- {item.strip()}")
+
+    if researched_bullets:
         lines.append("")
         lines.append("Use these researched facts/angles where relevant:")
-        for item in research_data[:5]:
-            title = item.get("title", "")
-            summary = item.get("summary", "")
-            lines.append(f"- {title}: {summary}")
+        lines.extend(researched_bullets)
 
     return "\n".join(lines)
 
@@ -90,6 +136,8 @@ class ScriptAgent(BaseAgent):
         """Expected context keys:
         topic (str, required)
         research_data (list[dict], optional)
+        trend_signals (list[dict], optional)
+        research_brief (str, optional)
         duration (int, optional) — target video duration in seconds
         target_duration (int, optional) — alias for duration
         mode (str, optional)
@@ -114,11 +162,18 @@ class ScriptAgent(BaseAgent):
             or context.get("preset") == "cinematic_story"
         )
 
+        research_data = context.get("research_data")
+        if research_data is None:
+            research_data = context.get("trend_signals")
+
+        research_brief = context.get("research_brief")
+
         prompt = _build_script_prompt(
             topic=topic,
-            research_data=context.get("research_data"),
+            research_data=research_data,
             target_duration=target_duration,
             is_cinematic=is_cinematic,
+            research_brief=research_brief,
         )
 
         exec_result = await self._execution_engine.execute(
@@ -126,6 +181,7 @@ class ScriptAgent(BaseAgent):
             call=build_text_generation_call(prompt),
             workflow_run_id=context.get("workflow_run_id"),
             stage="script_generation",
+            validator_name="story",
         )
 
         if not exec_result.success:
@@ -148,6 +204,12 @@ class ScriptAgent(BaseAgent):
         if target_duration:
             output["target_duration"] = target_duration
             output["duration"] = target_duration
+
+        val_res = getattr(exec_result.context, "validation_result", None) if exec_result.context else None
+        if val_res is not None:
+            output["validation_result"] = val_res
+            if getattr(val_res, "score", None) is not None:
+                output["quality_score"] = val_res.score
 
         return AgentResult(
             success=True,

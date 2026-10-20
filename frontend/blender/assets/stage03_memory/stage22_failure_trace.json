@@ -1,0 +1,610 @@
+{
+  "stage": 22,
+  "subsystem": "failureBoundaryService",
+  "generatedAt": "2026-10-03T07:57:45.065Z",
+  "axioms": [
+    "ACTION_DISPATCH ≠ EXTERNAL_EXECUTION_SUCCESS",
+    "EXECUTION_SUCCESS ≠ STATE_RECONCILIATION",
+    "FAIL-CLOSED ON UNKNOWN EXTERNAL STATUS"
+  ],
+  "scenarios": [
+    {
+      "scenario": "POLICY_DENIED",
+      "description": "Governance evaluation resulted in DENY, halting operation before dispatch",
+      "failureBoundary": {
+        "boundary": "POLICY_DENIED",
+        "stoppingStage": "Stage 21 Governance Control Plane",
+        "reason": "Dropping database tables is strictly prohibited by pol-data-retention-v1"
+      },
+      "trace": {
+        "operationId": "op-fail-policy-denied-001",
+        "correlationId": "corr-fail-001",
+        "causationId": "ext-unauth-action",
+        "rootOrigin": {
+          "originType": "REQUEST_RECEIVED",
+          "originId": "evt-request-received-nied-001-9",
+          "actor": {
+            "actorId": "external-source",
+            "actorType": "SYSTEM"
+          },
+          "timestamp": 1791014265060
+        },
+        "terminalStatus": "DENIED",
+        "epistemicStatus": "OBSERVED",
+        "isCompleted": true,
+        "totalDurationMs": 0,
+        "steps": [
+          {
+            "stepIndex": 1,
+            "stageName": "EXTERNAL_API",
+            "nodeType": "EXTERNAL_EVENT",
+            "referenceId": "evt-request-received-nied-001-9",
+            "timestamp": 1791014265060,
+            "status": "RECEIVED",
+            "epistemicStatus": "OBSERVED",
+            "description": "REQUEST_RECEIVED: Inbound event received from EXTERNAL_API",
+            "evidenceId": "ext-unauth-action",
+            "isMissingEvidence": false
+          },
+          {
+            "stepIndex": 2,
+            "stageName": "Stage 21 Governance Control Plane",
+            "nodeType": "GOVERNANCE_DECISION",
+            "referenceId": "evt-governance-decided-nied-001-10",
+            "timestamp": 1791014265060,
+            "status": "DENIED",
+            "epistemicStatus": "OBSERVED",
+            "description": "GOVERNANCE_DECIDED: Dropping database tables is strictly prohibited by pol-data-retention-v1",
+            "isMissingEvidence": false
+          }
+        ],
+        "causalGraph": {
+          "operationId": "op-fail-policy-denied-001",
+          "rootNodeId": "node-request-received-evt-request-received-nied-001-9",
+          "nodes": [
+            {
+              "nodeId": "node-request-received-evt-request-received-nied-001-9",
+              "nodeType": "EXTERNAL_EVENT",
+              "label": "REQUEST_RECEIVED (RECEIVED)",
+              "timestamp": 1791014265060,
+              "stageSource": "EXTERNAL_API",
+              "status": "RECEIVED",
+              "epistemicStatus": "OBSERVED",
+              "metadata": {
+                "actor": {
+                  "actorId": "external-source",
+                  "actorType": "SYSTEM"
+                },
+                "reason": "Inbound event received from EXTERNAL_API"
+              }
+            },
+            {
+              "nodeId": "node-governance-decided-evt-governance-decided-nied-001-10",
+              "nodeType": "GOVERNANCE_DECISION",
+              "label": "GOVERNANCE_DECIDED (DENIED)",
+              "timestamp": 1791014265060,
+              "stageSource": "Stage 21 Governance Control Plane",
+              "status": "DENIED",
+              "epistemicStatus": "OBSERVED",
+              "metadata": {
+                "actor": {
+                  "actorId": "system",
+                  "actorType": "SYSTEM"
+                },
+                "reason": "Dropping database tables is strictly prohibited by pol-data-retention-v1",
+                "failureBoundary": {
+                  "boundary": "POLICY_DENIED",
+                  "stoppingStage": "Stage 21 Governance Control Plane",
+                  "reason": "Dropping database tables is strictly prohibited by pol-data-retention-v1"
+                }
+              }
+            }
+          ],
+          "edges": [
+            {
+              "fromNodeId": "node-request-received-evt-request-received-nied-001-9",
+              "toNodeId": "node-governance-decided-evt-governance-decided-nied-001-10",
+              "edgeType": "GOVERNED_BY",
+              "timestamp": 1791014265060
+            }
+          ],
+          "maxDepthReached": 1,
+          "isTruncated": false,
+          "hasCycles": false
+        },
+        "failureBoundary": {
+          "boundary": "POLICY_DENIED",
+          "stoppingStage": "Stage 21 Governance Control Plane",
+          "reason": "Dropping database tables is strictly prohibited by pol-data-retention-v1"
+        },
+        "deterministicExplanation": "Operation 'op-fail-policy-denied-001' originated from SYSTEM (external-source) via REQUEST_RECEIVED. Governance control plane rendered decision 'DENY'. No Action Bus dispatch occurred due to governance restriction (DENY). Operation halted at boundary 'POLICY_DENIED' in Stage 21 Governance Control Plane: Dropping database tables is strictly prohibited by pol-data-retention-v1",
+        "evidenceLedger": [
+          "ext-unauth-action"
+        ]
+      }
+    },
+    {
+      "scenario": "HUMAN_APPROVAL_PENDING",
+      "description": "Governance requires manual approval signature before authority can be granted",
+      "failureBoundary": {
+        "boundary": "HUMAN_APPROVAL_PENDING",
+        "stoppingStage": "Stage 21 Human Operator Gate",
+        "reason": "Operation requires explicit operator approval"
+      },
+      "trace": {
+        "operationId": "op-fail-approval-pending-002",
+        "correlationId": "corr-fail-002",
+        "causationId": "ext-fin-transfer",
+        "rootOrigin": {
+          "originType": "REQUEST_RECEIVED",
+          "originId": "evt-request-received-ding-002-11",
+          "actor": {
+            "actorId": "external-source",
+            "actorType": "SYSTEM"
+          },
+          "timestamp": 1791014265061
+        },
+        "terminalStatus": "GOVERNED",
+        "epistemicStatus": "OBSERVED",
+        "isCompleted": false,
+        "totalDurationMs": 0,
+        "steps": [
+          {
+            "stepIndex": 1,
+            "stageName": "FINANCIAL_SERVICE",
+            "nodeType": "EXTERNAL_EVENT",
+            "referenceId": "evt-request-received-ding-002-11",
+            "timestamp": 1791014265061,
+            "status": "RECEIVED",
+            "epistemicStatus": "OBSERVED",
+            "description": "REQUEST_RECEIVED: Inbound event received from FINANCIAL_SERVICE",
+            "evidenceId": "ext-fin-transfer",
+            "isMissingEvidence": false
+          },
+          {
+            "stepIndex": 2,
+            "stageName": "Stage 21 Governance Control Plane",
+            "nodeType": "GOVERNANCE_DECISION",
+            "referenceId": "evt-governance-decided-ding-002-12",
+            "timestamp": 1791014265061,
+            "status": "GOVERNED",
+            "epistemicStatus": "OBSERVED",
+            "description": "GOVERNANCE_DECIDED: Outbound transfers over $10,000 require human operator signature",
+            "isMissingEvidence": false
+          }
+        ],
+        "causalGraph": {
+          "operationId": "op-fail-approval-pending-002",
+          "rootNodeId": "node-request-received-evt-request-received-ding-002-11",
+          "nodes": [
+            {
+              "nodeId": "node-request-received-evt-request-received-ding-002-11",
+              "nodeType": "EXTERNAL_EVENT",
+              "label": "REQUEST_RECEIVED (RECEIVED)",
+              "timestamp": 1791014265061,
+              "stageSource": "FINANCIAL_SERVICE",
+              "status": "RECEIVED",
+              "epistemicStatus": "OBSERVED",
+              "metadata": {
+                "actor": {
+                  "actorId": "external-source",
+                  "actorType": "SYSTEM"
+                },
+                "reason": "Inbound event received from FINANCIAL_SERVICE"
+              }
+            },
+            {
+              "nodeId": "node-governance-decided-evt-governance-decided-ding-002-12",
+              "nodeType": "GOVERNANCE_DECISION",
+              "label": "GOVERNANCE_DECIDED (GOVERNED)",
+              "timestamp": 1791014265061,
+              "stageSource": "Stage 21 Governance Control Plane",
+              "status": "GOVERNED",
+              "epistemicStatus": "OBSERVED",
+              "metadata": {
+                "actor": {
+                  "actorId": "system",
+                  "actorType": "SYSTEM"
+                },
+                "reason": "Outbound transfers over $10,000 require human operator signature",
+                "failureBoundary": {
+                  "boundary": "HUMAN_APPROVAL_PENDING",
+                  "stoppingStage": "Stage 21 Human Operator Gate",
+                  "reason": "Operation requires explicit operator approval"
+                }
+              }
+            }
+          ],
+          "edges": [
+            {
+              "fromNodeId": "node-request-received-evt-request-received-ding-002-11",
+              "toNodeId": "node-governance-decided-evt-governance-decided-ding-002-12",
+              "edgeType": "GOVERNED_BY",
+              "timestamp": 1791014265061
+            }
+          ],
+          "maxDepthReached": 1,
+          "isTruncated": false,
+          "hasCycles": false
+        },
+        "failureBoundary": {
+          "boundary": "HUMAN_APPROVAL_PENDING",
+          "stoppingStage": "Stage 21 Human Operator Gate",
+          "reason": "Operation requires explicit operator approval"
+        },
+        "deterministicExplanation": "Operation 'op-fail-approval-pending-002' originated from SYSTEM (external-source) via REQUEST_RECEIVED. Governance control plane rendered decision 'REQUIRE_APPROVAL'. No Action Bus dispatch occurred due to governance restriction (REQUIRE_APPROVAL). Operation halted at boundary 'HUMAN_APPROVAL_PENDING' in Stage 21 Human Operator Gate: Operation requires explicit operator approval",
+        "evidenceLedger": [
+          "ext-fin-transfer"
+        ]
+      }
+    },
+    {
+      "scenario": "AUTHORIZATION_DENIED",
+      "description": "Connector Fabric / Authority Intersection failed closed",
+      "failureBoundary": {
+        "boundary": "AUTHORIZATION_DENIED",
+        "stoppingStage": "Stage 21 Authority Intersection",
+        "reason": "Authority intersection failed: Agent lacks write permissions on protected branch in connector fabric",
+        "remedialAction": "Verify agent capability grants and connector permissions.",
+        "evidenceId": "evt-authority-checked-nied-003-14"
+      },
+      "trace": {
+        "operationId": "op-fail-auth-denied-003",
+        "correlationId": "corr-fail-003",
+        "causationId": "ext-repo-write",
+        "rootOrigin": {
+          "originType": "REQUEST_RECEIVED",
+          "originId": "evt-request-received-nied-003-13",
+          "actor": {
+            "actorId": "external-source",
+            "actorType": "SYSTEM"
+          },
+          "timestamp": 1791014265062
+        },
+        "terminalStatus": "DENIED",
+        "epistemicStatus": "OBSERVED",
+        "isCompleted": true,
+        "totalDurationMs": 0,
+        "steps": [
+          {
+            "stepIndex": 1,
+            "stageName": "GITHUB_APP",
+            "nodeType": "EXTERNAL_EVENT",
+            "referenceId": "evt-request-received-nied-003-13",
+            "timestamp": 1791014265062,
+            "status": "RECEIVED",
+            "epistemicStatus": "OBSERVED",
+            "description": "REQUEST_RECEIVED: Inbound event received from GITHUB_APP",
+            "evidenceId": "ext-repo-write",
+            "isMissingEvidence": false
+          },
+          {
+            "stepIndex": 2,
+            "stageName": "Stage 21 Authority Intersection",
+            "nodeType": "AUTHORIZATION",
+            "referenceId": "evt-authority-checked-nied-003-14",
+            "timestamp": 1791014265062,
+            "status": "DENIED",
+            "epistemicStatus": "OBSERVED",
+            "description": "AUTHORITY_CHECKED: Authority intersection failed: Agent lacks write permissions on protected branch in connector fabric",
+            "isMissingEvidence": false
+          }
+        ],
+        "causalGraph": {
+          "operationId": "op-fail-auth-denied-003",
+          "rootNodeId": "node-request-received-evt-request-received-nied-003-13",
+          "nodes": [
+            {
+              "nodeId": "node-request-received-evt-request-received-nied-003-13",
+              "nodeType": "EXTERNAL_EVENT",
+              "label": "REQUEST_RECEIVED (RECEIVED)",
+              "timestamp": 1791014265062,
+              "stageSource": "GITHUB_APP",
+              "status": "RECEIVED",
+              "epistemicStatus": "OBSERVED",
+              "metadata": {
+                "actor": {
+                  "actorId": "external-source",
+                  "actorType": "SYSTEM"
+                },
+                "reason": "Inbound event received from GITHUB_APP"
+              }
+            },
+            {
+              "nodeId": "node-authority-checked-evt-authority-checked-nied-003-14",
+              "nodeType": "AUTHORIZATION",
+              "label": "AUTHORITY_CHECKED (DENIED)",
+              "timestamp": 1791014265062,
+              "stageSource": "Stage 21 Authority Intersection",
+              "status": "DENIED",
+              "epistemicStatus": "OBSERVED",
+              "metadata": {
+                "actor": {
+                  "actorId": "system",
+                  "actorType": "SYSTEM"
+                },
+                "reason": "Authority intersection failed: Agent lacks write permissions on protected branch in connector fabric"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "fromNodeId": "node-request-received-evt-request-received-nied-003-13",
+              "toNodeId": "node-authority-checked-evt-authority-checked-nied-003-14",
+              "edgeType": "AUTHORIZED_BY",
+              "timestamp": 1791014265062
+            }
+          ],
+          "maxDepthReached": 1,
+          "isTruncated": false,
+          "hasCycles": false
+        },
+        "deterministicExplanation": "Operation 'op-fail-auth-denied-003' originated from SYSTEM (external-source) via REQUEST_RECEIVED.",
+        "evidenceLedger": [
+          "ext-repo-write"
+        ]
+      }
+    },
+    {
+      "scenario": "EXTERNAL_RESULT_UNKNOWN",
+      "description": "Action dispatched to external provider but confirmation is unavailable (epistemicStatus: UNKNOWN)",
+      "failureBoundary": {
+        "boundary": "EXTERNAL_RESULT_UNKNOWN",
+        "stoppingStage": "Stage 15 / Stage 17 Action Bus Transport",
+        "reason": "Action was dispatched to external system, but no authoritative confirmation was observed.",
+        "remedialAction": "Execute external state reconciliation query or wait for webhook receipt.",
+        "evidenceId": "evt-action-dispatched-nown-004-15"
+      },
+      "trace": {
+        "operationId": "op-fail-result-unknown-004",
+        "correlationId": "corr-fail-004",
+        "rootOrigin": {
+          "originType": "ACTION_DISPATCHED",
+          "originId": "evt-action-dispatched-nown-004-15",
+          "actor": {
+            "actorId": "system",
+            "actorType": "SYSTEM"
+          },
+          "timestamp": 1791014265063
+        },
+        "terminalStatus": "UNKNOWN",
+        "epistemicStatus": "UNKNOWN",
+        "isCompleted": false,
+        "totalDurationMs": 0,
+        "steps": [
+          {
+            "stepIndex": 1,
+            "stageName": "Stage 15 Universal Action Bus",
+            "nodeType": "ACTION",
+            "referenceId": "evt-action-dispatched-nown-004-15",
+            "timestamp": 1791014265063,
+            "status": "DISPATCHED",
+            "epistemicStatus": "OBSERVED",
+            "description": "ACTION_DISPATCHED: Action 'act-disp-timeout-004' dispatched to ActionBus",
+            "isMissingEvidence": false
+          },
+          {
+            "stepIndex": 3,
+            "stageName": "Stage 21 Governance",
+            "nodeType": "MISSING_EVIDENCE",
+            "referenceId": "MISSING_GOVERNANCE_CHECK",
+            "timestamp": 1791014265063,
+            "status": "UNKNOWN",
+            "epistemicStatus": "UNKNOWN",
+            "description": "Missing evidence: Action was dispatched without recorded governance evaluation.",
+            "isMissingEvidence": true
+          },
+          {
+            "stepIndex": 2,
+            "stageName": "Stage 15 Universal Action Bus",
+            "nodeType": "RESULT",
+            "referenceId": "evt-operation-unknown-nown-004-16",
+            "timestamp": 1791014265063,
+            "status": "UNKNOWN",
+            "epistemicStatus": "UNKNOWN",
+            "description": "OPERATION_UNKNOWN: Dispatched to remote provider but callback confirmation was never received",
+            "isMissingEvidence": false
+          }
+        ],
+        "causalGraph": {
+          "operationId": "op-fail-result-unknown-004",
+          "rootNodeId": "node-action-dispatched-evt-action-dispatched-nown-004-15",
+          "nodes": [
+            {
+              "nodeId": "node-action-dispatched-evt-action-dispatched-nown-004-15",
+              "nodeType": "ACTION",
+              "label": "ACTION_DISPATCHED (DISPATCHED)",
+              "timestamp": 1791014265063,
+              "stageSource": "Stage 15 Universal Action Bus",
+              "status": "DISPATCHED",
+              "epistemicStatus": "OBSERVED",
+              "metadata": {
+                "actor": {
+                  "actorId": "system",
+                  "actorType": "SYSTEM"
+                },
+                "reason": "Action 'act-disp-timeout-004' dispatched to ActionBus"
+              }
+            },
+            {
+              "nodeId": "node-operation-unknown-evt-operation-unknown-nown-004-16",
+              "nodeType": "RESULT",
+              "label": "OPERATION_UNKNOWN (UNKNOWN)",
+              "timestamp": 1791014265063,
+              "stageSource": "Stage 15 Universal Action Bus",
+              "status": "UNKNOWN",
+              "epistemicStatus": "UNKNOWN",
+              "metadata": {
+                "actor": {
+                  "actorId": "system",
+                  "actorType": "SYSTEM"
+                },
+                "reason": "Dispatched to remote provider but callback confirmation was never received"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "fromNodeId": "node-action-dispatched-evt-action-dispatched-nown-004-15",
+              "toNodeId": "node-operation-unknown-evt-operation-unknown-nown-004-16",
+              "edgeType": "RESULTED_IN",
+              "timestamp": 1791014265063
+            }
+          ],
+          "maxDepthReached": 1,
+          "isTruncated": false,
+          "hasCycles": false
+        },
+        "deterministicExplanation": "Operation 'op-fail-result-unknown-004' originated from SYSTEM (system) via ACTION_DISPATCHED. Action 'act-disp-timeout-004' was dispatched to Action Bus.",
+        "evidenceLedger": []
+      }
+    },
+    {
+      "scenario": "RECONCILIATION_FAILURE",
+      "description": "Action execution succeeded, but observed reality contradicts intent",
+      "failureBoundary": {
+        "boundary": "RECONCILIATION_FAILURE",
+        "stoppingStage": "Stage 22 Operational Truth Reconciler",
+        "reason": "Target DNS record expected 1.2.3.4 but observed 9.9.9.9 on authoritative nameservers",
+        "remedialAction": "Inspect external resource delta and resolve data drift.",
+        "evidenceId": "evt-state-reconciled-tion-005-19"
+      },
+      "trace": {
+        "operationId": "op-fail-reconciliation-005",
+        "correlationId": "corr-fail-005",
+        "rootOrigin": {
+          "originType": "ACTION_DISPATCHED",
+          "originId": "evt-action-dispatched-tion-005-17",
+          "actor": {
+            "actorId": "system",
+            "actorType": "SYSTEM"
+          },
+          "timestamp": 1791014265064
+        },
+        "terminalStatus": "FAILED",
+        "epistemicStatus": "OBSERVED",
+        "isCompleted": true,
+        "totalDurationMs": 1,
+        "steps": [
+          {
+            "stepIndex": 1,
+            "stageName": "Stage 15 Universal Action Bus",
+            "nodeType": "ACTION",
+            "referenceId": "evt-action-dispatched-tion-005-17",
+            "timestamp": 1791014265064,
+            "status": "DISPATCHED",
+            "epistemicStatus": "OBSERVED",
+            "description": "ACTION_DISPATCHED: Action 'act-disp-reconcile-005' dispatched to ActionBus",
+            "isMissingEvidence": false
+          },
+          {
+            "stepIndex": 2,
+            "stageName": "Stage 15 Universal Action Bus",
+            "nodeType": "ACTION",
+            "referenceId": "evt-action-executed-tion-005-18",
+            "timestamp": 1791014265064,
+            "status": "SUCCEEDED",
+            "epistemicStatus": "OBSERVED",
+            "description": "ACTION_EXECUTED: Action executed successfully",
+            "isMissingEvidence": false
+          },
+          {
+            "stepIndex": 4,
+            "stageName": "Stage 21 Governance",
+            "nodeType": "MISSING_EVIDENCE",
+            "referenceId": "MISSING_GOVERNANCE_CHECK",
+            "timestamp": 1791014265064,
+            "status": "UNKNOWN",
+            "epistemicStatus": "UNKNOWN",
+            "description": "Missing evidence: Action was dispatched without recorded governance evaluation.",
+            "isMissingEvidence": true
+          },
+          {
+            "stepIndex": 3,
+            "stageName": "Stage 22 Operational Truth Engine",
+            "nodeType": "RESULT",
+            "referenceId": "evt-state-reconciled-tion-005-19",
+            "timestamp": 1791014265065,
+            "status": "FAILED",
+            "epistemicStatus": "OBSERVED",
+            "description": "STATE_RECONCILED: Target DNS record expected 1.2.3.4 but observed 9.9.9.9 on authoritative nameservers",
+            "isMissingEvidence": false
+          }
+        ],
+        "causalGraph": {
+          "operationId": "op-fail-reconciliation-005",
+          "rootNodeId": "node-action-dispatched-evt-action-dispatched-tion-005-17",
+          "nodes": [
+            {
+              "nodeId": "node-action-dispatched-evt-action-dispatched-tion-005-17",
+              "nodeType": "ACTION",
+              "label": "ACTION_DISPATCHED (DISPATCHED)",
+              "timestamp": 1791014265064,
+              "stageSource": "Stage 15 Universal Action Bus",
+              "status": "DISPATCHED",
+              "epistemicStatus": "OBSERVED",
+              "metadata": {
+                "actor": {
+                  "actorId": "system",
+                  "actorType": "SYSTEM"
+                },
+                "reason": "Action 'act-disp-reconcile-005' dispatched to ActionBus"
+              }
+            },
+            {
+              "nodeId": "node-action-executed-evt-action-executed-tion-005-18",
+              "nodeType": "ACTION",
+              "label": "ACTION_EXECUTED (SUCCEEDED)",
+              "timestamp": 1791014265064,
+              "stageSource": "Stage 15 Universal Action Bus",
+              "status": "SUCCEEDED",
+              "epistemicStatus": "OBSERVED",
+              "metadata": {
+                "actor": {
+                  "actorId": "system",
+                  "actorType": "SYSTEM"
+                },
+                "reason": "Action executed successfully"
+              }
+            },
+            {
+              "nodeId": "node-state-reconciled-evt-state-reconciled-tion-005-19",
+              "nodeType": "RESULT",
+              "label": "STATE_RECONCILED (FAILED)",
+              "timestamp": 1791014265065,
+              "stageSource": "Stage 22 Operational Truth Engine",
+              "status": "FAILED",
+              "epistemicStatus": "OBSERVED",
+              "metadata": {
+                "actor": {
+                  "actorId": "system",
+                  "actorType": "SYSTEM"
+                },
+                "reason": "Target DNS record expected 1.2.3.4 but observed 9.9.9.9 on authoritative nameservers"
+              }
+            }
+          ],
+          "edges": [
+            {
+              "fromNodeId": "node-action-dispatched-evt-action-dispatched-tion-005-17",
+              "toNodeId": "node-action-executed-evt-action-executed-tion-005-18",
+              "edgeType": "RESULTED_IN",
+              "timestamp": 1791014265064
+            },
+            {
+              "fromNodeId": "node-action-executed-evt-action-executed-tion-005-18",
+              "toNodeId": "node-state-reconciled-evt-state-reconciled-tion-005-19",
+              "edgeType": "RECONCILED_TO",
+              "timestamp": 1791014265065
+            }
+          ],
+          "maxDepthReached": 2,
+          "isTruncated": false,
+          "hasCycles": false
+        },
+        "deterministicExplanation": "Operation 'op-fail-reconciliation-005' originated from SYSTEM (system) via ACTION_DISPATCHED. Action 'act-disp-reconcile-005' was dispatched to Action Bus. Execution completed with status 'SUCCEEDED' (Epistemic: OBSERVED). Post-execution system state successfully reconciled.",
+        "evidenceLedger": []
+      }
+    }
+  ]
+}

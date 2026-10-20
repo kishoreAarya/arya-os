@@ -1,0 +1,71 @@
+{
+  "hero": {
+    "title": "Archival Hero Establishing",
+    "camera": "CAM_CinematicHero",
+    "performance": {
+      "drawCalls": 52,
+      "triangles": 86830,
+      "points": 0,
+      "lines": 0,
+      "geometries": 62,
+      "textures": 4,
+      "gpuMemoryMb": 4.57,
+      "frameTimeMs": 0.91,
+      "fps": 1102.9
+    },
+    "mae": 10.1492,
+    "mse": 573.0103,
+    "rmse": 23.9376,
+    "psnr": 20.55,
+    "ssim": 0.5653,
+    "max_diff": 251.0,
+    "resolution": "1920x1080",
+    "diff_map": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_threejs_diff_hero.png"
+  },
+  "monumental": {
+    "title": "Monumental Rotunda Colonnade",
+    "camera": "CAM_MonumentalLowAngle",
+    "performance": {
+      "drawCalls": 52,
+      "triangles": 86830,
+      "points": 0,
+      "lines": 0,
+      "geometries": 62,
+      "textures": 4,
+      "gpuMemoryMb": 4.57,
+      "frameTimeMs": 0.81,
+      "fps": 1234.6
+    },
+    "mae": 12.9014,
+    "mse": 851.5361,
+    "rmse": 29.1811,
+    "psnr": 18.83,
+    "ssim": 0.4286,
+    "max_diff": 243.0,
+    "resolution": "1920x1080",
+    "diff_map": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_threejs_diff_monumental.png"
+  },
+  "detail": {
+    "title": "Archival Vitrine Detail",
+    "camera": "CAM_ArchiveDetail",
+    "performance": {
+      "drawCalls": 52,
+      "triangles": 86830,
+      "points": 0,
+      "lines": 0,
+      "geometries": 62,
+      "textures": 4,
+      "gpuMemoryMb": 4.57,
+      "frameTimeMs": 0.9,
+      "fps": 1115.2
+    },
+    "mae": 19.337,
+    "mse": 1473.8389,
+    "rmse": 38.3906,
+    "psnr": 16.45,
+    "ssim": 0.1711,
+    "max_diff": 239.0,
+    "resolution": "1920x1080",
+    "diff_map": "/Users/venkatakishorenasina/Documents/arya-os-v1/frontend/blender/renders/stage03_threejs_diff_detail.png"
+  }
+}

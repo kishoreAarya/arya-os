@@ -18,21 +18,47 @@ export const ReferenceUpload: React.FC<ReferenceUploadProps> = ({
   disabled = false,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const objectUrlRef = useRef<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isUrlMode, setIsUrlMode] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  const cleanupObjectURL = () => {
+    if (objectUrlRef.current) {
+      try {
+        URL.revokeObjectURL(objectUrlRef.current);
+      } catch {}
+      objectUrlRef.current = null;
+    }
+  };
+
+  React.useEffect(() => {
+    return () => {
+      cleanupObjectURL();
+    };
+  }, []);
+
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    cleanupObjectURL();
+    if (typeof URL !== 'undefined' && URL.createObjectURL) {
+      try {
+        const localUrl = URL.createObjectURL(file);
+        objectUrlRef.current = localUrl;
+      } catch {}
+    }
 
     setIsUploading(true);
     setUploadError(null);
     try {
       const res = await uploadAsset(file);
+      cleanupObjectURL();
       onImageChange(res.url);
     } catch (err: any) {
+      cleanupObjectURL();
       setUploadError(err.message || 'File upload failed');
     } finally {
       setIsUploading(false);
@@ -51,6 +77,17 @@ export const ReferenceUpload: React.FC<ReferenceUploadProps> = ({
 
   return (
     <div style={{ marginBottom: '1.25rem', opacity: disabled ? 0.6 : 1 }}>
+      {/* Hidden file input always mounted for both initial upload and instant replacement */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFileSelected}
+        style={{ display: 'none' }}
+        disabled={disabled || isUploading}
+        data-testid="reference-file-input"
+      />
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
         <label className="form-label" style={{ marginBottom: 0 }}>{label}</label>
         {!disabled && !imageUrl && (
@@ -96,29 +133,68 @@ export const ReferenceUpload: React.FC<ReferenceUploadProps> = ({
             src={imageUrl}
             alt="Reference preview"
             style={{ width: '100%', height: '140px', objectFit: 'cover' }}
+            data-testid="reference-preview-img"
           />
-          <button
-            type="button"
-            onClick={() => onImageChange(undefined)}
+          <div
             style={{
               position: 'absolute',
               top: '0.5rem',
               right: '0.5rem',
-              backgroundColor: 'rgba(0, 0, 0, 0.7)',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '50%',
-              width: '24px',
-              height: '24px',
               display: 'flex',
+              gap: '0.375rem',
               alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
             }}
-            title="Remove image"
           >
-            <X size={14} />
-          </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                backgroundColor: 'rgba(10, 16, 28, 0.85)',
+                color: 'var(--text-secondary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '2px 8px',
+                fontSize: '0.6875rem',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '3px',
+                cursor: 'pointer',
+                backdropFilter: 'blur(4px)',
+                transition: 'all 0.15s ease',
+              }}
+              title="Replace image"
+              data-testid="replace-reference-btn"
+            >
+              <Upload size={11} />
+              <span>Replace</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                cleanupObjectURL();
+                onImageChange(undefined);
+              }}
+              style={{
+                backgroundColor: 'rgba(239, 68, 68, 0.25)',
+                color: '#f87171',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                borderRadius: 'var(--radius-sm)',
+                width: '24px',
+                height: '24px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                backdropFilter: 'blur(4px)',
+              }}
+              title="Remove image"
+              data-testid="remove-reference-btn"
+            >
+              <X size={14} />
+            </button>
+          </div>
         </div>
       ) : isUrlMode ? (
         <form onSubmit={handleUrlSubmit} style={{ display: 'flex', gap: '0.5rem' }}>
@@ -137,14 +213,6 @@ export const ReferenceUpload: React.FC<ReferenceUploadProps> = ({
         </form>
       ) : (
         <div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleFileSelected}
-            style={{ display: 'none' }}
-            disabled={disabled || isUploading}
-          />
           <div
             onClick={() => !disabled && !isUploading && fileInputRef.current?.click()}
             style={{

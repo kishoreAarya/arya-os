@@ -15,14 +15,19 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.publishing import PublishingAgent
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.secrets import get_secrets_manager
+from app.core.security import AuthenticatedPrincipal, get_current_principal
 from app.database.session import get_db
+from app.models.enums import PublishStatus
+from app.models.media import Video
 from app.platforms.registry import get_platform_adapter
+from app.services.authorization_service import verify_workflow_access
 
 logger = get_logger("arya.api.publishing")
 
@@ -57,7 +62,10 @@ class PublishResponse(BaseModel):
 
 
 @router.get("/status")
-async def get_publishing_status(db: AsyncSession = Depends(get_db)):
+async def get_publishing_status(
+    db: AsyncSession = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
+):
     """Check Postiz connection and configured credentials."""
     settings = get_settings()
     secrets = get_secrets_manager()
@@ -94,14 +102,79 @@ async def get_publishing_status(db: AsyncSession = Depends(get_db)):
 async def publish_asset(
     payload: PublishRequest,
     db: AsyncSession = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ) -> PublishResponse:
     """Publish or schedule a stored media asset via PublishingAgent."""
-    # Prevent arbitrary file access - ensure path does not contain illegal traversal
-    if ".." in payload.asset_storage_path or "\0" in payload.asset_storage_path:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: path traversal detected in asset path",
+    # Verify object-level authorization for workflow_run_id or video_id
+    if payload.workflow_run_id is not None:
+        await verify_workflow_access(db, principal, payload.workflow_run_id)
+
+    video: Video | None = None
+    if payload.video_id:
+        try:
+            vid_uuid = uuid.UUID(str(payload.video_id))
+            stmt = select(Video).where(Video.id == vid_uuid).with_for_update()
+            video = (await db.execute(stmt)).scalar_one_or_none()
+            if video and video.workflow_run_id:
+                await verify_workflow_access(db, principal, video.workflow_run_id)
+        except (ValueError, TypeError):
+            pass
+    elif payload.workflow_run_id:
+        stmt = (
+            select(Video)
+            .where(Video.workflow_run_id == payload.workflow_run_id)
+            .order_by(Video.version.desc())
+            .with_for_update()
         )
+        video = (await db.execute(stmt)).scalars().first()
+
+    # Idempotency check: if already published or scheduled, return existing publish details
+    if (
+        not payload.dry_run
+        and video is not None
+        and video.publish_status in (PublishStatus.PUBLISHED, PublishStatus.SCHEDULED)
+        and video.youtube_video_id
+    ):
+        logger.info(
+            "publishing_asset_already_published_idempotent_return",
+            video_id=str(video.id),
+            published_content_id=video.youtube_video_id,
+            publish_status=video.publish_status.value,
+        )
+        pub_url = (
+            f"https://www.youtube.com/watch?v={video.youtube_video_id}"
+            if payload.platform == "youtube" or payload.social_platform == "youtube"
+            else None
+        )
+        return PublishResponse(
+            success=True,
+            platform=payload.platform,
+            published_content_id=video.youtube_video_id,
+            publish_status=video.publish_status.value,
+            scheduled_at=payload.scheduled_at,
+            url=pub_url,
+            is_dry_run=False,
+        )
+
+    # Prevent arbitrary file access — ensure path remains strictly confined to storage root
+    if not payload.asset_storage_path.startswith(("http://", "https://")):
+        from app.storage import get_storage_provider
+        from app.storage.local import LocalStorageProvider
+
+        storage = get_storage_provider()
+        if isinstance(storage, LocalStorageProvider):
+            try:
+                storage.resolve_path(payload.asset_storage_path)
+            except ValueError as exc:
+                logger.warning(
+                    "publishing_path_traversal_blocked",
+                    path=payload.asset_storage_path,
+                    error=str(exc),
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied: path traversal detected in asset path",
+                ) from exc
 
     agent = PublishingAgent(db=db)
     context = {
@@ -150,6 +223,7 @@ async def publish_asset(
 async def get_post_status(
     post_id: str,
     db: AsyncSession = Depends(get_db),
+    principal: AuthenticatedPrincipal = Depends(get_current_principal),
 ):
     """Retrieve and synchronize the status of an existing Postiz post."""
     secrets = get_secrets_manager()
