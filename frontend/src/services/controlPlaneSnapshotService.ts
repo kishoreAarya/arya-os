@@ -1741,14 +1741,6 @@ export class ControlPlaneSnapshotService {
           currentRegistryVersion !== null &&
           policyVersion < currentRegistryVersion;
 
-        const expiresAtNum =
-          typeof appr.expiresAt === 'number'
-            ? appr.expiresAt
-            : typeof appr.expiresAt === 'string' && appr.expiresAt !== 'UNKNOWN'
-              ? Date.parse(appr.expiresAt)
-              : NaN;
-        const isExpiredByTime = !isNaN(expiresAtNum) && expiresAtNum > 0 && expiresAtNum <= Date.now();
-
         if (isForged || isStaleVersion) {
           approvalState = 'INVALID';
         } else if (appr.status === 'EXPIRED') {
@@ -1759,8 +1751,6 @@ export class ControlPlaneSnapshotService {
           approvalState = isNonHuman ? 'INVALID' : 'APPROVED';
         } else if (appr.status === 'REJECTED') {
           approvalState = 'REJECTED';
-        } else if (isExpiredByTime) {
-          approvalState = 'EXPIRED';
         } else {
           approvalState = 'UNKNOWN';
         }

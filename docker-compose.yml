@@ -41,8 +41,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-arya}:${POSTGRES_PASSWORD:-change_me}@postgres:5432/${POSTGRES_DB:-arya_os}
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,7 +69,7 @@ services:
       DB_POSTGRESDB_USER: ${POSTGRES_USER:-arya}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
     ports:
-      - "${N8N_HOST_PORT:-5678}:5678"
+      - "127.0.0.1:${N8N_HOST_PORT:-5678}:5678"
     depends_on:
       postgres:
         condition: service_healthy

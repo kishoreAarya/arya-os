@@ -25,7 +25,7 @@ export const clearStoredApiKey = (): void => {
   sessionStorage.removeItem(STORAGE_KEY_AUTH);
 };
 
-const getAuthHeaders = (): HeadersInit => {
+export const getAuthHeaders = (): Record<string, string> => {
   const key = getStoredApiKey();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

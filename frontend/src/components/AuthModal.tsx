@@ -12,6 +12,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onKeyUpda
   const [apiKey, setApiKey] = useState(getStoredApiKey());
   const [savedMessage, setSavedMessage] = useState(false);
 
+  // Synchronize input state whenever modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setApiKey(getStoredApiKey());
+      setSavedMessage(false);
+    }
+  }, [isOpen]);
+
   // Close on Escape key press
   useEffect(() => {
     if (!isOpen) return;

@@ -5,6 +5,7 @@
 
 import { AryaJobPackage } from '../types/spatialIntent';
 import { Project, Shot, Sequence, ShotLifecycleStatus } from '../types/productionTimeline';
+import { getAuthHeaders, getStoredApiKey } from './creatorApi';
 
 export interface RemoteProject {
   id: string;
@@ -83,9 +84,14 @@ const API_BASE = '/api/v1';
  */
 export async function checkProductionApiHealth(): Promise<boolean> {
   try {
+    const key = getStoredApiKey();
+    const headers: Record<string, string> = { 'Accept': 'application/json' };
+    if (key) {
+      headers['Authorization'] = `Bearer ${key}`;
+    }
     const res = await fetch(`${API_BASE}/projects`, {
       method: 'GET',
-      headers: { 'Accept': 'application/json' },
+      headers,
     });
     return res.ok;
   } catch {
@@ -97,7 +103,10 @@ export async function checkProductionApiHealth(): Promise<boolean> {
  * List all persistent projects from PostgreSQL.
  */
 export async function listProjects(): Promise<RemoteProject[]> {
-  const res = await fetch(`${API_BASE}/projects`);
+  const key = getStoredApiKey();
+  const res = key
+    ? await fetch(`${API_BASE}/projects`, { headers: { Authorization: `Bearer ${key}` } })
+    : await fetch(`${API_BASE}/projects`);
   if (!res.ok) throw new Error(`Failed to list projects: ${res.statusText}`);
   return res.json();
 }
@@ -106,7 +115,10 @@ export async function listProjects(): Promise<RemoteProject[]> {
  * Fetch full project tree (project + sequences + shots).
  */
 export async function getProjectTree(projectId: string): Promise<RemoteProjectTree> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/tree`);
+  const key = getStoredApiKey();
+  const res = key
+    ? await fetch(`${API_BASE}/projects/${projectId}/tree`, { headers: { Authorization: `Bearer ${key}` } })
+    : await fetch(`${API_BASE}/projects/${projectId}/tree`);
   if (!res.ok) throw new Error(`Failed to get project tree: ${res.statusText}`);
   return res.json();
 }
@@ -117,7 +129,7 @@ export async function getProjectTree(projectId: string): Promise<RemoteProjectTr
 export async function createRemoteProject(name: string, description?: string): Promise<RemoteProject> {
   const res = await fetch(`${API_BASE}/projects`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ name, description }),
   });
   if (!res.ok) throw new Error(`Failed to create project: ${res.statusText}`);
@@ -133,7 +145,7 @@ export async function updateRemoteProject(
 ): Promise<RemoteProject> {
   const res = await fetch(`${API_BASE}/projects/${projectId}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(patch),
   });
   if (!res.ok) throw new Error(`Failed to update project: ${res.statusText}`);
@@ -144,9 +156,12 @@ export async function updateRemoteProject(
  * Delete a project and cascade all sequences, shots, and jobs.
  */
 export async function deleteRemoteProject(projectId: string): Promise<boolean> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}`, {
-    method: 'DELETE',
-  });
+  const key = getStoredApiKey();
+  const init: RequestInit = { method: 'DELETE' };
+  if (key) {
+    init.headers = { Authorization: `Bearer ${key}` };
+  }
+  const res = await fetch(`${API_BASE}/projects/${projectId}`, init);
   return res.status === 204;
 }
 
@@ -160,7 +175,7 @@ export async function createRemoteSequence(
 ): Promise<RemoteSequence> {
   const res = await fetch(`${API_BASE}/projects/${projectId}/sequences`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify({ name, order_index: orderIndex }),
   });
   if (!res.ok) throw new Error(`Failed to create sequence: ${res.statusText}`);
@@ -171,7 +186,10 @@ export async function createRemoteSequence(
  * Fetch all shots in a project.
  */
 export async function fetchRemoteShots(projectId: string): Promise<RemoteShot[]> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/shots`);
+  const key = getStoredApiKey();
+  const res = key
+    ? await fetch(`${API_BASE}/projects/${projectId}/shots`, { headers: { Authorization: `Bearer ${key}` } })
+    : await fetch(`${API_BASE}/projects/${projectId}/shots`);
   if (!res.ok) throw new Error(`Failed to fetch shots: ${res.statusText}`);
   return res.json();
 }
@@ -185,7 +203,7 @@ export async function createRemoteShot(
 ): Promise<RemoteShot> {
   const res = await fetch(`${API_BASE}/projects/${projectId}/shots`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(shotData),
   });
   if (!res.ok) {
@@ -204,7 +222,7 @@ export async function updateRemoteShot(
 ): Promise<RemoteShot> {
   const res = await fetch(`${API_BASE}/shots/${shotId}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(patch),
   });
   if (!res.ok) {
@@ -228,7 +246,7 @@ export async function submitRemoteJobPackage(
     : `${API_BASE}/projects/${projectId}/jobs`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(jobPackage),
   });
   if (!res.ok) {
@@ -245,7 +263,7 @@ export async function dispatchRemoteJob(jobId: string, sync: boolean = false): P
   const url = sync ? `${API_BASE}/jobs/${jobId}/dispatch?sync=true` : `${API_BASE}/jobs/${jobId}/dispatch`;
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -269,7 +287,7 @@ export async function updateRemoteJobStatus(
 ): Promise<RemoteJob> {
   const res = await fetch(`${API_BASE}/jobs/${jobId}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeaders(),
     body: JSON.stringify(patch),
   });
   if (!res.ok) {
@@ -283,7 +301,10 @@ export async function updateRemoteJobStatus(
  * Fetch a persistent job by ID.
  */
 export async function getRemoteJob(jobId: string): Promise<RemoteJob> {
-  const res = await fetch(`${API_BASE}/jobs/${jobId}`);
+  const key = getStoredApiKey();
+  const res = key
+    ? await fetch(`${API_BASE}/jobs/${jobId}`, { headers: { Authorization: `Bearer ${key}` } })
+    : await fetch(`${API_BASE}/jobs/${jobId}`);
   if (!res.ok) throw new Error(`Failed to get job: ${res.statusText}`);
   return res.json();
 }
@@ -292,7 +313,10 @@ export async function getRemoteJob(jobId: string): Promise<RemoteJob> {
  * List all jobs in a project.
  */
 export async function listRemoteJobs(projectId: string): Promise<RemoteJob[]> {
-  const res = await fetch(`${API_BASE}/projects/${projectId}/jobs`);
+  const key = getStoredApiKey();
+  const res = key
+    ? await fetch(`${API_BASE}/projects/${projectId}/jobs`, { headers: { Authorization: `Bearer ${key}` } })
+    : await fetch(`${API_BASE}/projects/${projectId}/jobs`);
   if (!res.ok) throw new Error(`Failed to list jobs: ${res.statusText}`);
   return res.json();
 }
@@ -312,35 +336,172 @@ export function subscribeToProjectTelemetry(
   }) => void,
   onError?: (err: any) => void
 ): () => void {
-  if (typeof window === 'undefined' || !window.EventSource) {
+  const apiKey = getStoredApiKey();
+
+  // Backward compatibility: If no API key is configured and EventSource is available (e.g., in unit tests), use EventSource
+  if (!apiKey && typeof EventSource !== 'undefined') {
+    const sse = new EventSource(`${API_BASE}/projects/${projectId}/events`);
+
+    sse.onmessage = (e) => {
+      try {
+        const parsed = JSON.parse(e.data);
+        const eventData = parsed.payload || parsed.data || parsed;
+        onEvent({
+          event_type: parsed.event_type || parsed.event,
+          data: eventData,
+          payload: eventData,
+          shot_id: parsed.shot_id,
+          job_id: parsed.job_id,
+          timestamp: parsed.timestamp || new Date().toISOString(),
+        });
+      } catch {
+        // Ignored heartbeat comments
+      }
+    };
+
+    sse.onerror = (err) => {
+      onError?.(err);
+    };
+
+    return () => {
+      sse.close();
+    };
+  }
+
+  if (typeof fetch === 'undefined') {
     return () => {};
   }
 
-  const sse = new EventSource(`${API_BASE}/projects/${projectId}/events`);
+  let isCancelled = false;
+  let abortController: AbortController | null = null;
+  let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  let retryCount = 0;
+  const MAX_RETRY_DELAY = 10000;
 
-  sse.onmessage = (e) => {
-    try {
-      const parsed = JSON.parse(e.data);
-      const eventData = parsed.payload || parsed.data || parsed;
-      onEvent({
-        event_type: parsed.event_type || parsed.event,
-        data: eventData,
-        payload: eventData,
-        shot_id: parsed.shot_id,
-        job_id: parsed.job_id,
-        timestamp: parsed.timestamp || new Date().toISOString(),
-      });
-    } catch {
-      // Ignored heartbeat comments
+  function parseSSEBlocks(raw: string, handleEvent: (dataStr: string, eventType?: string) => void): string {
+    const blocks = raw.split(/\r?\n\r?\n/);
+    const remainder = blocks.pop() || '';
+
+    for (const block of blocks) {
+      if (!block.trim()) continue;
+      const lines = block.split(/\r?\n/);
+      let eventType: string | undefined;
+      let dataStr = '';
+
+      for (const line of lines) {
+        if (line.startsWith(':')) {
+          continue; // SSE comment or heartbeat
+        }
+        if (line.startsWith('event:')) {
+          eventType = line.slice(6).trim();
+        } else if (line.startsWith('data:')) {
+          const val = line.slice(5).trim();
+          dataStr = dataStr ? `${dataStr}\n${val}` : val;
+        }
+      }
+
+      if (dataStr) {
+        handleEvent(dataStr, eventType);
+      }
     }
-  };
 
-  sse.onerror = (err) => {
-    onError?.(err);
-  };
+    return remainder;
+  }
+
+  function scheduleReconnect() {
+    if (isCancelled) return;
+    const delay = Math.min(1000 * Math.pow(2, retryCount), MAX_RETRY_DELAY);
+    retryCount++;
+    reconnectTimeout = setTimeout(() => {
+      connect();
+    }, delay);
+  }
+
+  async function connect() {
+    if (isCancelled) return;
+    abortController = new AbortController();
+
+    try {
+      const res = await fetch(`${API_BASE}/projects/${projectId}/events`, {
+        method: 'GET',
+        headers: {
+          ...getAuthHeaders(),
+          'Accept': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+        },
+        signal: abortController.signal,
+      });
+
+      if (res.status === 401) {
+        onError?.(new Error('Authentication failed (401 Unauthorized)'));
+        return; // Fail-closed on 401; do not retry indefinitely without user re-authentication
+      }
+
+      if (!res.ok) {
+        onError?.(new Error(`Stream error: ${res.status} ${res.statusText}`));
+        scheduleReconnect();
+        return;
+      }
+
+      if (!res.body) {
+        scheduleReconnect();
+        return;
+      }
+
+      retryCount = 0;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (!isCancelled) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        buffer = parseSSEBlocks(buffer, (dataStr, eventType) => {
+          try {
+            const parsed = JSON.parse(dataStr);
+            const eventData = parsed.payload || parsed.data || parsed;
+            onEvent({
+              event_type: parsed.event_type || parsed.event || eventType || 'message',
+              data: eventData,
+              payload: eventData,
+              shot_id: parsed.shot_id,
+              job_id: parsed.job_id,
+              timestamp: parsed.timestamp || new Date().toISOString(),
+            });
+          } catch {
+            // Ignore malformed JSON chunks
+          }
+        });
+      }
+
+      if (!isCancelled) {
+        scheduleReconnect();
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError' || isCancelled) {
+        return;
+      }
+      onError?.(err);
+      if (!isCancelled) {
+        scheduleReconnect();
+      }
+    }
+  }
+
+  connect();
 
   return () => {
-    sse.close();
+    isCancelled = true;
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
+    if (abortController) {
+      abortController.abort();
+      abortController = null;
+    }
   };
 }
 

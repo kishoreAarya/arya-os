@@ -23,6 +23,7 @@ import {
 import { ProductionDecisionCard } from './components/orchestration/ProductionDecisionCard';
 import { AppView } from './types/dashboard';
 import { Header } from './components/Header';
+import { Lock, AlertCircle } from 'lucide-react';
 import { AuthModal } from './components/AuthModal';
 import { AtmosphericBackground } from './components/visual/AtmosphericBackground';
 import { MotionViewWrapper } from './components/motion/MotionSystem';
@@ -125,7 +126,16 @@ export const App: React.FC<AppProps> = ({ initialView }) => {
   const [manifest, setManifest] = useState<CapabilitiesManifest | null>(null);
   const [isLoadingManifest, setIsLoadingManifest] = useState(true);
   const [hasApiKey, setHasApiKey] = useState(Boolean(getStoredApiKey()));
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(() => {
+    const isTest =
+      (globalThis as any).process?.env?.NODE_ENV === 'test' ||
+      (typeof import.meta !== 'undefined' && (import.meta as any).env?.MODE === 'test');
+    if (isTest) {
+      return false;
+    }
+    return !Boolean(getStoredApiKey());
+  });
   const [activeView, setActiveView] = useState<AppView>(() => {
     if (initialView) return initialView;
     if (typeof window !== 'undefined' && window.location?.search) {
@@ -203,6 +213,71 @@ export const App: React.FC<AppProps> = ({ initialView }) => {
     pollErrorCountRef.current = 0;
   };
 
+  // Phase 8: Initialize Persistent Project from PostgreSQL API with graceful offline fallback
+  const initPersistentProject = async () => {
+    try {
+      const isHealthy = await checkProductionApiHealth();
+      if (!isHealthy) {
+        throw new Error('Persistent API unavailable');
+      }
+      if (!isMountedRef.current) return;
+      setPersistenceSyncStatus('ONLINE');
+      const projects = await listProjects();
+      if (projects.length > 0) {
+        const tree = await getProjectTree(projects[0].id);
+        const mappedProject = projectFromRemoteTree(tree);
+        if (isMountedRef.current) {
+          setProject(mappedProject);
+          setProjectStatus('SAVED');
+          setRecoveryState('SAVED');
+        }
+      } else {
+        // Initialize remote project from default
+        const defaultProj = createDefaultProject(null);
+        const created = await createRemoteProject(defaultProj.title, defaultProj.description);
+        const seq = defaultProj.sequences[0];
+        if (seq) {
+          for (const shot of seq.shots) {
+            await createRemoteShot(created.id, {
+              sequence_id: created.sequences?.[0]?.id || created.id,
+              shot_number: shot.order,
+              title: shot.title,
+              prompt: shot.prompt,
+              model: shot.selectedModel,
+              provider: shot.selectedProvider || 'together',
+              aspect_ratio: shot.aspectRatio,
+              duration: shot.duration,
+            }).catch(() => {});
+          }
+        }
+        const tree = await getProjectTree(created.id);
+        const mappedProject = projectFromRemoteTree(tree);
+        if (isMountedRef.current) {
+          setProject(mappedProject);
+          setProjectStatus('SAVED');
+          setRecoveryState('SAVED');
+        }
+      }
+    } catch (err: any) {
+      console.warn('Persistent API fallback to local cache:', err);
+      if (err.message?.includes('Unauthorized') && getStoredApiKey()) {
+        setAuthError('Authentication Error (401 Unauthorized): The configured ARYA_API_KEY was rejected by the backend.');
+      }
+      if (isMountedRef.current) {
+        setPersistenceSyncStatus('OFFLINE');
+        if (hasPersistedProject()) {
+          const envelope = getPersistedProjectEnvelope();
+          if (envelope) {
+            setPersistedEnvelope(envelope);
+            const interrupted = checkForInterruptedShots(envelope.project);
+            setRecoveryState(interrupted.hasInterrupted ? 'RECOVERY_REQUIRED' : 'RECOVERABLE');
+            setProjectStatus('SAVED');
+          }
+        }
+      }
+    }
+  };
+
   // 1. Initial Load: Health, Capabilities, Persistent History, Workspace Recovery, and Remote Project DB
   useEffect(() => {
     isMountedRef.current = true;
@@ -211,69 +286,6 @@ export const App: React.FC<AppProps> = ({ initialView }) => {
     loadCapabilities();
     loadHistory();
     checkAndRecoverWorkspace();
-
-    // Phase 8: Initialize Persistent Project from PostgreSQL API with graceful offline fallback
-    const initPersistentProject = async () => {
-      try {
-        const isHealthy = await checkProductionApiHealth();
-        if (!isHealthy) {
-          throw new Error('Persistent API unavailable');
-        }
-        if (!isMountedRef.current) return;
-        setPersistenceSyncStatus('ONLINE');
-        const projects = await listProjects();
-        if (projects.length > 0) {
-          const tree = await getProjectTree(projects[0].id);
-          const mappedProject = projectFromRemoteTree(tree);
-          if (isMountedRef.current) {
-            setProject(mappedProject);
-            setProjectStatus('SAVED');
-            setRecoveryState('SAVED');
-          }
-        } else {
-          // Initialize remote project from default
-          const defaultProj = createDefaultProject(null);
-          const created = await createRemoteProject(defaultProj.title, defaultProj.description);
-          const seq = defaultProj.sequences[0];
-          if (seq) {
-            for (const shot of seq.shots) {
-              await createRemoteShot(created.id, {
-                sequence_id: created.sequences?.[0]?.id || created.id,
-                shot_number: shot.order,
-                title: shot.title,
-                prompt: shot.prompt,
-                model: shot.selectedModel,
-                provider: shot.selectedProvider || 'together',
-                aspect_ratio: shot.aspectRatio,
-                duration: shot.duration,
-              }).catch(() => {});
-            }
-          }
-          const tree = await getProjectTree(created.id);
-          const mappedProject = projectFromRemoteTree(tree);
-          if (isMountedRef.current) {
-            setProject(mappedProject);
-            setProjectStatus('SAVED');
-            setRecoveryState('SAVED');
-          }
-        }
-      } catch (err) {
-        console.warn('Persistent API fallback to local cache:', err);
-        if (isMountedRef.current) {
-          setPersistenceSyncStatus('OFFLINE');
-          if (hasPersistedProject()) {
-            const envelope = getPersistedProjectEnvelope();
-            if (envelope) {
-              setPersistedEnvelope(envelope);
-              const interrupted = checkForInterruptedShots(envelope.project);
-              setRecoveryState(interrupted.hasInterrupted ? 'RECOVERY_REQUIRED' : 'RECOVERABLE');
-              setProjectStatus('SAVED');
-            }
-          }
-        }
-      }
-    };
-
     initPersistentProject();
 
     const healthInterval = setInterval(loadHealth, 15000);
@@ -326,6 +338,7 @@ export const App: React.FC<AppProps> = ({ initialView }) => {
     try {
       const data = await fetchCapabilities();
       if (!isMountedRef.current) return;
+      setAuthError(null);
       setManifest(data);
       setSelectedModel((prev) => {
         if (!prev) {
@@ -341,6 +354,9 @@ export const App: React.FC<AppProps> = ({ initialView }) => {
       });
     } catch (err: any) {
       console.warn('Capabilities fetch notice:', err.message);
+      if (err.message?.includes('Authentication required') && getStoredApiKey()) {
+        setAuthError('Authentication Error (401 Unauthorized): The configured ARYA_API_KEY was rejected by the backend.');
+      }
     } finally {
       if (isMountedRef.current) {
         setIsLoadingManifest(false);
@@ -352,9 +368,13 @@ export const App: React.FC<AppProps> = ({ initialView }) => {
     try {
       const data = await fetchHistory();
       if (!isMountedRef.current) return;
+      setAuthError(null);
       setHistory(data);
     } catch (err: any) {
       console.warn('History fetch notice:', err.message);
+      if (err.message?.includes('Authentication required') && getStoredApiKey()) {
+        setAuthError('Authentication Error (401 Unauthorized): The configured ARYA_API_KEY was rejected by the backend.');
+      }
     } finally {
       if (isMountedRef.current) {
         setIsLoadingHistory(false);
@@ -787,7 +807,7 @@ export const App: React.FC<AppProps> = ({ initialView }) => {
 
   // Phase 8 & 9: Subscribe to real-time project telemetry SSE
   useEffect(() => {
-    if (!project?.id || persistenceSyncStatus !== 'ONLINE') return;
+    if (!hasApiKey || !project?.id || persistenceSyncStatus !== 'ONLINE') return;
     const unsubscribe = subscribeToProjectTelemetry(project.id, (event) => {
       const evtType = event.event_type;
       const data = event.data || event.payload || {};
@@ -906,9 +926,15 @@ export const App: React.FC<AppProps> = ({ initialView }) => {
           })),
         }));
       }
+    },
+    (err: any) => {
+      console.warn('Telemetry SSE notice:', err?.message || err);
+      if (err?.message?.includes('401') && getStoredApiKey()) {
+        setAuthError('Authentication Error (401 Unauthorized): Telemetry stream rejected by backend.');
+      }
     });
     return unsubscribe;
-  }, [project?.id, persistenceSyncStatus]);
+  }, [hasApiKey, project?.id, persistenceSyncStatus]);
 
   // When generation type changes, re-sync model selection
   const handleTypeChange = (type: GenerationType) => {
@@ -1380,6 +1406,81 @@ export const App: React.FC<AppProps> = ({ initialView }) => {
         onViewChange={setActiveView}
       />
 
+      {/* Clear authentication guidance when no API key is configured */}
+      {!hasApiKey && (
+        <div
+          role="alert"
+          style={{
+            backgroundColor: 'rgba(234, 179, 8, 0.12)',
+            borderBottom: '1px solid rgba(234, 179, 8, 0.3)',
+            padding: '0.625rem 1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            color: '#facc15',
+            fontSize: '0.8125rem',
+            zIndex: 30,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Lock size={15} />
+            <span>
+              <strong>Authentication Required:</strong> No ARYA_API_KEY is configured. Protected capabilities, generation, and history are locked.
+            </span>
+          </div>
+          <button
+            onClick={() => setIsAuthModalOpen(true)}
+            className="btn-secondary"
+            style={{
+              padding: '0.25rem 0.625rem',
+              fontSize: '0.75rem',
+              borderColor: 'rgba(234, 179, 8, 0.4)',
+              color: '#fef08a',
+            }}
+          >
+            Configure Key
+          </button>
+        </div>
+      )}
+
+      {/* Clear authentication error when request returns 401 with a configured key */}
+      {authError && hasApiKey && (
+        <div
+          role="alert"
+          style={{
+            backgroundColor: 'rgba(239, 68, 68, 0.12)',
+            borderBottom: '1px solid rgba(239, 68, 68, 0.3)',
+            padding: '0.625rem 1.25rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            color: '#f87171',
+            fontSize: '0.8125rem',
+            zIndex: 30,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <AlertCircle size={15} />
+            <span>{authError}</span>
+          </div>
+          <button
+            onClick={() => {
+              setAuthError(null);
+              setIsAuthModalOpen(true);
+            }}
+            className="btn-secondary"
+            style={{
+              padding: '0.25rem 0.625rem',
+              fontSize: '0.75rem',
+              borderColor: 'rgba(239, 68, 68, 0.4)',
+              color: '#fca5a5',
+            }}
+          >
+            Update API Key
+          </button>
+        </div>
+      )}
+
       <MotionViewWrapper viewKey={activeView} style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         {activeView === 'spatial' && (
           <main style={{ flex: 1, position: 'relative', width: '100%', minHeight: 'calc(100vh - 65px)', overflow: 'hidden' }}>
@@ -1673,7 +1774,16 @@ export const App: React.FC<AppProps> = ({ initialView }) => {
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
-        onKeyUpdated={() => setHasApiKey(Boolean(getStoredApiKey()))}
+        onKeyUpdated={() => {
+          const keyExists = Boolean(getStoredApiKey());
+          setHasApiKey(keyExists);
+          setAuthError(null);
+          if (keyExists) {
+            loadCapabilities();
+            loadHistory();
+            initPersistentProject();
+          }
+        }}
       />
     </div>
   );
